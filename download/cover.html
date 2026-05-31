@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  @page { size: 794px 1123px; margin: 0; }
+  html, body { margin: 0; padding: 0; width: 794px; height: 1123px; background: #ffffff; }
+
+  .cover {
+    position: relative;
+    width: 794px;
+    height: 1123px;
+    background: #ffffff;
+  }
+
+  /* Layer 0: Background fill */
+  .bg-fill {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: #ffffff;
+  }
+
+  /* Layer 1: Decorative geometric accents */
+  .accent-line-1 {
+    position: absolute;
+    top: 0; left: 0;
+    width: 8px;
+    height: 100%;
+    background: #197999;
+    opacity: 1;
+  }
+
+  .accent-line-2 {
+    position: absolute;
+    top: 0; left: 12px;
+    width: 2px;
+    height: 100%;
+    background: #197999;
+    opacity: 0.3;
+  }
+
+  .accent-block {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 280px;
+    height: 280px;
+    background: #197999;
+    opacity: 0.06;
+  }
+
+  .accent-circle {
+    position: absolute;
+    bottom: 60px; right: 100px;
+    width: 120px;
+    height: 120px;
+    border: 2px solid #197999;
+    border-radius: 50%;
+    opacity: 0.15;
+  }
+
+  .accent-dot {
+    position: absolute;
+    top: 200px; right: 80px;
+    width: 16px;
+    height: 16px;
+    background: #197999;
+    border-radius: 50%;
+    opacity: 0.2;
+  }
+
+  .accent-dot-2 {
+    position: absolute;
+    top: 260px; right: 140px;
+    width: 8px;
+    height: 8px;
+    background: #197999;
+    border-radius: 50%;
+    opacity: 0.15;
+  }
+
+  /* Layer 2: Structural lines */
+  .divider {
+    position: absolute;
+    top: 520px; left: 80px;
+    width: 80px; height: 3px;
+    background: #197999;
+  }
+
+  .divider-2 {
+    position: absolute;
+    top: 680px; left: 80px;
+    width: 400px; height: 1px;
+    background: #e0e3e8;
+  }
+
+  /* Layer 3: Text content */
+  .content {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    padding: 80px 80px 60px 80px;
+    box-sizing: border-box;
+  }
+
+  .kicker {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #197999;
+    opacity: 0.7;
+    margin-top: 160px;
+  }
+
+  .title {
+    font-family: 'Inter', sans-serif;
+    font-size: 48px;
+    font-weight: 800;
+    color: #1c1d1f;
+    line-height: 1.15;
+    margin-top: 20px;
+    max-width: 500px;
+  }
+
+  .subtitle {
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 400;
+    color: #6f747a;
+    line-height: 1.5;
+    margin-top: 30px;
+    max-width: 450px;
+  }
+
+  .meta-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #6f747a;
+    margin-top: 140px;
+  }
+
+  .meta-value {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 400;
+    color: #1c1d1f;
+    margin-top: 6px;
+  }
+
+  .meta-row {
+    display: flex;
+    gap: 60px;
+    margin-top: 8px;
+  }
+
+  .footer-text {
+    position: absolute;
+    bottom: 30px;
+    left: 80px;
+    right: 80px;
+    font-family: 'Inter', sans-serif;
+    font-size: 10px;
+    font-weight: 400;
+    color: #6f747a;
+    opacity: 0.5;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="bg-fill"></div>
+
+  <div class="accent-line-1"></div>
+  <div class="accent-line-2"></div>
+  <div class="accent-block"></div>
+  <div class="accent-circle"></div>
+  <div class="accent-dot"></div>
+  <div class="accent-dot-2"></div>
+
+  <div class="divider"></div>
+  <div class="divider-2"></div>
+
+  <div class="content">
+    <div class="kicker">Full-Stack Project Management Platform</div>
+    <div class="title">TeamForge<br>PM</div>
+    <div class="subtitle">
+      Comprehensive project documentation covering architecture, database design, API reference, 
+      AI integration, deployment guide, and coding conventions.
+    </div>
+
+    <div class="meta-label">Project Details</div>
+    <div class="meta-row">
+      <div>
+        <div class="meta-value">Next.js 16 + Turso SQLite</div>
+      </div>
+      <div>
+        <div class="meta-value">June 2026</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-text">TEAMFORGE PM PROJECT DOCUMENTATION</div>
+</div>
+</body>
+</html>
