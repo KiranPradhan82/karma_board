@@ -62,8 +62,10 @@ export function getTursoClient() {
   const tursoToken = process.env.TURSO_AUTH_TOKEN;
 
   if (tursoUrl && tursoToken) {
+    // Strip any embedded authToken from URL query string to avoid sending it twice
+    const cleanUrl = tursoUrl.split('?')[0];
     return createClient({
-      url: tursoUrl,
+      url: cleanUrl,
       authToken: tursoToken,
     });
   }

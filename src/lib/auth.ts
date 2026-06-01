@@ -17,7 +17,9 @@ async function findUserByEmail(email: string): Promise<{
   if (tursoUrl && tursoToken) {
     // Use Turso directly — more reliable than Prisma on serverless
     const { createClient } = await import("@libsql/client");
-    const client = createClient({ url: tursoUrl, authToken: tursoToken });
+    // Strip any embedded authToken from URL query string to avoid sending it twice
+    const cleanUrl = tursoUrl.split('?')[0];
+    const client = createClient({ url: cleanUrl, authToken: tursoToken });
     const result = await client.execute({
       sql: 'SELECT id, name, email, password, role, isActive, mustChangePassword FROM User WHERE email = ?',
       args: [email],
@@ -98,7 +100,9 @@ export const authOptions: NextAuthOptions = {
           };
         } catch (error) {
           console.error("[Auth] Error during authorization:", error);
-          return null;
+          // Re-throw infrastructure errors so next-auth returns a proper error
+          // instead of silently showing "CredentialsSignin" for DB failures
+          throw error;
         }
       },
     }),
