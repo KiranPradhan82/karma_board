@@ -1,7 +1,54 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/auth-utils";
+
+async function findUserByEmail(email: string): Promise<{
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+  isActive: boolean;
+} | null> {
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  const tursoToken = process.env.TURSO_AUTH_TOKEN;
+
+  if (tursoUrl && tursoToken) {
+    // Use Turso directly — more reliable than Prisma on serverless
+    const { createClient } = await import("@libsql/client");
+    const client = createClient({ url: tursoUrl, authToken: tursoToken });
+    const result = await client.execute({
+      sql: 'SELECT id, name, email, password, role, isActive FROM User WHERE email = ?',
+      args: [email],
+    });
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    return {
+      id: row.id as string,
+      name: row.name as string,
+      email: row.email as string,
+      password: row.password as string,
+      role: row.role as string,
+      isActive: Boolean(row.isActive),
+    };
+  }
+
+  // Fallback to Prisma for local dev
+  const { db } = await import("@/lib/db");
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    password: user.password,
+    role: user.role,
+    isActive: user.isActive,
+  };
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -20,53 +67,7 @@ export const authOptions: NextAuthOptions = {
 
           console.log("[Auth] Looking up user:", credentials.email);
 
-          let user;
-          try {
-            user = await db.user.findUnique({
-              where: { email: credentials.email },
-            });
-          } catch (dbError) {
-            console.error("[Auth] DB lookup failed:", dbError);
-            // Fallback to direct Turso query
-            try {
-              const { createClient } = await import("@libsql/client");
-              const tursoUrl = process.env.TURSO_DATABASE_URL;
-              const tursoToken = process.env.TURSO_AUTH_TOKEN;
-
-              if (tursoUrl && tursoToken) {
-                console.log("[Auth] Trying direct Turso fallback");
-                const client = createClient({ url: tursoUrl, authToken: tursoToken });
-                const result = await client.execute({
-                  sql: 'SELECT id, name, email, password, role, isActive FROM User WHERE email = ?',
-                  args: [credentials.email],
-                });
-
-                if (result.rows.length === 0) {
-                  console.log("[Auth] User not found in Turso either");
-                  return null;
-                }
-
-                const row = result.rows[0];
-                const isValid = await verifyPassword(credentials.password, row.password as string);
-
-                if (!isValid) {
-                  console.log("[Auth] Password invalid");
-                  return null;
-                }
-
-                console.log("[Auth] Login via Turso fallback for:", row.email);
-                return {
-                  id: row.id as string,
-                  name: row.name as string,
-                  email: row.email as string,
-                  role: row.role as string,
-                };
-              }
-            } catch (tursoError) {
-              console.error("[Auth] Turso fallback also failed:", tursoError);
-            }
-            return null;
-          }
+          const user = await findUserByEmail(credentials.email);
 
           if (!user) {
             console.log("[Auth] User not found:", credentials.email);

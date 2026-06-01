@@ -13,8 +13,21 @@ function createPrismaClient(): PrismaClient {
   // Use Turso adapter when credentials are available
   if (tursoUrl && tursoToken) {
     try {
+      // Sanitize: ensure URL starts with a supported scheme
+      const cleanUrl = tursoUrl.trim()
+      const supportedSchemes = ['libsql://', 'wss://', 'ws://', 'https://', 'http://', 'file://']
+      const hasValidScheme = supportedSchemes.some(s => cleanUrl.startsWith(s))
+
+      if (!hasValidScheme) {
+        console.error(`[db] Invalid Turso URL scheme (starts with "${cleanUrl.substring(0, 10)}"). Expected one of: libsql://, https://, file://. Falling back to local SQLite.`)
+        return new PrismaClient({ log: [] })
+      }
+
+      // Remove any authToken query param from URL (use separate TURSO_AUTH_TOKEN)
+      const urlWithoutToken = cleanUrl.split('?')[0]
+
       const libsql = createClient({
-        url: tursoUrl,
+        url: urlWithoutToken,
         authToken: tursoToken,
       })
 
