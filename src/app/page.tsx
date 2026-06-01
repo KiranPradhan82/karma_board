@@ -15,7 +15,7 @@ export default async function RootPage() {
       );
       needsSetup = result.rows.length === 0;
     } else {
-      const { db } = await import("@lib/db");
+      const { db } = await import("@/lib/db");
       const superadmin = await db.user.findFirst({
         where: { role: "SUPERADMIN" },
       });
