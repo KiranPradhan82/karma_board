@@ -14,7 +14,7 @@ export const createProjectSchema = z.object({
     .optional(),
   deadline: z
     .string()
-    .datetime({ message: "Must be a valid date" })
+    .refine((v) => !isNaN(Date.parse(v)), { message: "Must be a valid date" })
     .optional()
     .transform((v) => (v ? new Date(v).toISOString() : undefined)),
 });
@@ -34,7 +34,7 @@ export const updateProjectSchema = z.object({
     .optional(),
   deadline: z
     .string()
-    .datetime({ message: "Must be a valid date" })
+    .refine((v) => !isNaN(Date.parse(v)), { message: "Must be a valid date" })
     .nullable()
     .optional()
     .transform((v) => (v ? new Date(v).toISOString() : v === null ? null : undefined)),

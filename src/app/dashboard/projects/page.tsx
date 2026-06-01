@@ -116,8 +116,8 @@ export default function ProjectsPage() {
         sortOrder: "desc",
       });
       if (search) params.set("search", search);
-      if (statusFilter) params.set("status", statusFilter);
-      if (priorityFilter) params.set("priority", priorityFilter);
+      if (statusFilter && statusFilter !== "all") params.set("status", statusFilter);
+      if (priorityFilter && priorityFilter !== "all") params.set("priority", priorityFilter);
 
       const res = await fetch(`/api/projects?${params}`);
       const data = await res.json();
@@ -301,13 +301,13 @@ export default function ProjectsPage() {
             <FolderKanban className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold">No projects found</h3>
             <p className="text-sm text-muted-foreground mt-1 mb-4">
-              {search || statusFilter || priorityFilter
+              {search || (statusFilter && statusFilter !== "all") || (priorityFilter && priorityFilter !== "all")
                 ? "Try adjusting your search or filters"
                 : isAdmin
                   ? "Create your first project to get started"
                   : "No projects have been created yet"}
             </p>
-            {isAdmin && !search && !statusFilter && !priorityFilter && (
+            {isAdmin && !search && (!statusFilter || statusFilter === "all") && (!priorityFilter || priorityFilter === "all") && (
               <Button onClick={() => setCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Create Project

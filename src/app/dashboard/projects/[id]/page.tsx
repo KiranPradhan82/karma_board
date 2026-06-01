@@ -322,10 +322,19 @@ export default function ProjectDetailPage() {
       }
     }
     // Only ADMIN+ global role can be LEAD in a project
-    const targetMember = availableMembers.find((m) => m.id === member.userId);
-    if (newRole === "LEAD" && targetMember && targetMember.role === "MEMBER") {
-      toast.error("Only admins can be assigned as Team Lead");
-      return;
+    // Fetch the user's global role from the server (availableMembers may not be loaded)
+    try {
+      const memberRes = await fetch(`/api/members/${member.userId}`);
+      const memberData = await memberRes.json();
+      if (memberData.success && newRole === "LEAD") {
+        const globalRole = memberData.data.role;
+        if (globalRole !== "ADMIN" && globalRole !== "SUPERADMIN") {
+          toast.error("Only admins can be assigned as Team Lead");
+          return;
+        }
+      }
+    } catch {
+      // If fetch fails, let the backend handle the validation
     }
 
     try {
@@ -541,7 +550,7 @@ export default function ProjectDetailPage() {
                     <p className="text-xs text-muted-foreground">{lead.user.email}</p>
                   </div>
                 </div>
-                {isAdmin && isSuperAdmin && (
+                {isSuperAdmin && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-8 w-8">
