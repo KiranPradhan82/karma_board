@@ -41,6 +41,28 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const { role } = result.data;
 
+    // Enforce: Only ADMIN/SUPERADMIN global role can be LEAD
+    if (role === 'LEAD') {
+      const targetUser = await client.execute({
+        sql: 'SELECT role FROM "User" WHERE id = ? AND "deletedAt" IS NULL',
+        args: [userId],
+      });
+      if (targetUser.rows.length === 0) {
+        return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });
+      }
+      if (targetUser.rows[0].role !== 'ADMIN' && targetUser.rows[0].role !== 'SUPERADMIN') {
+        return NextResponse.json({ success: false, error: 'Only admins can be assigned as Team Lead' }, { status: 400 });
+      }
+      // Enforce: Only one LEAD per project
+      const existingLead = await client.execute({
+        sql: 'SELECT id, "userId" FROM "ProjectMember" WHERE "projectId" = ? AND role = ? AND "removedAt" IS NULL',
+        args: [id, 'LEAD'],
+      });
+      if (existingLead.rows.length > 0 && existingLead.rows[0].userId !== userId) {
+        return NextResponse.json({ success: false, error: 'This project already has a team lead. Remove the current lead first.' }, { status: 409 });
+      }
+    }
+
     // Check membership exists
     const membership = await client.execute({
       sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL',

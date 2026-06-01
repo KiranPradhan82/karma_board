@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS "Project" (
   "name" TEXT NOT NULL,
   "description" TEXT,
   "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
+  "clientName" TEXT,
+  "color" TEXT,
+  "deadline" DATETIME,
   "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" DATETIME NOT NULL
 );
@@ -105,6 +109,10 @@ ALTER TABLE "ProjectMember" ADD COLUMN "removedAt" DATETIME;
 ALTER TABLE "ActivityLog" ADD COLUMN "entity" TEXT;
 ALTER TABLE "ActivityLog" ADD COLUMN "entityId" TEXT;
 ALTER TABLE "ActivityLog" ADD COLUMN "ipAddress" TEXT;
+ALTER TABLE "Project" ADD COLUMN "priority" TEXT NOT NULL DEFAULT 'MEDIUM';
+ALTER TABLE "Project" ADD COLUMN "clientName" TEXT;
+ALTER TABLE "Project" ADD COLUMN "color" TEXT;
+ALTER TABLE "Project" ADD COLUMN "deadline" DATETIME;
 `;
 
 async function syncSchema() {

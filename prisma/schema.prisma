@@ -57,6 +57,10 @@ model Project {
   name        String
   description String?
   status      ProjectStatus @default(ACTIVE)
+  priority    String        @default("MEDIUM")
+  clientName  String?
+  color       String?
+  deadline    DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
