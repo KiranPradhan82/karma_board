@@ -68,7 +68,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold tracking-tight">
-            TeamForge PM
+            KarmaBoard
           </CardTitle>
           <CardDescription>
             Sign in to your account to continue

@@ -1,4 +1,4 @@
-# TeamForge PM — Deployment Guide
+# KarmaBoard — Deployment Guide
 
 ## 1. Prerequisites
 
@@ -16,8 +16,8 @@ Before deploying, ensure you have:
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/your-username/teamforge-pm.git
-cd teamforge-pm
+git clone https://github.com/your-username/karmaboard.git
+cd karmaboard
 ```
 
 ### Step 2: Install Dependencies
@@ -66,20 +66,20 @@ curl -sSfL https://get.tur.so/install.sh | bash
 turso auth login
 
 # Create a new database
-turso db create teamforge-pm
+turso db create karmaboard
 
 # Get the database URL
-turso db show teamforge-pm --url
-# Output: libsql://teamforge-pm-your-org.turso.io
+turso db show karmaboard --url
+# Output: libsql://karmaboard-your-org.turso.io
 
 # Create an auth token
-turso db tokens create teamforge-pm
+turso db tokens create karmaboard
 ```
 
 ### Update .env for Turso
 ```env
-DATABASE_URL="libsql://teamforge-pm-your-org.turso.io"
-TURSO_DATABASE_URL="libsql://teamforge-pm-your-org.turso.io"
+DATABASE_URL="libsql://karmaboard-your-org.turso.io"
+TURSO_DATABASE_URL="libsql://karmaboard-your-org.turso.io"
 TURSO_AUTH_TOKEN="your-token-here"
 ```
 
@@ -136,10 +136,10 @@ curl -X POST 'https://api.resend.com/emails' \
   -H 'Authorization: Bearer YOUR_API_KEY' \
   -H 'Content-Type: application/json' \
   -d '{
-    "from": "TeamForge <noreply@yourdomain.com>",
+    "from": "KarmaBoard <noreply@yourdomain.com>",
     "to": ["test@example.com"],
     "subject": "Test Email",
-    "html": "<p>Email from TeamForge PM</p>"
+    "html": "<p>Email from KarmaBoard</p>"
   }'
 ```
 
@@ -201,6 +201,6 @@ Before going live, verify:
 
 ### Regular Maintenance Tasks
 - Update dependencies monthly: `npm audit && npm update`
-- Backup Turso database: `turso db dump teamforge-pm > backup.sql`
+- Backup Turso database: `turso db dump karmaboard > backup.sql`
 - Review activity logs weekly
 - Monitor time tracking accuracy

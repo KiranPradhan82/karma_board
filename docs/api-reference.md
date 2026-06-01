@@ -1,4 +1,4 @@
-# TeamForge PM — API Reference
+# KarmaBoard — API Reference
 
 ## Base URL
 - Development: `http://localhost:3000/api`

@@ -6,7 +6,7 @@
 
 ## 1. PROJECT OVERVIEW
 
-### Project Name: TeamForge PM
+### Project Name: KarmaBoard
 ### Type: Full-stack Project Management Web Application
 ### Description: A project management platform for managing teams, projects, time tracking, and AI-assisted development. The superadmin can manage the entire organization, assign roles, track work hours, and leverage GLM AI for project development.
 
@@ -44,7 +44,7 @@
 ## 3. PROJECT STRUCTURE
 
 ```
-teamforge-pm/
+karmaboard/
 ├── AGENT.md                    ← THIS FILE (read first every session)
 ├── .env                        ← Environment variables (never commit)
 ├── .env.example                ← Template for env vars

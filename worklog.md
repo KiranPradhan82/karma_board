@@ -13,7 +13,7 @@ Work Log:
 Stage Summary:
 - Middleware fixed and working with Next.js 16
 - App serves login page at /, redirects authenticated users to /dashboard
-- Superadmin credentials: admin@teamforge.com / Admin@123
+- Superadmin credentials: admin@karmaboard.com / Admin@123
 - Phase 1 complete: foundation ready for feature development
 
 ---
@@ -27,7 +27,7 @@ Work Log:
 - Created scripts/sync-turso.ts to push Prisma schema SQL directly to Turso via libsql client
 - Successfully synced 7 tables (User, Project, ProjectMember, TimeLog, ActivityLog, Invitation, AiChat) to Turso
 - Updated prisma/seed.ts to use libsql client directly (avoids Prisma adapter issues with Bun)
-- Seeded superadmin to Turso: admin@teamforge.com / Admin@123 (id: 62f06505-e2b0-426b-bd9a-0e1b5570061c)
+- Seeded superadmin to Turso: admin@karmaboard.com / Admin@123 (id: 62f06505-e2b0-426b-bd9a-0e1b5570061c)
 - Implemented lazy PrismaClient via Proxy pattern to avoid Turso connection during Next.js static generation
 - Removed .env from git history using git filter-branch (GitHub push protection was blocking secrets)
 - Copied AGENT.md and docs/ to project root

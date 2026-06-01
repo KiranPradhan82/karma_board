@@ -1,8 +1,8 @@
-# TeamForge PM — Architecture Documentation
+# KarmaBoard — Architecture Documentation
 
 ## 1. System Architecture Overview
 
-TeamForge PM is a full-stack web application built with Next.js following the App Router architecture pattern. It uses a monolithic design with clear separation between server and client code, leveraging Next.js server components and API routes for all backend operations.
+KarmaBoard is a full-stack web application built with Next.js following the App Router architecture pattern. It uses a monolithic design with clear separation between server and client code, leveraging Next.js server components and API routes for all backend operations.
 
 ### Architecture Diagram
 

@@ -1,4 +1,4 @@
-# TeamForge PM — Database Schema Reference
+# KarmaBoard — Database Schema Reference
 
 ## Entity Relationship Diagram
 

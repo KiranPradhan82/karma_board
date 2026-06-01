@@ -64,7 +64,7 @@ function Sidebar({
               <Hammer className="h-4 w-4" />
             </div>
             <span className="font-semibold text-lg tracking-tight">
-              TeamForge PM
+              KarmaBoard
             </span>
           </Link>
         )}
@@ -220,7 +220,7 @@ function MobileSidebarOverlay({ collapsed, onToggle }: { collapsed: boolean; onT
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Hammer className="h-4 w-4" />
             </div>
-            <span className="font-semibold text-lg">TeamForge PM</span>
+            <span className="font-semibold text-lg">KarmaBoard</span>
           </Link>
           <Button variant="ghost" size="icon" onClick={onToggle}>
             <ChevronLeft className="h-4 w-4" />

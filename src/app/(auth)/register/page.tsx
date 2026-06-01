@@ -78,7 +78,7 @@ export default function RegisterPage() {
             Create Account
           </CardTitle>
           <CardDescription>
-            Join TeamForge PM to start managing your projects
+            Join KarmaBoard to start managing your projects
           </CardDescription>
         </CardHeader>
         <CardContent>

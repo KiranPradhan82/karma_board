@@ -1,8 +1,8 @@
-# TeamForge PM — Contributing Guide
+# KarmaBoard — Contributing Guide
 
 ## For AI Agents and Developers
 
-This guide outlines how to contribute to TeamForge PM. Whether you are an AI agent (like GLM, Claude, or Super Z) or a human developer, follow these rules.
+This guide outlines how to contribute to KarmaBoard. Whether you are an AI agent (like GLM, Claude, or Super Z) or a human developer, follow these rules.
 
 ## 1. Before You Start
 

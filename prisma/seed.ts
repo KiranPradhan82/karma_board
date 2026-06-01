@@ -21,7 +21,7 @@ async function seed() {
     // Check if superadmin already exists
     const existing = await client.execute({
       sql: "SELECT id FROM User WHERE email = ?",
-      args: ["admin@teamforge.com"],
+      args: ["admin@karmaboard.com"],
     });
 
     if (existing.rows.length > 0) {
@@ -36,16 +36,16 @@ async function seed() {
 
     await client.execute({
       sql: `INSERT INTO "User" (id, name, email, password, role, "isActive", "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [id, "Super Admin", "admin@teamforge.com", hashedPassword, "SUPERADMIN", 1, now, now],
+      args: [id, "Super Admin", "admin@karmaboard.com", hashedPassword, "SUPERADMIN", 1, now, now],
     });
 
     console.log("Superadmin created successfully!");
-    console.log("Login: admin@teamforge.com / Admin@123");
+    console.log("Login: admin@karmaboard.com / Admin@123");
 
     // Verify
     const verify = await client.execute({
       sql: "SELECT id, name, email, role FROM User WHERE email = ?",
-      args: ["admin@teamforge.com"],
+      args: ["admin@karmaboard.com"],
     });
     console.log("Verified:", verify.rows[0]);
   } catch (error) {

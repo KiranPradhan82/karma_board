@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TeamForge PM - Project Management",
+  title: "KarmaBoard - Project Management",
   description:
     "Modern project management platform for teams. Track time, manage projects, and collaborate effectively.",
   icons: {

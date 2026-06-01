@@ -7,7 +7,7 @@ Work Log:
 - Created .env with Turso credentials and local SQLite fallback for schema management
 - Updated Prisma schema with 7 models (User, Project, ProjectMember, TimeLog, ActivityLog, Invitation, AiChat) and 3 enums (Role, ProjectRole, ProjectStatus)
 - Ran db:push to sync schema with local SQLite database
-- Created seed script (superadmin: admin@teamforge.com / Admin@123)
+- Created seed script (superadmin: admin@karmaboard.com / Admin@123)
 - Built NextAuth v4 credentials provider config with JWT strategy
 - Created auth route handler, auth utils (hash/verify password)
 - Created middleware for route protection (dashboard + API routes)
@@ -25,7 +25,7 @@ Work Log:
 Stage Summary:
 - Database: 7 tables synced to SQLite (User, Project, ProjectMember, TimeLog, ActivityLog, Invitation, AiChat)
 - Auth: Email/password login working via NextAuth v4 with JWT sessions
-- Superadmin seeded: admin@teamforge.com / Admin@123
+- Superadmin seeded: admin@karmaboard.com / Admin@123
 - UI: Dashboard layout with collapsible sidebar, login/register pages, stats cards
 - Route protection: Middleware guards /dashboard/* and /api/* routes
 - Note: Turso libsql URLs not supported by Prisma 6 SQLite provider for schema management; using local SQLite file for development. Turso connection URL preserved in .env for future driver adapter integration.
