@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
-import ZAI from "z-ai-web-dev-sdk";
+import { chatCompletion, visionCompletion } from "@/lib/ai-client";
 
 interface RouteContext {
   params: Promise<{}>;
@@ -95,7 +95,6 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
 
     const client = getTursoClient();
-
     const offset = (page - 1) * limit;
 
     let messagesResult;
@@ -242,101 +241,90 @@ export async function POST(request: NextRequest) {
       command,
     });
 
-    // Build messages array for AI
-    const aiMessages: { role: string; content: string | unknown[] }[] = [
-      { role: "system", content: systemPrompt },
-    ];
-
-    for (const msg of chatHistory) {
-      aiMessages.push({ role: msg.role, content: msg.content });
-    }
+    // Call AI
+    let aiText: string;
+    let aiError = false;
 
     try {
-      // Initialize ZAI SDK
-      const zai = await ZAI.create();
-
-      let aiResponse: unknown;
-
-      // If image file attached, use vision API
       if (fileData && fileType && fileType.startsWith("image/")) {
-        aiResponse = await zai.chat.completions.createVision({
-          model: "glm-4v-flash",
+        // Vision API for image attachments
+        const result = await visionCompletion({
+          model: process.env.AI_VISION_MODEL || undefined,
           messages: [
             { role: "system", content: systemPrompt },
             {
               role: "user",
               content: [
                 { type: "text", text: content },
-                {
-                  type: "image_url",
-                  image_url: { url: `data:${fileType};base64,${fileData}` },
-                },
+                { type: "image_url", image_url: { url: `data:${fileType};base64,${fileData}` } },
               ],
             },
           ],
         });
+
+        if (!result.success) {
+          aiText = `I encountered an issue analyzing the image: ${result.error}`;
+          aiError = true;
+        } else {
+          aiText = result.content;
+        }
       } else {
-        aiResponse = await zai.chat.completions.create({
-          model: "glm-4-flash",
-          messages: aiMessages as { role: string; content: string }[],
+        // Standard text chat
+        const aiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+          { role: "system", content: systemPrompt },
+        ];
+
+        for (const msg of chatHistory) {
+          aiMessages.push({
+            role: msg.role as "user" | "assistant",
+            content: msg.content,
+          });
+        }
+
+        const result = await chatCompletion({
+          messages: aiMessages,
         });
+
+        if (!result.success) {
+          aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
+          aiError = true;
+        } else {
+          aiText = result.content;
+        }
       }
-
-      // Extract AI response text
-      const responseObj = aiResponse as { choices?: { message?: { content?: string } }[] };
-      const aiText =
-        responseObj?.choices?.[0]?.message?.content ||
-        "I apologize, but I was unable to generate a response. Please try again.";
-
-      // Save AI response
-      const aiMsgId = crypto.randomUUID();
-      await client.execute({
-        sql: `INSERT INTO "AiChat" (id, "userId", "projectId", "role", "content", "timestamp")
-              VALUES (?, ?, ?, 'assistant', ?, datetime('now'))`,
-        args: [aiMsgId, user.id, projectId, aiText],
-      });
-
-      // Log activity
-      await logActivity({
-        userId: user.id,
-        action: "AI_CHAT_MESSAGE",
-        details: `Sent AI chat message in project${project?.name ? ` "${project.name}"` : ""}${command ? ` (command: ${command})` : ""}`,
-        entity: "ai_chat",
-        entityId: projectId,
-        ipAddress: ip,
-        tursoClient: client,
-      });
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          userMessage: { id: userMsgId, role: "user", content, projectId },
-          aiMessage: { id: aiMsgId, role: "assistant", content: aiText, projectId },
-        },
-      });
-    } catch (aiError) {
-      console.error("[POST /api/ai/chat] AI SDK Error:", aiError);
-
-      const errorMsg =
-        "I encountered an issue connecting to the AI service. Please try again in a moment.";
-
-      // Save error as AI response
-      const aiMsgId = crypto.randomUUID();
-      await client.execute({
-        sql: `INSERT INTO "AiChat" (id, "userId", "projectId", "role", "content", "timestamp")
-              VALUES (?, ?, ?, 'assistant', ?, datetime('now'))`,
-        args: [aiMsgId, user.id, projectId, errorMsg],
-      });
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          userMessage: { id: userMsgId, role: "user", content, projectId },
-          aiMessage: { id: aiMsgId, role: "assistant", content: errorMsg, projectId },
-          error: true,
-        },
-      });
+    } catch (err) {
+      console.error("[POST /api/ai/chat] AI call error:", err);
+      aiText = "I encountered an unexpected error with the AI service. Please try again in a moment.";
+      aiError = true;
     }
+
+    // Save AI response
+    const aiMsgId = crypto.randomUUID();
+    await client.execute({
+      sql: `INSERT INTO "AiChat" (id, "userId", "projectId", "role", "content", "timestamp")
+            VALUES (?, ?, ?, 'assistant', ?, datetime('now'))`,
+      args: [aiMsgId, user.id, projectId, aiText],
+    });
+
+    // Log activity
+    await logActivity({
+      userId: user.id,
+      action: "AI_CHAT_MESSAGE",
+      details: `Sent AI chat message in project${project?.name ? ` "${project.name}"` : ""}${command ? ` (command: ${command})` : ""}`,
+      entity: "ai_chat",
+      entityId: projectId,
+      ipAddress: ip,
+      tursoClient: client,
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        userMessage: { id: userMsgId, role: "user", content, projectId },
+        aiMessage: { id: aiMsgId, role: "assistant", content: aiText, projectId },
+        error: aiError || undefined,
+      },
+    });
   } catch (error) {
     console.error("[POST /api/ai/chat] Error:", error);
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
