@@ -1,6 +1,76 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, requireRole, logActivity, getClientIp } from "@/lib/api-auth";
 
+/**
+ * Ensure AI tables exist in Turso. Runs silently on first use.
+ */
+async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
+  try {
+    await tursoClient.execute({
+      sql: `CREATE TABLE IF NOT EXISTS "AiProtocol" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "description" TEXT,
+        "isGlobal" BOOLEAN NOT NULL DEFAULT 0,
+        "projectId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "AiProtocol_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`,
+      args: [],
+    });
+    await tursoClient.execute({
+      sql: `CREATE TABLE IF NOT EXISTS "AiProtocolStep" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "protocolId" TEXT NOT NULL,
+        "title" TEXT NOT NULL,
+        "description" TEXT,
+        "commandTag" TEXT,
+        "stepOrder" INTEGER NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "AiProtocolStep_protocolId_fkey" FOREIGN KEY ("protocolId") REFERENCES "AiProtocol" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )`,
+      args: [],
+    });
+    await tursoClient.execute({
+      sql: `CREATE INDEX IF NOT EXISTS "AiProtocolStep_protocolId_idx" ON "AiProtocolStep"("protocolId")`,
+      args: [],
+    });
+
+    // Seed default protocol if not exists
+    const existing = await tursoClient.execute({
+      sql: `SELECT id FROM "AiProtocol" WHERE name = ?`,
+      args: ["Pre-coding Documentation"],
+    });
+    if (existing.rows.length === 0) {
+      const protocolId = crypto.randomUUID();
+      await tursoClient.execute({
+        sql: `INSERT INTO "AiProtocol" (id, name, description, "isGlobal", "projectId", "createdAt", "updatedAt")
+              VALUES (?, ?, ?, 1, NULL, datetime('now'), datetime('now'))`,
+        args: [protocolId, "Pre-coding Documentation", "Complete pre-coding documentation generation protocol.", 1, null],
+      });
+      const defaultSteps = [
+        { title: "Product Requirements Document", description: "Define project goals, target audience, features, user stories, and acceptance criteria", commandTag: "prd", stepOrder: 1 },
+        { title: "Technical Requirements Document", description: "Define architecture, technology stack, API specs, and technical constraints", commandTag: "trd", stepOrder: 2 },
+        { title: "Application Flow", description: "Map user journeys, screen flows, core workflows, and navigation architecture", commandTag: "flow", stepOrder: 3 },
+        { title: "UI/UX Design Brief", description: "Define design system, visual language, component guidelines, and responsive strategy", commandTag: "ux", stepOrder: 4 },
+        { title: "Backend Schema", description: "Design database architecture, entity relationships, and schema definitions", commandTag: "schema", stepOrder: 5 },
+        { title: "Implementation Plan", description: "Break down phases, sprints, task estimates, dependencies, and quality gates", commandTag: "plan", stepOrder: 6 },
+        { title: "Review & Action Items", description: "Summarize all documents, list critical decisions, open questions, and next steps", commandTag: null, stepOrder: 7 },
+      ];
+      for (const step of defaultSteps) {
+        await tursoClient.execute({
+          sql: `INSERT INTO "AiProtocolStep" (id, "protocolId", title, description, "commandTag", "stepOrder", "createdAt")
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+          args: [crypto.randomUUID(), protocolId, step.title, step.description, step.commandTag, step.stepOrder],
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[ensureAiTables] Migration error (non-fatal):", err);
+  }
+}
+
 // GET /api/ai/protocols — List protocols (global + project-specific)
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +83,9 @@ export async function GET(request: NextRequest) {
     const projectId = searchParams.get("projectId") || "";
 
     const client = getTursoClient();
+
+    // Auto-migrate AI tables if they don't exist
+    await ensureAiTables(client);
 
     let protocolsResult;
 

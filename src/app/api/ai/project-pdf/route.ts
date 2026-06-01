@@ -6,6 +6,31 @@ interface RouteContext {
   params: Promise<{}>;
 }
 
+/**
+ * Ensure AI tables exist in Turso. Runs silently on first use.
+ */
+async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
+  try {
+    await tursoClient.execute({
+      sql: `CREATE TABLE IF NOT EXISTS "AiProtocol" (
+        "id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "description" TEXT,
+        "isGlobal" BOOLEAN NOT NULL DEFAULT 0, "projectId" TEXT,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`, args: [],
+    });
+    await tursoClient.execute({
+      sql: `CREATE TABLE IF NOT EXISTS "AiProtocolStep" (
+        "id" TEXT NOT NULL PRIMARY KEY, "protocolId" TEXT NOT NULL,
+        "title" TEXT NOT NULL, "description" TEXT, "commandTag" TEXT,
+        "stepOrder" INTEGER NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`, args: [],
+    });
+  } catch (err) {
+    console.error("[ensureAiTables] Migration error (non-fatal):", err);
+  }
+}
+
 // GET /api/ai/project-pdf — Generate project PDF (SUPERADMIN only)
 export async function GET(request: NextRequest) {
   try {
@@ -26,6 +51,9 @@ export async function GET(request: NextRequest) {
 
     const client = getTursoClient();
     const ip = getClientIp(request);
+
+    // Auto-migrate AI tables if they don't exist
+    await ensureAiTables(client);
 
     // Fetch project details
     const projectResult = await client.execute({
