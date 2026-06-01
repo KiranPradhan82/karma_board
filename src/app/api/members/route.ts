@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from '@/lib/api-auth';
 import { createMemberSchema } from '@/lib/validations/member';
 import { hashPassword } from '@/lib/auth-utils';
+import { sendWelcomeEmail } from '@/lib/email';
 
 // GET /api/members — List members with search, filter, pagination
 export async function GET(request: NextRequest) {
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, password, jobTitle, phone, skills, role } = result.data;
+    const { name, email, jobTitle, phone, skills, role } = result.data;
     const client = getTursoClient();
     const ip = getClientIp(request);
 
@@ -150,21 +151,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const hashedPassword = await hashPassword(password);
+    // Generate a temporary password (12 chars, letters + digits)
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let temporaryPassword = '';
+    for (let i = 0; i < 12; i++) {
+      temporaryPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const hashedPassword = await hashPassword(temporaryPassword);
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
     await client.execute({
-      sql: `INSERT INTO "User" (id, name, email, password, role, jobTitle, phone, skills, status, joinDate, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`,
+      sql: `INSERT INTO "User" (id, name, email, password, role, jobTitle, phone, skills, status, "mustChangePassword", joinDate, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
       args: [id, name, email, hashedPassword, role, jobTitle || null, phone || null, skills || null, now, now, now],
+    });
+
+    // Send welcome email with temporary password
+    const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://karma-board.vercel.app';
+    const emailResult = await sendWelcomeEmail({
+      to: email,
+      name,
+      temporaryPassword,
+      loginUrl: `${baseUrl}/login`,
     });
 
     // Audit log
     await logActivity({
       userId: user.id,
       action: 'CREATE_MEMBER',
-      details: `Created member: ${name} (${email}) with role ${role}`,
+      details: `Created member: ${name} (${email}) with role ${role}. Welcome email sent: ${emailResult.success}`,
       entity: 'member',
       entityId: id,
       ipAddress: ip,
@@ -183,6 +200,7 @@ export async function POST(request: NextRequest) {
           phone: phone || null,
           skills: skills || null,
           status: 'ACTIVE',
+          emailSent: emailResult.success,
         },
       },
       { status: 201 }

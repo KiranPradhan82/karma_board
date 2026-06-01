@@ -11,7 +11,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes that don't need auth
-  const publicRoutes = ["/login", "/register", "/setup", "/api/auth/register", "/api/setup"];
+  const publicRoutes = ["/login", "/register", "/setup", "/api/auth/register", "/api/setup", "/change-password", "/api/auth/reset-first-password"];
   const isPublicRoute = publicRoutes.some(
     (route) => pathname === route || pathname.startsWith("/api/auth/") || pathname === "/api/setup"
   );
@@ -19,6 +19,7 @@ export async function middleware(request: NextRequest) {
   // Allow public routes
   if (isPublicRoute) {
     // If user is logged in and tries to access login/register/setup, redirect to dashboard
+    // (unless they need to change password — let them through to change-password)
     if (token && (pathname === "/login" || pathname === "/register" || pathname === "/setup")) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
@@ -36,6 +37,23 @@ export async function middleware(request: NextRequest) {
     }
     // Page routes redirect to login
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  // Force password change: redirect users who must change password
+  if (
+    token.mustChangePassword === true &&
+    pathname !== "/change-password" &&
+    !pathname.startsWith("/api/auth/reset-first-password")
+  ) {
+    // API routes return 403 with helpful message
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { success: false, error: "Password change required. Please set a new password first." },
+        { status: 403 }
+      );
+    }
+    // Page routes redirect to change-password
+    return NextResponse.redirect(new URL("/change-password", request.url));
   }
 
   // Superadmin-only routes
@@ -56,5 +74,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/:path*", "/setup"],
+  matcher: ["/dashboard/:path*", "/api/:path*", "/setup", "/change-password"],
 };

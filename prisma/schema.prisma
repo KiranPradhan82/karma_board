@@ -40,6 +40,7 @@ model User {
   phone        String?
   skills       String?
   status       String    @default("ACTIVE")
+  mustChangePassword Boolean @default(false)
   deletedAt    DateTime?
   joinDate     DateTime?
   createdAt    DateTime  @default(now())

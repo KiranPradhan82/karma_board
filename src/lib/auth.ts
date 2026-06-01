@@ -9,6 +9,7 @@ async function findUserByEmail(email: string): Promise<{
   password: string;
   role: string;
   isActive: boolean;
+  mustChangePassword: boolean;
 } | null> {
   const tursoUrl = process.env.TURSO_DATABASE_URL;
   const tursoToken = process.env.TURSO_AUTH_TOKEN;
@@ -18,7 +19,7 @@ async function findUserByEmail(email: string): Promise<{
     const { createClient } = await import("@libsql/client");
     const client = createClient({ url: tursoUrl, authToken: tursoToken });
     const result = await client.execute({
-      sql: 'SELECT id, name, email, password, role, isActive FROM User WHERE email = ?',
+      sql: 'SELECT id, name, email, password, role, isActive, mustChangePassword FROM User WHERE email = ?',
       args: [email],
     });
 
@@ -32,6 +33,7 @@ async function findUserByEmail(email: string): Promise<{
       password: row.password as string,
       role: row.role as string,
       isActive: Boolean(row.isActive),
+      mustChangePassword: Boolean(row.mustChangePassword),
     };
   }
 
@@ -47,6 +49,7 @@ async function findUserByEmail(email: string): Promise<{
     password: user.password,
     role: user.role,
     isActive: user.isActive,
+    mustChangePassword: false,
   };
 }
 
@@ -85,12 +88,13 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
-          console.log("[Auth] Login successful:", credentials.email, "role:", user.role);
+          console.log("[Auth] Login successful:", credentials.email, "role:", user.role, "mustChangePassword:", user.mustChangePassword);
           return {
             id: user.id,
             name: user.name,
             email: user.email,
             role: user.role,
+            mustChangePassword: user.mustChangePassword,
           };
         } catch (error) {
           console.error("[Auth] Error during authorization:", error);
@@ -104,6 +108,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id!;
         token.role = user.role!;
+        token.mustChangePassword = (user as unknown as { mustChangePassword?: boolean }).mustChangePassword || false;
       }
       return token;
     },
@@ -111,6 +116,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id;
         session.user.role = token.role;
+        (session.user as unknown as { mustChangePassword?: boolean }).mustChangePassword = token.mustChangePassword;
       }
       return session;
     },

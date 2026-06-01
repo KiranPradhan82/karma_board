@@ -224,11 +224,7 @@ function MemberDialogInner({
     const errs: Record<string, string> = {};
     if (!form.name || form.name.length < 2) errs.name = 'Name must be at least 2 characters';
     if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errs.email = 'Valid email is required';
-    if (mode === 'add') {
-      if (!form.password || form.password.length < 8) errs.password = 'Password must be at least 8 characters';
-      if (!/[a-zA-Z]/.test(form.password)) errs.password = 'Password needs at least one letter';
-      if (!/[0-9]/.test(form.password)) errs.password = 'Password needs at least one number';
-    }
+    // Password is auto-generated for new members — no validation needed
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -277,18 +273,12 @@ function MemberDialogInner({
             {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
           </div>
 
-          {/* Password (create only) */}
+          {/* Password is auto-generated — no field shown */}
           {mode === 'add' && (
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password *</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Min. 8 chars, letter + number"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-              />
-              {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
+            <div className="rounded-lg border bg-muted/50 px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                A temporary password will be automatically generated and sent to the member&apos;s email. They will be required to change it on first login.
+              </p>
             </div>
           )}
 
@@ -761,7 +751,11 @@ export default function TeamPage() {
         });
         const json = await res.json();
         if (json.success) {
-          toast.success('Member created successfully');
+          if (json.data.emailSent) {
+            toast.success('Member created! A welcome email with temporary password has been sent.');
+          } else {
+            toast.success('Member created! Note: Email not sent — RESEND_API_KEY may not be configured.');
+          }
           setMemberDialogOpen(false);
           fetchMembers();
         } else {
