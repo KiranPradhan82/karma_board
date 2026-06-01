@@ -85,7 +85,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_projectId_userId_key" ON "Proje
 CREATE UNIQUE INDEX IF NOT EXISTS "Invitation_token_key" ON "Invitation"("token");
 `;
 
+// ALTER TABLE statements for new columns — safe to run multiple times via try/catch
+const ALTER_TABLE_SQL = `
+ALTER TABLE "User" ADD COLUMN "jobTitle" TEXT;
+ALTER TABLE "User" ADD COLUMN "phone" TEXT;
+ALTER TABLE "User" ADD COLUMN "skills" TEXT;
+ALTER TABLE "User" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'ACTIVE';
+ALTER TABLE "User" ADD COLUMN "deletedAt" DATETIME;
+ALTER TABLE "User" ADD COLUMN "joinDate" DATETIME;
+ALTER TABLE "ProjectMember" ADD COLUMN "assignedBy" TEXT;
+ALTER TABLE "ProjectMember" ADD COLUMN "removedAt" DATETIME;
+ALTER TABLE "ActivityLog" ADD COLUMN "entity" TEXT;
+ALTER TABLE "ActivityLog" ADD COLUMN "entityId" TEXT;
+ALTER TABLE "ActivityLog" ADD COLUMN "ipAddress" TEXT;
+`;
+
 async function syncSchema() {
+  if (!TURSO_URL || !TURSO_TOKEN) {
+    console.log('No Turso credentials found (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN). Skipping Turso sync.');
+    console.log('Local schema is already in sync via prisma db push.');
+    return;
+  }
+
   console.log('Connecting to Turso...');
 
   const client = createClient({
@@ -106,6 +127,25 @@ async function syncSchema() {
           console.log('Executed statement successfully');
         } catch (err) {
           console.error('Error executing statement:', err);
+        }
+      }
+    }
+
+    // Run ALTER TABLE statements (skip if column already exists)
+    const alterStatements = ALTER_TABLE_SQL.split(';').filter(s => s.trim());
+    console.log('\nRunning ALTER TABLE migrations...');
+    for (const stmt of alterStatements) {
+      if (stmt.trim()) {
+        try {
+          await client.execute(stmt.trim());
+          console.log('Migration applied successfully');
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes('duplicate column') || msg.includes('already exists')) {
+            console.log('Column already exists, skipping:', stmt.trim().substring(0, 80));
+          } else {
+            console.error('Error executing migration:', msg);
+          }
         }
       }
     }

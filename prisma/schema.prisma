@@ -15,6 +15,9 @@ enum Role {
 
 enum ProjectRole {
   LEAD
+  DEVELOPER
+  MARKETER
+  VIEWER
   MEMBER
 }
 
@@ -26,15 +29,21 @@ enum ProjectStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
-  email        String   @unique
+  email        String    @unique
   password     String
-  role         Role     @default(MEMBER)
+  role         Role      @default(MEMBER)
   avatar       String?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive     Boolean   @default(true)
+  jobTitle     String?
+  phone        String?
+  skills       String?
+  status       String    @default("ACTIVE")
+  deletedAt    DateTime?
+  joinDate     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   projectMembers ProjectMember[]
   timeLogs     TimeLog[]
@@ -57,11 +66,13 @@ model Project {
 }
 
 model ProjectMember {
-  id        String      @id @default(cuid())
-  projectId String
-  userId    String
-  role      ProjectRole @default(MEMBER)
-  joinedAt  DateTime    @default(now())
+  id         String      @id @default(cuid())
+  projectId  String
+  userId     String
+  role       ProjectRole @default(MEMBER)
+  joinedAt   DateTime    @default(now())
+  assignedBy String?
+  removedAt  DateTime?
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -88,6 +99,9 @@ model ActivityLog {
   userId    String
   action    String
   details   String?
+  entity    String?
+  entityId  String?
+  ipAddress String?
   timestamp DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
