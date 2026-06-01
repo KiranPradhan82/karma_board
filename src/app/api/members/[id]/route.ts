@@ -81,10 +81,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 });
     }
 
-    const roleCheck = requireRole(['SUPERADMIN', 'ADMIN'])(user);
+    // Only SUPERADMIN can edit other members from the team section
+    const roleCheck = requireRole(['SUPERADMIN'])(user);
     if (roleCheck) return roleCheck;
 
     const { id } = await context.params;
+
+    // Prevent editing yourself through this endpoint — use /api/members/me instead
+    if (id === user.id) {
+      return NextResponse.json(
+        { success: false, error: 'Use /api/members/me to update your own profile' },
+        { status: 400 }
+      );
+    }
+
     const body = await request.json();
     const result = updateMemberSchema.safeParse(body);
 
@@ -220,10 +230,20 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Authentication required' }, { status: 401 });
     }
 
-    const roleCheck = requireRole(['SUPERADMIN', 'ADMIN'])(user);
+    // Only SUPERADMIN can delete members from the team section
+    const roleCheck = requireRole(['SUPERADMIN'])(user);
     if (roleCheck) return roleCheck;
 
     const { id } = await context.params;
+
+    // Prevent deleting yourself
+    if (id === user.id) {
+      return NextResponse.json(
+        { success: false, error: 'You cannot delete your own account' },
+        { status: 400 }
+      );
+    }
+
     const client = getTursoClient();
     const ip = getClientIp(request);
 

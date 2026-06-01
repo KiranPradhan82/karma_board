@@ -28,10 +28,13 @@ export async function POST(request: NextRequest) {
     const ip = getClientIp(request);
     const now = new Date().toISOString();
 
+    // Prevent deleting yourself via bulk delete
+    const filteredIds = ids.filter(id => id !== user.id);
+
     let deleted = 0;
     const errors: string[] = [];
 
-    for (const id of ids) {
+    for (const id of filteredIds) {
       try {
         // Check member exists and is not already deleted
         const existing = await client.execute({

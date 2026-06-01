@@ -540,6 +540,8 @@ function EmptyState({ hasFilters, onClearFilters }: { hasFilters: boolean; onCle
 function MemberCard({
   member,
   selected,
+  canEdit,
+  isOwn,
   onToggleSelect,
   onEdit,
   onDelete,
@@ -547,6 +549,8 @@ function MemberCard({
 }: {
   member: Member;
   selected: boolean;
+  canEdit: boolean;
+  isOwn: boolean;
   onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -583,13 +587,26 @@ function MemberCard({
                   <DropdownMenuItem onClick={onView}>
                     <Eye className="mr-2 h-4 w-4" /> View Details
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onEdit}>
-                    <Pencil className="mr-2 h-4 w-4" /> Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </DropdownMenuItem>
+                  {canEdit && !isOwn && (
+                    <DropdownMenuItem onClick={onEdit}>
+                      <Pencil className="mr-2 h-4 w-4" /> Edit
+                    </DropdownMenuItem>
+                  )}
+                  {isOwn && (
+                    <DropdownMenuItem asChild>
+                      <a href="/dashboard/profile">
+                        <Pencil className="mr-2 h-4 w-4" /> Edit My Profile
+                      </a>
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && !isOwn && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -621,6 +638,7 @@ function MemberCard({
 export default function TeamPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role || 'MEMBER';
+  const userId = (session?.user as { id?: string })?.id || '';
   const isAdmin = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
   const isSuperAdmin = userRole === 'SUPERADMIN';
 
@@ -1065,7 +1083,8 @@ export default function TeamPage() {
                             <DropdownMenuItem onClick={() => { setDetailMember(member); setDetailDialogOpen(true); }}>
                               <Eye className="mr-2 h-4 w-4" /> View Details
                             </DropdownMenuItem>
-                            {isAdmin && (
+                            {/* Edit/Delete: Only superadmin can edit OTHER members */}
+                            {isSuperAdmin && member.id !== userId && (
                               <DropdownMenuItem onClick={() => {
                                 setMemberDialogMode('edit');
                                 setEditingMember(member);
@@ -1074,7 +1093,7 @@ export default function TeamPage() {
                                 <Pencil className="mr-2 h-4 w-4" /> Edit
                               </DropdownMenuItem>
                             )}
-                            {isAdmin && (
+                            {isSuperAdmin && member.id !== userId && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
@@ -1084,6 +1103,14 @@ export default function TeamPage() {
                                   <Trash2 className="mr-2 h-4 w-4" /> Delete
                                 </DropdownMenuItem>
                               </>
+                            )}
+                            {/* Show "Go to Profile" for own row */}
+                            {member.id === userId && (
+                              <DropdownMenuItem asChild>
+                                <a href="/dashboard/profile">
+                                  <Pencil className="mr-2 h-4 w-4" /> Edit My Profile
+                                </a>
+                              </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -1109,6 +1136,8 @@ export default function TeamPage() {
                   key={member.id}
                   member={member}
                   selected={selectedIds.has(member.id)}
+                  canEdit={isSuperAdmin}
+                  isOwn={member.id === userId}
                   onToggleSelect={() => toggleSelect(member.id)}
                   onEdit={() => {
                     setMemberDialogMode('edit');

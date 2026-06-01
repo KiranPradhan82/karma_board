@@ -94,7 +94,11 @@ function NavContent({
       {/* User section */}
       <div className="border-t p-2 shrink-0">
         {!collapsed && user && (
-          <div className="flex items-center gap-3 px-3 py-2">
+          <Link
+            href="/dashboard/profile"
+            onClick={onNavClick}
+            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent transition-colors"
+          >
             <Avatar className="h-8 w-8 shrink-0">
               <AvatarFallback className="text-xs bg-primary/10 text-primary">
                 {user.name
@@ -111,7 +115,7 @@ function NavContent({
                 {user.role}
               </Badge>
             </div>
-          </div>
+          </Link>
         )}
         <Button
           variant="ghost"
