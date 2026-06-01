@@ -161,6 +161,8 @@ teamforge-pm/
 ## 4. DATABASE SCHEMA (PRISMA)
 
 ### Source of truth: `prisma/schema.prisma`
+### IMPORTANT: User model uses `password` field (not `passwordHash`). Auth is credentials-only (no Account/Session tables needed).
+### Database connection: Uses `@prisma/adapter-libsql` for Turso (remote). Local SQLite for CLI operations.
 
 ```prisma
 generator client {
@@ -194,46 +196,17 @@ model User {
   id           String   @id @default(cuid())
   name         String
   email        String   @unique
-  passwordHash String
+  password     String
   role         Role     @default(MEMBER)
   avatar       String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  accounts     Account[]
-  sessions     Session[]
   projectMembers ProjectMember[]
   timeLogs     TimeLog[]
   activityLogs ActivityLog[]
   aiChats      AiChat[]
-}
-
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Project {
@@ -492,8 +465,10 @@ TWILIO_PHONE_NUMBER="+1..."
 ### Development:
 ```bash
 npm run dev          # Start dev server on port 3000
-npx prisma studio   # Open database GUI
-npx prisma migrate dev  # Run migrations
+npx prisma studio   # Open database GUI (local SQLite only)
+npx prisma db push  # Push schema changes to local SQLite
+bun run scripts/sync-turso.ts  # Sync schema to Turso remote database
+bun run prisma/seed.ts  # Seed superadmin to Turso
 ```
 
 ### Production Build:
@@ -502,15 +477,22 @@ npm run build        # Build for production
 npm run start        # Start production server
 ```
 
+### Database Architecture:
+- **Local (CLI)**: SQLite file at `file:./db/custom.db` for Prisma CLI operations
+- **Remote (Runtime)**: Turso via `@prisma/adapter-libsql` for app runtime
+- **Schema sync**: Use `scripts/sync-turso.ts` to push schema SQL to Turso
+- **IMPORTANT**: Prisma CLI does NOT support Turso directly. Use local SQLite for schema management.
+
 ### Deployment (Vercel):
-- Connected to GitHub repository
+- Connected to GitHub: `https://github.com/KiranPradhan82/karma_board`
 - Auto-deploy on push to `main` branch
 - Environment variables set in Vercel dashboard
 - Turso database URL and token configured in Vercel env vars
 
 ### Database Migrations:
-- Always run `npx prisma migrate dev` locally before pushing
-- For production: `npx prisma migrate deploy` (runs on Vercel build)
+- Run `npx prisma db push` locally to sync local schema
+- Run `bun run scripts/sync-turso.ts` to push schema to Turso
+- For production Vercel builds: Turso env vars handle runtime connection
 
 ---
 
@@ -583,28 +565,44 @@ VERCEL_PROJECT_ID="..."          # Vercel Project ID
 
 ## 15. CURRENT PROJECT STATUS
 
-### Phase: Planning & Setup
+### Phase: Phase 1 Complete — Moving to Phase 2
+### GitHub Repo: https://github.com/KiranPradhan82/karma_board
+
 ### Completed:
 - [x] Requirements gathered
 - [x] Tech stack decided
 - [x] Database schema designed
 - [x] Project structure defined
 - [x] AGENT.md created
+- [x] Next.js project scaffolded (App Router, TypeScript, Tailwind 4)
+- [x] shadcn/ui components installed (30+ components)
+- [x] Prisma schema created and synced to Turso
+- [x] @prisma/adapter-libsql configured for Turso runtime
+- [x] NextAuth.js v4 credentials provider configured
+- [x] Login page (`/login`) — email/password sign in
+- [x] Register page (`/register`) — new account creation
+- [x] Dashboard layout with collapsible sidebar (desktop + mobile)
+- [x] Dashboard page with stats cards (placeholder)
+- [x] Middleware route protection (auth, RBAC)
+- [x] Superadmin seeded to Turso (admin@teamforge.com / Admin@123)
+- [x] Zod validations for user, project, time-log
+- [x] TypeScript types defined
+- [x] .env.example created
+- [x] Project docs moved to /docs/ in project root
+- [x] GitHub connected, code pushed to main
+- [x] Build passes cleanly
 
-### In Progress:
-- [ ] Project scaffolding (Next.js)
-- [ ] Prisma setup with Turso
-- [ ] Authentication system
-- [ ] Basic UI layout
+### In Progress (Phase 2):
+- [ ] Dashboard with real data (stats from DB)
+- [ ] User management (CRUD for SUPERADMIN)
+- [ ] Team management pages
 
 ### Pending:
-- [ ] Dashboard
-- [ ] User management
-- [ ] Project management
-- [ ] Time tracking
-- [ ] AI assistant
-- [ ] Notifications
-- [ ] Deployment
+- [ ] Project management (CRUD, member assignment)
+- [ ] Time tracking (clock in/out, logs)
+- [ ] AI assistant (GLM chat)
+- [ ] Notifications (Resend email)
+- [ ] Vercel deployment
 
 ---
 
@@ -613,3 +611,4 @@ VERCEL_PROJECT_ID="..."          # Vercel Project ID
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-06-01 | Initial AGENT.md created with full project spec | Super Z |
+| 2026-06-01 | Phase 1 completed: Turso setup, auth, dashboard layout, GitHub push | Super Z |
