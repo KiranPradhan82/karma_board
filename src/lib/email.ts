@@ -1,15 +1,76 @@
 import type { Resend as ResendType } from 'resend';
+import { decrypt } from '@/lib/encryption';
+import { getTursoClient } from '@/lib/api-auth';
 
-const FROM_NAME = process.env.RESEND_FROM_NAME || 'KarmaBoard';
-const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'noreply@karmaboard.com';
+interface EmailConfig {
+  apiKey: string | null;
+  fromEmail: string;
+  fromName: string;
+}
 
 /**
- * Lazily create the Resend client — only instantiates when RESEND_API_KEY is available.
+ * Get email configuration — reads from Settings DB first, falls back to env vars.
+ * API key is decrypted if stored in DB.
  */
-async function getResendClient(): Promise<ResendType | null> {
-  if (!process.env.RESEND_API_KEY) return null;
+async function getEmailConfig(): Promise<EmailConfig> {
+  try {
+    const tursoUrl = process.env.TURSO_DATABASE_URL;
+    const tursoToken = process.env.TURSO_AUTH_TOKEN;
+
+    if (tursoUrl && tursoToken) {
+      const client = getTursoClient();
+      const result = await client.execute({
+        sql: 'SELECT key, value FROM "Settings" WHERE key IN (?, ?, ?)',
+        args: ['RESEND_API_KEY', 'RESEND_FROM_EMAIL', 'RESEND_FROM_NAME'],
+      });
+
+      let apiKey: string | null = null;
+      let fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@karmaboard.com';
+      let fromName = process.env.RESEND_FROM_NAME || 'KarmaBoard';
+
+      for (const row of result.rows) {
+        const key = row.key as string;
+        const rawValue = row.value as string;
+
+        if (key === 'RESEND_API_KEY') {
+          try {
+            apiKey = decrypt(rawValue);
+          } catch {
+            console.error('[email] Failed to decrypt API key from DB');
+            apiKey = null;
+          }
+        } else if (key === 'RESEND_FROM_EMAIL') {
+          fromEmail = rawValue || fromEmail;
+        } else if (key === 'RESEND_FROM_NAME') {
+          fromName = rawValue || fromName;
+        }
+      }
+
+      // Fall back to env var if DB doesn't have API key
+      if (!apiKey && process.env.RESEND_API_KEY) {
+        apiKey = process.env.RESEND_API_KEY;
+      }
+
+      return { apiKey, fromEmail, fromName };
+    }
+  } catch (error) {
+    console.error('[email] Error reading settings from DB:', error);
+  }
+
+  // Final fallback to env vars only
+  return {
+    apiKey: process.env.RESEND_API_KEY || null,
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'noreply@karmaboard.com',
+    fromName: process.env.RESEND_FROM_NAME || 'KarmaBoard',
+  };
+}
+
+/**
+ * Lazily create the Resend client.
+ */
+async function getResendClient(apiKey: string): Promise<ResendType> {
   const { Resend } = await import('resend');
-  return new Resend(process.env.RESEND_API_KEY);
+  return new Resend(apiKey);
 }
 
 /**
@@ -23,21 +84,20 @@ export async function sendWelcomeEmail(params: {
 }): Promise<{ success: boolean; error?: string }> {
   const { to, name, temporaryPassword, loginUrl } = params;
 
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('[email] RESEND_API_KEY not set — skipping email send. Member was still created.');
+  const config = await getEmailConfig();
+
+  if (!config.apiKey) {
+    console.warn('[email] No Resend API key configured — skipping email send. Member was still created.');
     console.warn(`[email] Would have sent to: ${to}`);
     console.warn(`[email] Temporary password: ${temporaryPassword}`);
     return { success: false, error: 'Email service not configured' };
   }
 
   try {
-    const resend = await getResendClient();
-    if (!resend) {
-      return { success: false, error: 'Email service not configured' };
-    }
+    const resend = await getResendClient(config.apiKey);
 
     const { data, error } = await resend.emails.send({
-      from: `${FROM_NAME} <${FROM_EMAIL}>`,
+      from: `${config.fromName} <${config.fromEmail}>`,
       to: [to],
       subject: `Welcome to KarmaBoard, ${name}! — Your Account is Ready`,
       html: `

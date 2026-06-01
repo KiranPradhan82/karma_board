@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS "AiChat" (
 CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_projectId_userId_key" ON "ProjectMember"("projectId", "userId");
 CREATE UNIQUE INDEX IF NOT EXISTS "Invitation_token_key" ON "Invitation"("token");
+
+CREATE TABLE IF NOT EXISTS "Settings" (
+  "key" TEXT NOT NULL PRIMARY KEY,
+  "value" TEXT NOT NULL,
+  "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `;
 
 // ALTER TABLE statements for new columns — safe to run multiple times via try/catch
