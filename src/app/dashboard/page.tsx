@@ -12,7 +12,6 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -24,28 +23,28 @@ export default function DashboardPage() {
     {
       title: "Total Projects",
       value: "0",
-      description: "Active projects in your workspace",
+      description: "Active projects",
       icon: FolderKanban,
       color: "text-blue-600 bg-blue-100",
     },
     {
       title: "Active Members",
       value: "0",
-      description: "Team members currently active",
+      description: "Team members",
       icon: Users,
       color: "text-emerald-600 bg-emerald-100",
     },
     {
       title: "Hours Today",
       value: "0h 0m",
-      description: "Total hours tracked today",
+      description: "Tracked today",
       icon: Clock,
       color: "text-amber-600 bg-amber-100",
     },
     {
       title: "Active Sessions",
       value: "0",
-      description: "Team members currently tracking time",
+      description: "Tracking time",
       icon: Activity,
       color: "text-rose-600 bg-rose-100",
     },
@@ -54,10 +53,10 @@ export default function DashboardPage() {
   if (status === "loading") {
     return (
       <div className="space-y-6">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-32 rounded-lg" />
+            <Skeleton key={i} className="h-28 sm:h-32 rounded-lg" />
           ))}
         </div>
       </div>
@@ -65,34 +64,34 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Welcome header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl lg:text-3xl">
           Welcome back{user?.name ? `, ${user.name}` : ""}
         </h1>
-        <p className="mt-1 text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground sm:text-base">
           Here&apos;s an overview of your workspace activity.
         </p>
       </div>
 
-      {/* Stats cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Stats cards — 2x2 on mobile, 2 on tablet, 4 on desktop */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
           return (
             <Card key={stat.title} className="hover:shadow-md transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardDescription className="text-sm font-medium">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 px-4 pt-4 sm:px-6 sm:pt-6">
+                <CardDescription className="text-xs font-medium sm:text-sm">
                   {stat.title}
                 </CardDescription>
-                <div className={`rounded-md p-2 ${stat.color}`}>
-                  <Icon className="h-4 w-4" />
+                <div className={`rounded-md p-1.5 sm:p-2 ${stat.color}`}>
+                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stat.value}</div>
-                <p className="text-xs text-muted-foreground mt-1">
+              <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+                <div className="text-xl font-bold sm:text-2xl">{stat.value}</div>
+                <p className="text-[11px] text-muted-foreground mt-0.5 sm:text-xs sm:mt-1">
                   {stat.description}
                 </p>
               </CardContent>
@@ -101,17 +100,17 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* Placeholder for recent activity */}
+      {/* Recent Activity */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Recent Activity</CardTitle>
-          <CardDescription>
+        <CardHeader className="px-4 pt-4 sm:px-6 sm:pt-6">
+          <div className="text-base font-semibold sm:text-lg">Recent Activity</div>
+          <CardDescription className="text-xs sm:text-sm">
             Your team&apos;s latest actions and updates will appear here.
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Activity className="h-10 w-10 text-muted-foreground/50 mb-3" />
+        <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+          <div className="flex flex-col items-center justify-center py-8 sm:py-12 text-center">
+            <Activity className="h-8 w-8 text-muted-foreground/50 mb-2 sm:h-10 sm:w-10 sm:mb-3" />
             <p className="text-sm text-muted-foreground">
               No recent activity to display.
             </p>
