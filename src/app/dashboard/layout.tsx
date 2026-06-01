@@ -28,7 +28,7 @@ const ICON_MAP: Record<string, NavItem["icon"]> = {
   Team: Users,
   Projects: FolderKanban,
   "Time Tracker": Clock,
-  "AI Assistant": Bot,
+  "Karma Space": Bot,
   Settings: Settings,
 };
 

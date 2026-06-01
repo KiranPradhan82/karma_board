@@ -84,9 +84,32 @@ CREATE TABLE IF NOT EXISTS "AiChat" (
   CONSTRAINT "AiChat_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS "AiProtocol" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "name" TEXT NOT NULL,
+  "description" TEXT,
+  "isGlobal" BOOLEAN NOT NULL DEFAULT 0,
+  "projectId" TEXT,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "AiProtocol_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS "AiProtocolStep" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "protocolId" TEXT NOT NULL,
+  "title" TEXT NOT NULL,
+  "description" TEXT,
+  "commandTag" TEXT,
+  "stepOrder" INTEGER NOT NULL,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "AiProtocolStep_protocolId_fkey" FOREIGN KEY ("protocolId") REFERENCES "AiProtocol" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_projectId_userId_key" ON "ProjectMember"("projectId", "userId");
 CREATE UNIQUE INDEX IF NOT EXISTS "Invitation_token_key" ON "Invitation"("token");
+CREATE INDEX IF NOT EXISTS "AiProtocolStep_protocolId_idx" ON "AiProtocolStep"("protocolId");
 
 CREATE TABLE IF NOT EXISTS "Settings" (
   "key" TEXT NOT NULL PRIMARY KEY,
@@ -124,8 +147,9 @@ async function syncSchema() {
 
   console.log('Connecting to Turso...');
 
+  const cleanUrl = TURSO_URL.split('?')[0];
   const client = createClient({
-    url: TURSO_URL,
+    url: cleanUrl,
     authToken: TURSO_TOKEN,
   });
 

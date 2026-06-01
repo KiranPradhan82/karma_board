@@ -51,7 +51,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Clock,
   },
   {
-    label: "AI Assistant",
+    label: "Karma Space",
     href: "/dashboard/ai-assistant",
     icon: Bot,
   },
