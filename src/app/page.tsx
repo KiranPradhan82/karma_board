@@ -11,7 +11,7 @@ export default async function RootPage() {
       const { createClient } = await import("@libsql/client");
       const client = createClient({ url: tursoUrl, authToken: tursoToken });
       const result = await client.execute(
-        'SELECT id FROM User WHERE role = "SUPERADMIN" LIMIT 1'
+        "SELECT id FROM User WHERE role = 'SUPERADMIN' LIMIT 1"
       );
       needsSetup = result.rows.length === 0;
     } else {

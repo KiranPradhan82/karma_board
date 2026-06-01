@@ -23,7 +23,7 @@ export async function GET() {
     if (tursoUrl && tursoToken) {
       const client = createClient({ url: tursoUrl, authToken: tursoToken });
       const result = await client.execute(
-        'SELECT id FROM User WHERE role = "SUPERADMIN" LIMIT 1'
+        "SELECT id FROM User WHERE role = 'SUPERADMIN' LIMIT 1"
       );
       return NextResponse.json({ setupRequired: result.rows.length === 0 });
     } else {
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
 
       // Check if superadmin already exists
       const existing = await client.execute(
-        'SELECT id FROM User WHERE role = "SUPERADMIN" LIMIT 1'
+        "SELECT id FROM User WHERE role = 'SUPERADMIN' LIMIT 1"
       );
       if (existing.rows.length > 0) {
         return NextResponse.json(
