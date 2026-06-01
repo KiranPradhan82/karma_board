@@ -1,18 +1,34 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 
 export default async function RootPage() {
   try {
-    const session = await getServerSession(authOptions);
+    const tursoUrl = process.env.TURSO_DATABASE_URL;
+    const tursoToken = process.env.TURSO_AUTH_TOKEN;
 
-    if (session) {
-      redirect("/dashboard");
+    let needsSetup = false;
+
+    if (tursoUrl && tursoToken) {
+      const { createClient } = await import("@libsql/client");
+      const client = createClient({ url: tursoUrl, authToken: tursoToken });
+      const result = await client.execute(
+        'SELECT id FROM User WHERE role = "SUPERADMIN" LIMIT 1'
+      );
+      needsSetup = result.rows.length === 0;
+    } else {
+      const { db } = await import("@lib/db");
+      const superadmin = await db.user.findFirst({
+        where: { role: "SUPERADMIN" },
+      });
+      needsSetup = !superadmin;
+    }
+
+    if (needsSetup) {
+      redirect("/setup");
     }
 
     redirect("/login");
   } catch (error) {
-    console.error("[RootPage] Error checking session:", error);
-    redirect("/login");
+    console.error("[RootPage] Error:", error);
+    redirect("/setup");
   }
 }

@@ -11,15 +11,15 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes that don't need auth
-  const publicRoutes = ["/login", "/register", "/api/auth/register"];
+  const publicRoutes = ["/login", "/register", "/setup", "/api/auth/register", "/api/setup"];
   const isPublicRoute = publicRoutes.some(
-    (route) => pathname === route || pathname.startsWith("/api/auth/")
+    (route) => pathname === route || pathname.startsWith("/api/auth/") || pathname === "/api/setup"
   );
 
   // Allow public routes
   if (isPublicRoute) {
-    // If user is logged in and tries to access login/register, redirect to dashboard
-    if (token && (pathname === "/login" || pathname === "/register")) {
+    // If user is logged in and tries to access login/register/setup, redirect to dashboard
+    if (token && (pathname === "/login" || pathname === "/register" || pathname === "/setup")) {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
     return NextResponse.next();
@@ -56,5 +56,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/:path*"],
+  matcher: ["/dashboard/:path*", "/api/:path*", "/setup"],
 };
