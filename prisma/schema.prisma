@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  MEMBER
+}
+
+enum ProjectRole {
+  LEAD
+  MEMBER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ON_HOLD
+  ARCHIVED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  password     String
+  role         Role     @default(MEMBER)
+  avatar       String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  projectMembers ProjectMember[]
+  timeLogs     TimeLog[]
+  activityLogs ActivityLog[]
+  aiChats      AiChat[]
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  members      ProjectMember[]
+  timeLogs     TimeLog[]
+  aiChats      AiChat[]
+  invitations  Invitation[]
+}
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(MEMBER)
+  joinedAt  DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model TimeLog {
+  id        String    @id @default(cuid())
+  userId    String
+  projectId String
+  clockIn   DateTime  @default(now())
+  clockOut  DateTime?
+  duration  Int?
+  notes     String?
+  createdAt DateTime  @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  details   String?
+  timestamp DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Invitation {
+  id        String      @id @default(cuid())
+  email     String
+  projectId String?
+  role      Role        @default(MEMBER)
+  token     String      @unique
+  expiresAt DateTime
+  accepted  Boolean     @default(false)
+  createdAt DateTime    @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
+
+model AiChat {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String?
+  role      String
+  content   String
+  timestamp DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
