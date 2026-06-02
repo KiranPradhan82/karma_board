@@ -18,6 +18,9 @@ import {
   AlertCircle,
   Search,
   Cpu,
+  Wrench,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,12 +63,21 @@ interface Project {
   color?: string;
 }
 
+interface ToolExecution {
+  toolName: string;
+  label: string;
+  icon: string;
+  status: "success" | "error" | "running";
+  displayMessage: string;
+}
+
 interface ChatMessage {
   id: string;
   role: string;
   content: string;
   timestamp: string;
   userName?: string;
+  toolExecutions?: ToolExecution[];
 }
 
 const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
@@ -100,6 +112,9 @@ export default function KarmaSpacePage() {
     type: string;
   } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+
+  // Agentic tool execution steps (shown during loading)
+  const [activeToolSteps, setActiveToolSteps] = useState<ToolExecution[]>([]);
 
   // Per-project AI model (SUPERADMIN only)
   const [projectModel, setProjectModel] = useState<string | null>(null);
@@ -213,6 +228,7 @@ export default function KarmaSpacePage() {
       timestamp: new Date().toISOString(),
       userName: user?.name || "You",
     };
+    setActiveToolSteps([]); // Reset tool steps for new message
     setMessages((prev) => [...prev, optimisticUserMsg]);
 
     try {
@@ -253,6 +269,7 @@ export default function KarmaSpacePage() {
               content: json.data.aiMessage.content,
               timestamp: new Date().toISOString(),
               userName: "Karma Space AI",
+              toolExecutions: json.data.toolExecutions || undefined,
             },
           ];
         });
@@ -263,6 +280,7 @@ export default function KarmaSpacePage() {
       setError("Network error. Please try again.");
     } finally {
       setIsLoading(false);
+      setActiveToolSteps([]);
       inputRef.current?.focus();
     }
   }, [inputValue, selectedProject, isLoading, attachedFile, user?.name]);
@@ -573,24 +591,48 @@ export default function KarmaSpacePage() {
                       </div>
 
                       {/* Message Bubble */}
-                      <div
-                        className={`rounded-xl px-4 py-3 ${
-                          message.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-foreground"
-                        }`}
-                      >
-                        {message.role === "assistant" ? (
-                          <div className="prose prose-sm max-w-none dark:prose-invert break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {message.content}
-                            </ReactMarkdown>
-                          </div>
-                        ) : (
-                          <div className="text-sm whitespace-pre-wrap break-words">
-                            {message.content}
+                      <div className="max-w-[85%] flex flex-col gap-1.5">
+                        {/* Tool Executions (shown above the message) */}
+                        {message.toolExecutions && message.toolExecutions.length > 0 && (
+                          <div className="rounded-lg border bg-card px-3 py-2 space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                              <Wrench className="h-3 w-3" />
+                              <span className="font-medium">Actions performed</span>
+                            </div>
+                            {message.toolExecutions.map((tool, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-xs">
+                                <span className="text-sm">{tool.icon}</span>
+                                <span className="flex-1 text-muted-foreground">{tool.displayMessage}</span>
+                                {tool.status === "success" ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                ) : tool.status === "error" ? (
+                                  <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                ) : (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
+                                )}
+                              </div>
+                            ))}
                           </div>
                         )}
+                        <div
+                          className={`rounded-xl px-4 py-3 ${
+                            message.role === "user"
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-foreground"
+                          }`}
+                        >
+                          {message.role === "assistant" ? (
+                            <div className="prose prose-sm max-w-none dark:prose-invert break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {message.content}
+                              </ReactMarkdown>
+                            </div>
+                          ) : (
+                            <div className="text-sm whitespace-pre-wrap break-words">
+                              {message.content}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -602,11 +644,12 @@ export default function KarmaSpacePage() {
                       <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
                         <Bot className="h-4 w-4" />
                       </div>
-                      <div className="rounded-xl px-4 py-3 bg-muted">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Karma Space is thinking...</span>
+                      <div className="rounded-xl px-4 py-3 bg-muted max-w-[85%]">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                          <Wrench className="h-4 w-4" />
+                          <span>Karma Space is working...</span>
                         </div>
+                        {/* Show live tool steps during loading */}
                       </div>
                     </div>
                   </div>

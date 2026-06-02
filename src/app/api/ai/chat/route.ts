@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
 import { chatCompletion, visionCompletion, getGlobalDefaultModel } from "@/lib/ai-client";
+import { getToolsForRole } from "@/lib/ai-tools";
+import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
+import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
+import type { AiMessage } from "@/lib/ai-client";
 
 interface RouteContext {
   params: Promise<{}>;
@@ -177,7 +181,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/ai/chat — Send message and get AI response
+// POST /api/ai/chat — Send message and get AI response (with agentic tool-calling loop)
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request);
@@ -314,13 +318,47 @@ export async function POST(request: NextRequest) {
     }
     const activeModel = projectModel || process.env.AI_VISION_MODEL || getGlobalDefaultModel();
 
-    // Call AI
+    // ===== Agentic Loop =====
     let aiText: string;
     let aiError = false;
+    const toolExecutions: {
+      toolName: string;
+      label: string;
+      icon: string;
+      status: "success" | "error" | "running";
+      displayMessage: string;
+    }[] = [];
+
+    // Tool executor context
+    const executorCtx = {
+      userId: user.id,
+      userRole: user.role,
+      userName: userName || user.name,
+      tursoClient: client,
+    };
+
+    // Get tools for this user's role
+    const availableTools = getToolsForRole(user.role);
+
+    // Build initial messages array
+    const aiMessages: AiMessage[] = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    for (const msg of chatHistory) {
+      aiMessages.push({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+      });
+    }
+
+    const MAX_TOOL_ROUNDS = 5; // Prevent infinite loops
+    let round = 0;
+    let finalContent = "";
 
     try {
       if (fileData && fileType && fileType.startsWith("image/")) {
-        // Vision API for image attachments
+        // Vision API for image attachments — no tool calling for vision
         const result = await visionCompletion({
           model: activeModel,
           messages: [
@@ -342,29 +380,83 @@ export async function POST(request: NextRequest) {
           aiText = result.content;
         }
       } else {
-        // Standard text chat
-        const aiMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
-          { role: "system", content: systemPrompt },
-        ];
+        // ===== Agentic Tool-Calling Loop =====
+        while (round < MAX_TOOL_ROUNDS) {
+          round++;
 
-        for (const msg of chatHistory) {
-          aiMessages.push({
-            role: msg.role as "user" | "assistant",
-            content: msg.content,
+          // Call AI with tools
+          const result = await chatCompletion({
+            messages: aiMessages,
+            model: activeModel,
+            tools: availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
+            tool_choice: availableTools.length > 0 ? "auto" : undefined,
           });
+
+          if (!result.success) {
+            aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
+            aiError = true;
+            break;
+          }
+
+          // If no tool calls, we have the final response
+          if (!result.tool_calls || result.tool_calls.length === 0) {
+            finalContent = result.content;
+            break;
+          }
+
+          // Add assistant message with tool calls to conversation
+          aiMessages.push({
+            role: "assistant",
+            content: result.content || "",
+            tool_calls: result.tool_calls,
+          });
+
+          // Execute each tool call
+          for (const toolCall of result.tool_calls) {
+            const toolName = toolCall.function.name;
+            const toolLabel = getToolLabel(toolName);
+            const toolIcon = getToolIcon(toolName);
+
+            // Add "running" status
+            const execIndex = toolExecutions.length;
+            toolExecutions.push({
+              toolName,
+              label: toolLabel,
+              icon: toolIcon,
+              status: "running",
+              displayMessage: `${toolLabel}...`,
+            });
+
+            // Execute the tool
+            const toolResult: AiToolResult = await executeToolCall(toolCall, executorCtx);
+
+            // Update execution status
+            toolExecutions[execIndex].status = toolResult.success ? "success" : "error";
+            toolExecutions[execIndex].displayMessage = toolResult.displayMessage;
+
+            // Add tool result to conversation
+            aiMessages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: toolResult.result,
+              name: toolName,
+            });
+          }
+
+          // Loop continues — AI will see tool results and decide next action
         }
 
-        const result = await chatCompletion({
-          messages: aiMessages,
-          model: activeModel,
-        });
-
-        if (!result.success) {
-          aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
-          aiError = true;
-        } else {
-          aiText = result.content;
+        // If we exhausted rounds without final content, generate a fallback
+        if (!finalContent && round >= MAX_TOOL_ROUNDS) {
+          finalContent = "I completed several actions but reached the maximum number of steps. Here's what I did:\n\n" +
+            toolExecutions.map((t) => `- ${t.icon} ${t.displayMessage}`).join("\n") +
+            "\n\nIs there anything else you'd like me to do?";
+        } else if (!finalContent && toolExecutions.length > 0) {
+          // Tool calls happened but AI didn't produce final text — summarize
+          finalContent = toolExecutions.map((t) => `${t.icon} ${t.displayMessage}`).join("\n\n");
         }
+
+        aiText = finalContent || "I'm here to help! What would you like me to do?";
       }
     } catch (err) {
       console.error("[POST /api/ai/chat] AI call error:", err);
@@ -381,10 +473,13 @@ export async function POST(request: NextRequest) {
     });
 
     // Log activity
+    const toolSummary = toolExecutions.length > 0
+      ? ` (tools used: ${toolExecutions.map((t) => t.toolName).join(", ")})`
+      : "";
     await logActivity({
       userId: user.id,
       action: "AI_CHAT_MESSAGE",
-      details: `Sent AI chat message in project${project?.name ? ` "${project.name}"` : ""}${command ? ` (command: ${command})` : ""}`,
+      details: `Sent AI chat message in project${project?.name ? ` "${project.name}"` : ""}${command ? ` (command: ${command})` : ""}${toolSummary}`,
       entity: "ai_chat",
       entityId: projectId,
       ipAddress: ip,
@@ -397,6 +492,7 @@ export async function POST(request: NextRequest) {
         userMessage: { id: userMsgId, role: "user", content, projectId },
         aiMessage: { id: aiMsgId, role: "assistant", content: aiText, projectId },
         error: aiError || undefined,
+        toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
       },
     });
   } catch (error) {

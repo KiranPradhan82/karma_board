@@ -116,9 +116,21 @@ export function getGlobalDefaultModel(): string {
 
 // ===== Types =====
 
+export interface AiToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
 export interface AiMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  tool_calls?: AiToolCall[];
+  tool_call_id?: string;
+  name?: string;
 }
 
 export interface AiChatOptions {
@@ -126,6 +138,8 @@ export interface AiChatOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  tools?: { type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }[];
+  tool_choice?: "auto" | "none" | { type: string; function: { name: string } };
 }
 
 export interface AiVisionMessage {
@@ -152,6 +166,7 @@ export interface AiResponse {
   model?: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   error?: string;
+  tool_calls?: AiToolCall[];
 }
 
 // ===== Internal =====
@@ -190,18 +205,26 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
   const model = options.model || defaultModel;
 
   try {
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: options.messages,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 4096,
+    };
+
+    // Add tools if provided (for agentic/function calling)
+    if (options.tools && options.tools.length > 0) {
+      requestBody.tools = options.tools;
+      requestBody.tool_choice = options.tool_choice || "auto";
+    }
+
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages: options.messages,
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.maxTokens ?? 4096,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -215,13 +238,23 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "No response generated.";
+    const message = data.choices?.[0]?.message;
+    const content = message?.content || "";
+    const toolCalls = message?.tool_calls?.map((tc: Record<string, unknown>) => ({
+      id: tc.id as string,
+      type: "function" as const,
+      function: {
+        name: (tc.function as Record<string, unknown>).name as string,
+        arguments: (tc.function as Record<string, unknown>).arguments as string,
+      },
+    }));
 
     return {
       success: true,
-      content,
+      content: content || (toolCalls?.length ? "" : "No response generated."),
       model: data.model || model,
       usage: data.usage,
+      tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
     };
   } catch (error) {
     console.error("[ai-client] Network error:", error);
