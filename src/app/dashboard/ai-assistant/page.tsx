@@ -155,7 +155,13 @@ export default function KarmaSpacePage() {
         );
         const json = await res.json();
         if (json.success) {
-          setMessages(json.data.messages || []);
+          // Messages come from API in DESC order (newest first) — sort ASC for display
+          const msgs = json.data.messages || [];
+          setMessages([...msgs].sort((a, b) => {
+            const ta = new Date(a.timestamp).getTime();
+            const tb = new Date(b.timestamp).getTime();
+            return ta - tb;
+          }));
         }
       } catch {
         console.error("Failed to fetch messages");
@@ -579,7 +585,7 @@ export default function KarmaSpacePage() {
           ) : (
             // Messages
             <ScrollArea className="h-full">
-              <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
+              <div className="max-w-3xl mx-auto px-4 py-4 space-y-4 overflow-hidden">
                 {messages.map((message) => (
                   <div
                     key={message.id}
@@ -588,7 +594,7 @@ export default function KarmaSpacePage() {
                     }`}
                   >
                     <div
-                      className={`flex gap-3 max-w-[85%] ${
+                      className={`flex gap-3 min-w-0 max-w-[85%] ${
                         message.role === "user" ? "flex-row-reverse" : ""
                       }`}
                     >
@@ -613,7 +619,7 @@ export default function KarmaSpacePage() {
                       </div>
 
                       {/* Message Bubble */}
-                      <div className="max-w-[85%] flex flex-col gap-1.5">
+                      <div className="min-w-0 max-w-full flex flex-col gap-1.5">
                         {/* Tool Executions (shown above the message) */}
                         {message.toolExecutions && message.toolExecutions.length > 0 && (
                           <div className="rounded-lg border bg-card px-3 py-2 space-y-1.5">
@@ -637,7 +643,7 @@ export default function KarmaSpacePage() {
                           </div>
                         )}
                         <div
-                          className={`rounded-xl px-4 py-3 ${
+                          className={`rounded-xl px-4 py-3 break-words overflow-hidden ${
                             message.role === "user"
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted text-foreground"

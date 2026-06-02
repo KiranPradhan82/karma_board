@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
               FROM "AiChat" m
               LEFT JOIN "User" u ON m."userId" = u.id
               WHERE m."projectId" = ?
-              ORDER BY m."timestamp" DESC
+              ORDER BY m."timestamp" ASC
               LIMIT ? OFFSET ?`,
         args: [projectId, limit, offset],
       });
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
               FROM "AiChat" m
               LEFT JOIN "User" u ON m."userId" = u.id
               WHERE m."projectId" = ? AND (m."userId" = ? OR m."role" = 'assistant')
-              ORDER BY m."timestamp" DESC
+              ORDER BY m."timestamp" ASC
               LIMIT ? OFFSET ?`,
         args: [projectId, user.id, limit, offset],
       });
