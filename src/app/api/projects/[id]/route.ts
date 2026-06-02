@@ -17,6 +17,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { id } = await context.params;
     const client = getTursoClient();
 
+    // Non-SUPERADMIN users can only access projects they're assigned to
+    if (user.role !== "SUPERADMIN") {
+      const membership = await client.execute({
+        sql: `SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL`,
+        args: [id, user.id],
+      });
+      if (membership.rows.length === 0) {
+        return NextResponse.json({ success: false, error: "Project not found" }, { status: 404 });
+      }
+    }
+
     const project = await client.execute({
       sql: `SELECT p.*,
               (SELECT COUNT(*) FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm."removedAt" IS NULL) as memberCount

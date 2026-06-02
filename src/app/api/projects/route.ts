@@ -29,6 +29,12 @@ export async function GET(request: NextRequest) {
     const conditions: string[] = [];
     const args: unknown[] = [];
 
+    // Non-SUPERADMIN users only see projects they are assigned to
+    if (user.role !== "SUPERADMIN") {
+      conditions.push(`p.id IN (SELECT "projectId" FROM "ProjectMember" WHERE "userId" = ? AND "removedAt" IS NULL)`);
+      args.push(user.id);
+    }
+
     if (search) {
       conditions.push(`(p."name" LIKE ? OR p."description" LIKE ? OR p."clientName" LIKE ?)`);
       const term = `%${search}%`;

@@ -8,6 +8,20 @@ interface RouteContext {
 }
 
 /**
+ * Check if a user has access to a project.
+ * SUPERADMIN always has access. Others must be in ProjectMember.
+ */
+async function hasProjectAccess(userId: string, userRole: string, projectId: string): Promise<boolean> {
+  if (userRole === "SUPERADMIN") return true;
+  const client = getTursoClient();
+  const result = await client.execute({
+    sql: `SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL`,
+    args: [projectId, userId],
+  });
+  return result.rows.length > 0;
+}
+
+/**
  * Ensure AI tables exist in Turso. Runs silently on first use.
  */
 async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
@@ -91,6 +105,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "projectId is required" }, { status: 400 });
     }
 
+    // Check project access
+    const canAccess = await hasProjectAccess(user.id, user.role, projectId);
+    if (!canAccess) {
+      return NextResponse.json({ success: false, error: "You don't have access to this project" }, { status: 403 });
+    }
+
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
 
@@ -170,6 +190,12 @@ export async function POST(request: NextRequest) {
 
     if (!projectId || !content) {
       return NextResponse.json({ success: false, error: "projectId and content are required" }, { status: 400 });
+    }
+
+    // Check project access
+    const canAccess = await hasProjectAccess(user.id, user.role, projectId);
+    if (!canAccess) {
+      return NextResponse.json({ success: false, error: "You don't have access to this project" }, { status: 403 });
     }
 
     const client = getTursoClient();
