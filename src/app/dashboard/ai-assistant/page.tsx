@@ -17,6 +17,7 @@ import {
   Loader2,
   AlertCircle,
   Search,
+  Cpu,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
 
 interface Project {
   id: string;
@@ -90,6 +101,10 @@ export default function KarmaSpacePage() {
   } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Per-project AI model (SUPERADMIN only)
+  const [projectModel, setProjectModel] = useState<string | null>(null);
+  const [isModelLoading, setIsModelLoading] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -132,6 +147,50 @@ export default function KarmaSpacePage() {
     }
     fetchMessages();
   }, [selectedProject]);
+
+  // Fetch per-project model when project changes (SUPERADMIN)
+  useEffect(() => {
+    if (!selectedProject) {
+      setProjectModel(null);
+      return;
+    }
+    async function fetchProjectModel() {
+      try {
+        const res = await fetch(`/api/ai/project-model?projectId=${selectedProject.id}`);
+        const json = await res.json();
+        if (json.success) {
+          setProjectModel(json.data.model);
+        }
+      } catch {
+        // silently ignore
+      }
+    }
+    fetchProjectModel();
+  }, [selectedProject]);
+
+  // Handle model change
+  const handleModelChange = async (newModel: string) => {
+    if (!selectedProject) return;
+    setIsModelLoading(true);
+    try {
+      const res = await fetch("/api/ai/project-model", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          model: newModel === "__default__" ? null : newModel,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProjectModel(json.data.model);
+      }
+    } catch {
+      console.error("Failed to update model");
+    } finally {
+      setIsModelLoading(false);
+    }
+  };
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -361,9 +420,58 @@ export default function KarmaSpacePage() {
             </Popover>
           </div>
 
-          {/* Export PDF button for SUPERADMIN */}
-          {isSuperAdmin && selectedProject && (
-            <Tooltip>
+          {/* Right side: Model selector + Export PDF (SUPERADMIN only) */}
+          <div className="flex items-center gap-2">
+            {/* AI Model Selector — SUPERADMIN only */}
+            {isSuperAdmin && selectedProject && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5">
+                    {isModelLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                    <Select
+                      value={projectModel || "__default__"}
+                      onValueChange={handleModelChange}
+                      disabled={isModelLoading}
+                    >
+                      <SelectTrigger className="w-auto gap-1.5 h-9 text-xs font-normal border-dashed">
+                        <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <SelectValue placeholder="Default Model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default__">
+                          <span className="text-muted-foreground">Global Default</span>
+                        </SelectItem>
+                        {(() => {
+                          const categories = Array.from(new Set(AVAILABLE_MODELS.map((m) => m.category)));
+                          return categories.map((cat) => (
+                            <SelectGroup key={cat}>
+                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{cat}</SelectLabel>
+                              {AVAILABLE_MODELS.filter((m) => m.category === cat).map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  <div className="flex flex-col">
+                                    <span>{m.name}</span>
+                                    <span className="text-[10px] text-muted-foreground">{m.description} ({m.contextWindow})</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {projectModel
+                    ? `Using: ${AVAILABLE_MODELS.find((m) => m.id === projectModel)?.name || projectModel}`
+                    : "Using global default model"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Export PDF button for SUPERADMIN */}
+            {isSuperAdmin && selectedProject && (
+              <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
@@ -383,6 +491,7 @@ export default function KarmaSpacePage() {
               <TooltipContent>Export project report as PDF</TooltipContent>
             </Tooltip>
           )}
+          </div>
         </div>
 
         {/* Messages Area */}

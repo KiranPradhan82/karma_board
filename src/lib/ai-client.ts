@@ -5,12 +5,116 @@
  * No dependency on platform-specific SDKs or config files.
  *
  * Required env vars (set in Vercel Dashboard > Settings > Environment Variables):
- *   AI_API_KEY     — Your API key (e.g. OpenAI, z-ai, Together, etc.)
+ *   AI_API_KEY     — Your API key (e.g. OpenAI, Groq, Together, etc.)
  *
  * Optional env vars:
  *   AI_API_BASE_URL — Base URL for the API (default: https://api.openai.com/v1)
- *   AI_MODEL        — Model name (default: gpt-4o-mini)
+ *   AI_MODEL        — Global default model (default: gpt-4o-mini)
+ *   AI_VISION_MODEL — Separate model for image analysis (optional)
  */
+
+// ===== Available AI Models =====
+// SUPERADMIN can choose per-project. Edit this list to add/remove models.
+
+export interface AiModelOption {
+  id: string;
+  name: string;
+  description: string;
+  contextWindow: string;
+  category: string;
+}
+
+export const AVAILABLE_MODELS: AiModelOption[] = [
+  // Groq Models
+  {
+    id: "llama-3.3-70b-versatile",
+    name: "Llama 3.3 70B",
+    description: "Best quality, great for docs and complex tasks",
+    contextWindow: "128K",
+    category: "Groq",
+  },
+  {
+    id: "llama-3.1-8b-instant",
+    name: "Llama 3.1 8B Instant",
+    description: "Ultra fast, good for quick queries",
+    contextWindow: "128K",
+    category: "Groq",
+  },
+  {
+    id: "llama-3.1-70b-versatile",
+    name: "Llama 3.1 70B",
+    description: "Strong reasoning, good all-rounder",
+    contextWindow: "128K",
+    category: "Groq",
+  },
+  {
+    id: "mixtral-8x7b-32768",
+    name: "Mixtral 8x7B",
+    description: "Long context (32K), great for long documents",
+    contextWindow: "32K",
+    category: "Groq",
+  },
+  {
+    id: "gemma2-9b-it",
+    name: "Gemma 2 9B",
+    description: "Google model, fast and efficient",
+    contextWindow: "8K",
+    category: "Groq",
+  },
+  // OpenAI Models
+  {
+    id: "gpt-4o-mini",
+    name: "GPT-4o Mini",
+    description: "Fast, affordable, great quality",
+    contextWindow: "128K",
+    category: "OpenAI",
+  },
+  {
+    id: "gpt-4o",
+    name: "GPT-4o",
+    description: "Best quality, more expensive",
+    contextWindow: "128K",
+    category: "OpenAI",
+  },
+  {
+    id: "gpt-3.5-turbo",
+    name: "GPT-3.5 Turbo",
+    description: "Fastest, cheapest, decent quality",
+    contextWindow: "16K",
+    category: "OpenAI",
+  },
+  // Together AI Models
+  {
+    id: "meta-llama/Llama-3-70b-chat-hf",
+    name: "Llama 3 70B (Together)",
+    description: "Strong open-source model via Together",
+    contextWindow: "8K",
+    category: "Together",
+  },
+  {
+    id: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    name: "Mixtral 8x7B (Together)",
+    description: "Mixture of experts, good quality",
+    contextWindow: "32K",
+    category: "Together",
+  },
+];
+
+/**
+ * Get model display info by ID.
+ */
+export function getModelInfo(modelId: string): AiModelOption | undefined {
+  return AVAILABLE_MODELS.find((m) => m.id === modelId);
+}
+
+/**
+ * Get the global default model from env var.
+ */
+export function getGlobalDefaultModel(): string {
+  return process.env.AI_MODEL || "llama-3.3-70b-versatile";
+}
+
+// ===== Types =====
 
 export interface AiMessage {
   role: "system" | "user" | "assistant";
@@ -50,10 +154,12 @@ export interface AiResponse {
   error?: string;
 }
 
+// ===== Internal =====
+
 function getConfig() {
   const baseUrl = process.env.AI_API_BASE_URL || "https://api.openai.com/v1";
   const apiKey = process.env.AI_API_KEY;
-  const defaultModel = process.env.AI_MODEL || "gpt-4o-mini";
+  const defaultModel = process.env.AI_MODEL || "llama-3.3-70b-versatile";
 
   return { baseUrl, apiKey, defaultModel };
 }

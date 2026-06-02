@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
-import { chatCompletion, visionCompletion } from "@/lib/ai-client";
+import { chatCompletion, visionCompletion, getGlobalDefaultModel } from "@/lib/ai-client";
 
 interface RouteContext {
   params: Promise<{}>;
@@ -241,6 +241,21 @@ export async function POST(request: NextRequest) {
       command,
     });
 
+    // Resolve model: per-project setting > env var > global default
+    let projectModel: string | null = null;
+    try {
+      const modelSetting = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = ?`,
+        args: [`ai_model:${projectId}`],
+      });
+      if (modelSetting.rows.length > 0 && modelSetting.rows[0].value) {
+        projectModel = modelSetting.rows[0].value as string;
+      }
+    } catch {
+      // Settings table might not exist yet, fall back to default
+    }
+    const activeModel = projectModel || process.env.AI_VISION_MODEL || getGlobalDefaultModel();
+
     // Call AI
     let aiText: string;
     let aiError = false;
@@ -249,7 +264,7 @@ export async function POST(request: NextRequest) {
       if (fileData && fileType && fileType.startsWith("image/")) {
         // Vision API for image attachments
         const result = await visionCompletion({
-          model: process.env.AI_VISION_MODEL || undefined,
+          model: activeModel,
           messages: [
             { role: "system", content: systemPrompt },
             {
@@ -283,6 +298,7 @@ export async function POST(request: NextRequest) {
 
         const result = await chatCompletion({
           messages: aiMessages,
+          model: activeModel,
         });
 
         if (!result.success) {
