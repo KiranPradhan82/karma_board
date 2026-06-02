@@ -48,7 +48,8 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[GET /api/clients/me] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }
 
@@ -131,6 +132,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: true, message: 'Profile updated successfully' });
   } catch (error) {
     console.error('[PUT /api/clients/me] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }

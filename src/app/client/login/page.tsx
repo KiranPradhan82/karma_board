@@ -15,10 +15,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useApiError } from "@/hooks/use-api-error";
 
 export default function ClientLoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const { showError, ErrorDetailDialog } = useApiError();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -42,6 +44,7 @@ export default function ClientLoginPage() {
       });
 
       if (res?.error) {
+        showError('Login failed', res.error || 'Invalid email or password');
         toast.error("Invalid email or password");
         return;
       }
@@ -50,6 +53,8 @@ export default function ClientLoginPage() {
       router.push("/client/portal");
       router.refresh();
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Login failed', errMsg, 'URL: signIn(credentials)');
       toast.error("Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);
@@ -113,6 +118,8 @@ export default function ClientLoginPage() {
           KarmaBoard — Project Management Made Simple
         </p>
       </div>
+
+      {ErrorDetailDialog}
     </div>
   );
 }

@@ -67,7 +67,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
     });
   } catch (error) {
     console.error('[GET /api/clients/[id]] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }
 
@@ -200,7 +201,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     });
   } catch (error) {
     console.error('[PUT /api/clients/[id]] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }
 
@@ -257,6 +259,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: true, message: 'Client deleted successfully' });
   } catch (error) {
     console.error('[DELETE /api/clients/[id]] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useApiError } from '@/hooks/use-api-error';
 import Link from 'next/link';
 
 interface ClientProfile {
@@ -27,6 +28,7 @@ interface ClientProfile {
 export default function ClientProfilePage() {
   const { data: session } = useSession();
   const router = useRouter();
+  const { showError, ErrorDetailDialog } = useApiError();
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,9 +54,12 @@ export default function ClientProfilePage() {
             phone: data.data.phone || '',
           });
         } else {
+          showError('Failed to load profile', data.error || 'Unknown error');
           toast.error('Failed to load profile');
         }
-      } catch {
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        showError('Failed to load profile', errMsg, 'URL: /api/clients/me');
         toast.error('Failed to load profile');
       } finally {
         setLoading(false);
@@ -93,9 +98,12 @@ export default function ClientProfilePage() {
         toast.success('Profile updated successfully');
         setProfile({ ...profile!, ...updateData } as ClientProfile);
       } else {
+        showError('Failed to update profile', data.error || 'Unknown error', 'URL: PUT /api/clients/me');
         toast.error(data.error || 'Failed to update profile');
       }
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Failed to update profile', errMsg, 'URL: PUT /api/clients/me');
       toast.error('Something went wrong');
     } finally {
       setSaving(false);
@@ -221,6 +229,8 @@ export default function ClientProfilePage() {
           </div>
         </div>
       </main>
+
+      {ErrorDetailDialog}
     </div>
   );
 }

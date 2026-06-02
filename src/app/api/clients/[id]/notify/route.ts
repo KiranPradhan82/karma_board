@@ -115,6 +115,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
   } catch (error) {
     console.error('[POST /api/clients/[id]/notify] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }

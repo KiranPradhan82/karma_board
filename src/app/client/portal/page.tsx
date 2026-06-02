@@ -22,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useApiError } from "@/hooks/use-api-error";
 import Link from "next/link";
 
 interface ClientProject {
@@ -76,6 +77,7 @@ function getDaysRemaining(deadline: string | null, status: string) {
 export default function ClientPortalPage() {
   const { data: session, status: authStatus } = useSession();
   const router = useRouter();
+  const { showError, ErrorDetailDialog } = useApiError();
   const [clientData, setClientData] = useState<{ name: string; email: string; company: string | null } | null>(null);
   const [projects, setProjects] = useState<ClientProject[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -88,9 +90,12 @@ export default function ClientPortalPage() {
       const data = await res.json();
       if (data.success) {
         setClientData(data.data);
+      } else {
+        showError('Failed to load client data', data.error || 'Unknown error');
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Failed to load client data', errMsg, 'URL: /api/clients/me');
     }
   }, []);
 
@@ -101,9 +106,12 @@ export default function ClientPortalPage() {
       if (data.success) {
         setActivities(data.data.activities || []);
         setNotifications(data.data.notifications || []);
+      } else {
+        showError('Failed to load activities', data.error || 'Unknown error');
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Failed to load activities', errMsg, 'URL: /api/clients/me/activities');
     }
   }, []);
 
@@ -332,6 +340,8 @@ export default function ClientPortalPage() {
       <footer className="border-t py-4 text-center text-xs text-muted-foreground">
         KarmaBoard — Project Management Made Simple
       </footer>
+
+      {ErrorDetailDialog}
     </div>
   );
 }

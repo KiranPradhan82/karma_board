@@ -87,6 +87,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[GET /api/clients/me/activities] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}` }, { status: 500 });
   }
 }

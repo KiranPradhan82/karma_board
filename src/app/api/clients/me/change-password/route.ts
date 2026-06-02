@@ -58,8 +58,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[POST /api/clients/me/change-password] Error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { success: false, error: `Internal server error: ${msg}` },
       { status: 500 }
     );
   }

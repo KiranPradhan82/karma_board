@@ -65,6 +65,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useApiError } from '@/hooks/use-api-error';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -414,6 +415,7 @@ function EmptyState({ hasFilters, onClearFilters }: { hasFilters: boolean; onCle
 export default function ClientsPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role || 'MEMBER';
+  const { showError, ErrorDetailDialog } = useApiError();
 
   const [clients, setClients] = useState<Client[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
@@ -457,9 +459,12 @@ export default function ClientsPage() {
         setClients(json.data.clients);
         setPagination(json.data.pagination);
       } else {
+        showError('Failed to load clients', json.error || 'Unknown error', `URL: /api/clients?${params.toString()}`);
         toast.error(json.error || 'Failed to load clients');
       }
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Failed to load clients', errMsg, `URL: /api/clients?${params.toString()}`);
       toast.error('Failed to load clients');
     } finally {
       setLoading(false);
@@ -503,6 +508,7 @@ export default function ClientsPage() {
           setClientDialogOpen(false);
           fetchClients();
         } else {
+          showError('Failed to create client', json.error || 'Unknown error');
           toast.error(json.error || 'Failed to create client');
         }
       } else if (editingClient) {
@@ -530,11 +536,13 @@ export default function ClientsPage() {
           setClientDialogOpen(false);
           fetchClients();
         } else {
+          showError('Failed to update client', json.error || 'Unknown error', `URL: /api/clients/${editingClient.id}`);
           toast.error(json.error || 'Failed to update client');
         }
       }
     } catch (formError) {
       const errMsg = formError instanceof Error ? formError.message : String(formError);
+      showError('Failed to save client', errMsg);
       toast.error(`Request failed: ${errMsg}`);
     } finally {
       setDialogLoading(false);
@@ -554,9 +562,12 @@ export default function ClientsPage() {
         setDeletingClient(null);
         fetchClients();
       } else {
+        showError('Failed to delete client', json.error || 'Unknown error', `URL: /api/clients/${deletingClient.id}`);
         toast.error(json.error || 'Failed to delete client');
       }
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Failed to delete client', errMsg, `URL: /api/clients/${deletingClient?.id}`);
       toast.error('Something went wrong');
     } finally {
       setDeleteLoading(false);
@@ -838,6 +849,8 @@ export default function ClientsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {ErrorDetailDialog}
     </div>
   );
 }
