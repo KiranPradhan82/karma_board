@@ -21,6 +21,7 @@ import {
   Wrench,
   CheckCircle2,
   XCircle,
+  ImagePlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -106,11 +107,11 @@ export default function KarmaSpacePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [attachedFile, setAttachedFile] = useState<{
+  const [attachedFiles, setAttachedFiles] = useState<{
     data: string;
     name: string;
     type: string;
-  } | null>(null);
+  }[]>([]);
   const [isExporting, setIsExporting] = useState(false);
 
   // Agentic tool execution steps (shown during loading)
@@ -236,11 +237,10 @@ export default function KarmaSpacePage() {
         projectId: selectedProject.id,
         content,
       };
-      if (attachedFile) {
-        body.fileData = attachedFile.data;
-        body.fileName = attachedFile.name;
-        body.fileType = attachedFile.type;
-        setAttachedFile(null);
+      // Send images as array (new format)
+      if (attachedFiles.length > 0) {
+        body.files = attachedFiles;
+        setAttachedFiles([]);
       }
 
       const res = await fetch("/api/ai/chat", {
@@ -283,7 +283,7 @@ export default function KarmaSpacePage() {
       setActiveToolSteps([]);
       inputRef.current?.focus();
     }
-  }, [inputValue, selectedProject, isLoading, attachedFile, user?.name]);
+  }, [inputValue, selectedProject, isLoading, attachedFiles, user?.name]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -298,19 +298,41 @@ export default function KarmaSpacePage() {
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(",")[1];
-      setAttachedFile({ data: base64, name: file.name, type: file.type });
-    };
-    reader.readAsDataURL(file);
+    const newFiles: { data: string; name: string; type: string }[] = [];
+    const MAX_FILES = 5;
+    const MAX_SIZE_MB = 10;
+
+    for (let i = 0; i < Math.min(files.length, MAX_FILES - attachedFiles.length); i++) {
+      const file = files[i];
+
+      // Check file size
+      if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+        setError(`Image "${file.name}" is too large. Maximum size is ${MAX_SIZE_MB}MB.`);
+        continue;
+      }
+
+      // Read file as base64
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        setAttachedFiles((prev) => [
+          ...prev,
+          { data: base64, name: file.name, type: file.type },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const removeAttachedFile = (index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleExportPdf = async () => {
@@ -440,7 +462,7 @@ export default function KarmaSpacePage() {
 
           {/* Right side: Model selector + Export PDF (SUPERADMIN only) */}
           <div className="flex items-center gap-2">
-            {/* AI Model Selector — SUPERADMIN only */}
+            {/* AI Model Selector - SUPERADMIN only */}
             {isSuperAdmin && selectedProject && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -700,19 +722,42 @@ export default function KarmaSpacePage() {
           </div>
         )}
 
-        {/* File Preview */}
-        {attachedFile && (
-          <div className="border-t px-4 py-2 flex items-center gap-2 shrink-0 bg-muted/50">
-            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-sm truncate flex-1">{attachedFile.name}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setAttachedFile(null)}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
+        {/* File Preview - Multiple images */
+        {attachedFiles.length > 0 && (
+          <div className="border-t px-4 py-2 flex items-center gap-2 overflow-x-auto shrink-0 bg-muted/50 scrollbar-none">
+            <div className="flex gap-2">
+              {attachedFiles.map((file, idx) => (
+                <div
+                  key={idx}
+                  className="relative group flex items-center gap-1.5 bg-background rounded-lg border px-2.5 py-1.5 shrink-0"
+                >
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs truncate max-w-[120px]">{file.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => removeAttachedFile(idx)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+              {attachedFiles.length < 5 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1.5 shrink-0 text-xs text-muted-foreground"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImagePlus className="h-3.5 w-3.5" />
+                  <span>Add more</span>
+                </Button>
+              )}
+            </div>
+            <Badge variant="secondary" className="text-[10px] shrink-0">
+              {attachedFiles.length}/5
+            </Badge>
           </div>
         )}
 
@@ -726,6 +771,7 @@ export default function KarmaSpacePage() {
                 ref={fileInputRef}
                 className="hidden"
                 accept="image/*"
+                multiple
                 onChange={handleFileChange}
               />
               <Tooltip>
@@ -740,7 +786,7 @@ export default function KarmaSpacePage() {
                     <Paperclip className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Attach image</TooltipContent>
+                <TooltipContent>Attach images (up to 5)</TooltipContent>
               </Tooltip>
 
               {/* Text Input */}

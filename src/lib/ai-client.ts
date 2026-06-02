@@ -5,12 +5,12 @@
  * No dependency on platform-specific SDKs or config files.
  *
  * Required env vars (set in Vercel Dashboard > Settings > Environment Variables):
- *   AI_API_KEY     — Your API key (e.g. OpenAI, Groq, Together, etc.)
+ *   AI_API_KEY     - Your API key (e.g. OpenAI, Groq, Together, etc.)
  *
  * Optional env vars:
- *   AI_API_BASE_URL — Base URL for the API (default: https://api.openai.com/v1)
- *   AI_MODEL        — Global default model (default: gpt-4o-mini)
- *   AI_VISION_MODEL — Separate model for image analysis (optional)
+ *   AI_API_BASE_URL - Base URL for the API (default: https://api.openai.com/v1)
+ *   AI_MODEL        - Global default model (default: gpt-4o-mini)
+ *   AI_VISION_MODEL - Separate model for image analysis (optional)
  */
 
 // ===== Available AI Models =====
@@ -150,7 +150,13 @@ export interface AiVisionMessage {
 export interface AiMultimodalContent {
   type: "text" | "image_url";
   text?: string;
-  image_url?: { url: string };
+  image_url?: { url: string; detail?: string };
+}
+
+export interface AttachedImage {
+  data: string;   // base64 without data URL prefix
+  type: string;   // MIME type
+  name: string;
 }
 
 export interface AiVisionOptions {
@@ -180,6 +186,29 @@ function getConfig() {
 }
 
 /**
+ * Check if a model supports OpenAI-style multimodal content (image_url array format).
+ * Groq, Together, and most non-OpenAI providers do NOT support this.
+ */
+export function supportsMultimodal(modelId?: string): boolean {
+  const model = modelId || getConfig().defaultModel;
+  // OpenAI models with vision support
+  return model.startsWith("gpt-4o") || model.startsWith("gpt-4-turbo") || model === "chatgpt-4o-latest";
+}
+
+/**
+ * Get the vision model to use. Falls back to AI_VISION_MODEL env var,
+ * then checks if the current model supports vision, and finally defaults to gpt-4o-mini.
+ */
+export function getVisionModel(preferredModel?: string): string {
+  // 1. If AI_VISION_MODEL is set, use it
+  if (process.env.AI_VISION_MODEL) return process.env.AI_VISION_MODEL;
+  // 2. If preferred model supports vision, use it
+  if (preferredModel && supportsMultimodal(preferredModel)) return preferredModel;
+  // 3. Default to gpt-4o-mini (best cost/vision quality)
+  return "gpt-4o-mini";
+}
+
+/**
  * Check if AI is properly configured.
  */
 export function isAiConfigured(): boolean {
@@ -197,8 +226,7 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
     return {
       success: false,
       content: "",
-      error:
-        "AI_API_KEY environment variable is not configured. Please set it in your Vercel project settings (Settings > Environment Variables).",
+      error: "AI_API_KEY environment variable is not configured.",
     };
   }
 
@@ -218,11 +246,11 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
       requestBody.tool_choice = options.tool_choice || "auto";
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(baseUrl + "/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: "Bearer " + apiKey,
       },
       body: JSON.stringify(requestBody),
     });
@@ -233,7 +261,7 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
       return {
         success: false,
         content: "",
-        error: `AI API returned status ${response.status}: ${errorBody.slice(0, 200)}`,
+        error: "AI API returned status " + response.status + ": " + errorBody.slice(0, 200),
       };
     }
 
@@ -261,14 +289,15 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
     return {
       success: false,
       content: "",
-      error: `Failed to reach AI service: ${error instanceof Error ? error.message : "Unknown error"}`,
+      error: "Failed to reach AI service: " + (error instanceof Error ? error.message : "Unknown error"),
     };
   }
 }
 
 /**
  * Send a vision (multimodal) chat completion request.
- * Supports images via base64 data URLs.
+ * Automatically handles model differences - uses OpenAI multimodal format for vision-capable models,
+ * and falls back to string-only for models that do not support multimodal content arrays.
  */
 export async function visionCompletion(options: AiVisionOptions): Promise<AiResponse> {
   const { baseUrl, apiKey, defaultModel } = getConfig();
@@ -277,35 +306,20 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
     return {
       success: false,
       content: "",
-      error:
-        "AI_API_KEY environment variable is not configured. Please set it in your Vercel project settings (Settings > Environment Variables).",
+      error: "AI_API_KEY environment variable is not configured.",
     };
   }
 
   const model = options.model || defaultModel;
 
-  try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: options.messages,
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.maxTokens ?? 4096,
-      }),
-    });
-
-    // If standard endpoint returns 404, try the vision-specific endpoint
-    if (!response.ok && response.status === 404) {
-      const visionResponse = await fetch(`${baseUrl}/chat/completions/vision`, {
+  // Check if model supports OpenAI multimodal format
+  if (supportsMultimodal(model)) {
+    try {
+      const response = await fetch(baseUrl + "/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: "Bearer " + apiKey,
         },
         body: JSON.stringify({
           model,
@@ -315,31 +329,72 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
         }),
       });
 
-      if (!visionResponse.ok) {
-        const errorBody = await visionResponse.text();
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error("[ai-client] Vision API error:", response.status, errorBody);
         return {
           success: false,
           content: "",
-          error: `Vision API returned status ${visionResponse.status}: ${errorBody.slice(0, 200)}`,
+          error: "Vision API returned status " + response.status + ": " + errorBody.slice(0, 200),
         };
       }
 
-      const data = await visionResponse.json();
+      const data = await response.json();
       return {
         success: true,
         content: data.choices?.[0]?.message?.content || "No response generated.",
         model: data.model || model,
         usage: data.usage,
       };
-    }
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error("[ai-client] Vision API error:", response.status, errorBody);
+    } catch (error) {
+      console.error("[ai-client] Vision network error:", error);
       return {
         success: false,
         content: "",
-        error: `Vision API returned status ${response.status}: ${errorBody.slice(0, 200)}`,
+        error: "Failed to reach AI vision service: " + (error instanceof Error ? error.message : "Unknown error"),
+      };
+    }
+  }
+
+  // === Fallback: Model does not support multimodal content arrays ===
+  // Convert multimodal messages to string-only format
+  const fallbackMessages: { role: string; content: string }[] = options.messages.map((msg) => {
+    if (typeof msg.content === "string") {
+      return { role: msg.role, content: msg.content };
+    }
+    const textParts = msg.content.filter((p) => p.type === "text").map((p) => p.text || "");
+    const imageCount = msg.content.filter((p) => p.type === "image_url").length;
+    const textContent = textParts.join("\n");
+    let imageNote = "";
+    if (imageCount > 0) {
+      const plural = imageCount > 1 ? "s" : "";
+      imageNote = "\n\n[Note: The user attached " + imageCount + " image" + plural + ". This model cannot view images directly. Please describe what you observe or ask the user to describe the image contents.]";
+    }
+    return { role: msg.role, content: textContent + imageNote };
+  });
+
+  try {
+    const response = await fetch(baseUrl + "/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages: fallbackMessages,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.maxTokens ?? 4096,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error("[ai-client] Vision fallback API error:", response.status, errorBody);
+      return {
+        success: false,
+        content: "",
+        error: "AI API returned status " + response.status + ": " + errorBody.slice(0, 200),
       };
     }
 
@@ -351,11 +406,11 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
       usage: data.usage,
     };
   } catch (error) {
-    console.error("[ai-client] Vision network error:", error);
+    console.error("[ai-client] Vision fallback network error:", error);
     return {
       success: false,
       content: "",
-      error: `Failed to reach AI vision service: ${error instanceof Error ? error.message : "Unknown error"}`,
+      error: "Failed to reach AI service: " + (error instanceof Error ? error.message : "Unknown error"),
     };
   }
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
-import { chatCompletion, visionCompletion, getGlobalDefaultModel } from "@/lib/ai-client";
+import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel } from "@/lib/ai-client";
 import { getToolsForRole } from "@/lib/ai-tools";
 import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
 import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
@@ -190,11 +190,26 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { projectId, content, fileData, fileName, fileType } = body;
+    const { projectId, content, files, fileData, fileName, fileType } = body;
 
     if (!projectId || !content) {
       return NextResponse.json({ success: false, error: "projectId and content are required" }, { status: 400 });
     }
+
+    // Normalize: support both old single-file and new multi-file format
+    const attachedImages: { data: string; type: string; name: string }[] = [];
+    if (files && Array.isArray(files) && files.length > 0) {
+      // New format: array of { data, type, name }
+      for (const f of files) {
+        if (f.data && f.type && f.type.startsWith("image/")) {
+          attachedImages.push({ data: f.data, type: f.type, name: f.name || "image" });
+        }
+      }
+    } else if (fileData && fileType && fileType.startsWith("image/")) {
+      // Legacy single-file format
+      attachedImages.push({ data: fileData, type: fileType, name: fileName || "image" });
+    }
+    const hasImages = attachedImages.length > 0;
 
     // Check project access
     const canAccess = await hasProjectAccess(user.id, user.role, projectId);
@@ -316,7 +331,9 @@ export async function POST(request: NextRequest) {
     } catch {
       // Settings table might not exist yet, fall back to default
     }
-    const activeModel = projectModel || process.env.AI_VISION_MODEL || getGlobalDefaultModel();
+    const activeModel = projectModel || getGlobalDefaultModel();
+    // For vision, use the appropriate vision-capable model
+    const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
 
     // ===== Agentic Loop =====
     let aiText: string;
@@ -357,24 +374,32 @@ export async function POST(request: NextRequest) {
     let finalContent = "";
 
     try {
-      if (fileData && fileType && fileType.startsWith("image/")) {
+      if (hasImages) {
         // Vision API for image attachments — no tool calling for vision
+        // Build multimodal content: text + all images
+        const multimodalContent: { type: string; text?: string; image_url?: { url: string; detail?: string } }[] = [
+          { type: "text", text: content },
+        ];
+        for (const img of attachedImages) {
+          multimodalContent.push({
+            type: "image_url",
+            image_url: { url: `data:${img.type};base64,${img.data}`, detail: "auto" },
+          });
+        }
+
         const result = await visionCompletion({
-          model: activeModel,
+          model: visionModel,
           messages: [
             { role: "system", content: systemPrompt },
             {
               role: "user",
-              content: [
-                { type: "text", text: content },
-                { type: "image_url", image_url: { url: `data:${fileType};base64,${fileData}` } },
-              ],
+              content: multimodalContent,
             },
           ],
         });
 
         if (!result.success) {
-          aiText = `I encountered an issue analyzing the image: ${result.error}`;
+          aiText = `I encountered an issue analyzing the image${attachedImages.length > 1 ? "s" : ""}: ${result.error}`;
           aiError = true;
         } else {
           aiText = result.content;
