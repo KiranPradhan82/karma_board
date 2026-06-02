@@ -3,13 +3,16 @@ import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } fr
 import { encrypt, decrypt, maskSensitive } from '@/lib/encryption';
 
 // Settings keys that should be encrypted in DB
-const SENSITIVE_KEYS = ['RESEND_API_KEY'];
+const SENSITIVE_KEYS = ['RESEND_API_KEY', 'SMTP_PASSWORD'];
 
 // Allowed setting keys
 const ALLOWED_KEYS = [
+  'EMAIL_PROVIDER',
   'RESEND_API_KEY',
   'RESEND_FROM_EMAIL',
   'RESEND_FROM_NAME',
+  'SMTP_USER',
+  'SMTP_PASSWORD',
 ];
 
 // GET /api/settings — Fetch all settings (sensitive values masked)
