@@ -24,6 +24,7 @@ export async function GET() {
     ? `SET (${process.env.RESEND_API_KEY.length} chars)`
     : "NOT SET";
   envChecks.RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "NOT SET";
+  envChecks.EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "NOT SET";
   envChecks.RESEND_FROM_NAME = process.env.RESEND_FROM_NAME || "NOT SET";
   envChecks.NODE_ENV = process.env.NODE_ENV || "NOT SET";
 

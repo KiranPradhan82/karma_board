@@ -9,7 +9,7 @@ interface EmailConfig {
   // Resend
   resendApiKey: string | null;
   resendFromEmail: string;
-  resendFromName: string;
+  fromName: string;
   // Gmail SMTP
   smtpUser: string | null; // your@gmail.com
   smtpPass: string | null; // app password
@@ -43,7 +43,7 @@ async function getEmailConfig(): Promise<EmailConfig> {
       let provider = defaultProvider;
       let resendApiKey: string | null = null;
       let fromEmail = process.env.RESEND_FROM_EMAIL || "";
-      let fromName = process.env.RESEND_FROM_NAME || "KarmaBoard";
+      let fromName = process.env.EMAIL_FROM_NAME || "KarmaBoard";
       let smtpPass: string | null = null;
 
       for (const row of result.rows) {
@@ -67,6 +67,9 @@ async function getEmailConfig(): Promise<EmailConfig> {
             fromEmail = rawValue || fromEmail;
             break;
           case "RESEND_FROM_NAME":
+            fromName = rawValue || fromName;
+            break;
+          case "EMAIL_FROM_NAME":
             fromName = rawValue || fromName;
             break;
           case "SMTP_PASSWORD":
@@ -97,7 +100,7 @@ async function getEmailConfig(): Promise<EmailConfig> {
         provider,
         resendApiKey,
         resendFromEmail: fromEmail,
-        resendFromName: fromName,
+        fromName,
         smtpUser,
         smtpPass,
       };
@@ -111,7 +114,7 @@ async function getEmailConfig(): Promise<EmailConfig> {
     provider: defaultProvider,
     resendApiKey: process.env.RESEND_API_KEY || null,
     resendFromEmail: process.env.RESEND_FROM_EMAIL || "",
-    resendFromName: process.env.RESEND_FROM_NAME || "KarmaBoard",
+    fromName: process.env.EMAIL_FROM_NAME || "KarmaBoard",
     smtpUser: process.env.SMTP_USER || null,
     smtpPass: process.env.SMTP_PASSWORD || null,
   };
@@ -137,7 +140,7 @@ async function sendViaResend(
   const resend = await getResendClient(config.resendApiKey);
 
   const { data, error } = await resend.emails.send({
-    from: `${config.resendFromName} <${config.resendFromEmail}>`,
+    from: `${config.fromName} <${config.resendFromEmail}>`,
     to: [to],
     subject,
     html,
@@ -178,7 +181,7 @@ async function sendViaGmailSmtp(
 
   try {
     const info = await transporter.sendMail({
-      from: `"${config.resendFromName}" <${config.smtpUser}>`,
+      from: `"${config.fromName}" <${config.smtpUser}>`,
       to,
       subject,
       html,
