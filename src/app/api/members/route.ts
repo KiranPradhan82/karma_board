@@ -168,14 +168,21 @@ export async function POST(request: NextRequest) {
       args: [id, name, email, hashedPassword, role, jobTitle || null, phone || null, skills || null, now, now, now],
     });
 
-    // Send welcome email with temporary password
+    // Send welcome email with temporary password (non-blocking — member is created regardless)
     const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://karma-board.vercel.app';
-    const emailResult = await sendWelcomeEmail({
-      to: email,
-      name,
-      temporaryPassword,
-      loginUrl: `${baseUrl}/login`,
-    });
+    let emailResult: { success: boolean; error?: string } = { success: false, error: 'Email not attempted' };
+    try {
+      emailResult = await sendWelcomeEmail({
+        to: email,
+        name,
+        temporaryPassword,
+        loginUrl: `${baseUrl}/login`,
+      });
+    } catch (emailError) {
+      const msg = emailError instanceof Error ? emailError.message : String(emailError);
+      console.error(`[POST /api/members] Email error: ${msg}`);
+      emailResult = { success: false, error: msg };
+    }
 
     // Audit log
     await logActivity({
@@ -201,6 +208,7 @@ export async function POST(request: NextRequest) {
           skills: skills || null,
           status: 'ACTIVE',
           emailSent: emailResult.success,
+          emailError: emailResult.error || null,
         },
       },
       { status: 201 }

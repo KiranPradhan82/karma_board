@@ -754,7 +754,8 @@ export default function TeamPage() {
           if (json.data.emailSent) {
             toast.success('Member created! A welcome email with temporary password has been sent.');
           } else {
-            toast.success('Member created! Note: Email not sent — check EMAIL_PROVIDER, SMTP_USER, and SMTP_PASSWORD settings.');
+            const emailErr = json.data.emailError || 'Unknown email error';
+            toast.success(`Member created! Email not sent: ${emailErr}`);
           }
           setMemberDialogOpen(false);
           fetchMembers();
