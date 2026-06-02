@@ -215,6 +215,8 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.error('[POST /api/members] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : '';
+    return NextResponse.json({ success: false, error: `Internal server error: ${msg}`, debug_stack: stack }, { status: 500 });
   }
 }

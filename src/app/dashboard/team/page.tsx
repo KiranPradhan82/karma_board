@@ -794,8 +794,10 @@ export default function TeamPage() {
           toast.error(json.error || 'Failed to update member');
         }
       }
-    } catch {
-      toast.error('Something went wrong');
+    } catch (formError) {
+      const errMsg = formError instanceof Error ? formError.message : String(formError);
+      toast.error(`Request failed: ${errMsg}`);
+      console.error('[team] Member form error:', formError);
     } finally {
       setDialogLoading(false);
     }
