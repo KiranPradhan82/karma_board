@@ -138,15 +138,16 @@ export async function POST(request: NextRequest) {
     const client = getTursoClient();
     const ip = getClientIp(request);
 
-    // Check for existing email
+    // Check for existing email (including soft-deleted — UNIQUE constraint blocks duplicates)
     const existing = await client.execute({
-      sql: 'SELECT id FROM "User" WHERE email = ? AND "deletedAt" IS NULL',
+      sql: 'SELECT id, "deletedAt" FROM "User" WHERE email = ?',
       args: [email],
     });
 
     if (existing.rows.length > 0) {
+      const isDeleted = existing.rows[0].deletedAt !== null;
       return NextResponse.json(
-        { success: false, error: 'A user with this email already exists' },
+        { success: false, error: isDeleted ? 'A user with this email was previously deleted. Please use a different email or contact your admin to restore the account.' : 'A user with this email already exists' },
         { status: 409 }
       );
     }
@@ -162,11 +163,22 @@ export async function POST(request: NextRequest) {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    await client.execute({
-      sql: `INSERT INTO "User" (id, name, email, password, role, jobTitle, phone, skills, status, "mustChangePassword", joinDate, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
-      args: [id, name, email, hashedPassword, role, jobTitle || null, phone || null, skills || null, now, now, now],
-    });
+    try {
+      await client.execute({
+        sql: `INSERT INTO "User" (id, name, email, password, role, jobTitle, phone, skills, status, "mustChangePassword", joinDate, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1, ?, ?, ?)`,
+        args: [id, name, email, hashedPassword, role, jobTitle || null, phone || null, skills || null, now, now, now],
+      });
+    } catch (dbError: unknown) {
+      const dbMsg = dbError instanceof Error ? dbError.message : String(dbError);
+      if (dbMsg.includes('UNIQUE constraint failed')) {
+        return NextResponse.json(
+          { success: false, error: 'A user with this email already exists' },
+          { status: 409 }
+        );
+      }
+      throw dbError; // re-throw unexpected DB errors
+    }
 
     // Send welcome email with temporary password (non-blocking — member is created regardless)
     const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://karma-board.vercel.app';
