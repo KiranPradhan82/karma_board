@@ -229,12 +229,38 @@ export async function POST(request: NextRequest) {
       content: row.content,
     }));
 
-    // Load project info
+    // Load user name from DB
+    let userName = user.name;
+    try {
+      const userResult = await client.execute({
+        sql: `SELECT name FROM "User" WHERE id = ?`,
+        args: [user.id],
+      });
+      if (userResult.rows.length > 0) {
+        userName = userResult.rows[0].name as string;
+      }
+    } catch {
+      // Use token name as fallback
+    }
+
+    // Load project info (with status, priority, deadline)
     const projectResult = await client.execute({
-      sql: `SELECT name, description, "clientName" FROM "Project" WHERE id = ?`,
+      sql: `SELECT name, description, "clientName", status, priority, deadline FROM "Project" WHERE id = ?`,
       args: [projectId],
     });
     const project = projectResult.rows[0];
+
+    // Load team member count for this project
+    let teamCount: number | undefined;
+    try {
+      const teamResult = await client.execute({
+        sql: `SELECT COUNT(*) as count FROM "ProjectMember" WHERE "projectId" = ? AND "removedAt" IS NULL`,
+        args: [projectId],
+      });
+      teamCount = Number(teamResult.rows[0].count);
+    } catch {
+      // Non-critical
+    }
 
     // Load protocol steps for /docs command
     let protocolSteps: { title: string; description?: string; commandTag?: string }[] = [];
@@ -258,11 +284,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build system prompt
+    // Build system prompt with rich context
     const systemPrompt = buildSystemPrompt({
+      userName,
+      userRole: user.role,
       projectName: project?.name as string | undefined,
       projectDescription: project?.description as string | undefined,
       projectClient: project?.clientName as string | undefined,
+      projectStatus: project?.status as string | undefined,
+      projectDeadline: project?.deadline as string | null | undefined,
+      projectPriority: project?.priority as string | undefined,
+      teamCount,
       protocolSteps: protocolSteps.length > 0 ? protocolSteps : undefined,
       command,
     });
