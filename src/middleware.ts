@@ -13,7 +13,7 @@ export async function middleware(request: NextRequest) {
   // Public routes that don't need auth
   const publicRoutes = ["/login", "/register", "/setup", "/client/login", "/api/auth/register", "/api/setup", "/change-password", "/client/change-password", "/api/auth/reset-first-password", "/api/clients/auth"];
   const isPublicRoute = publicRoutes.some(
-    (route) => pathname === route || pathname.startsWith("/api/auth/") || pathname === "/api/setup" || pathname.startsWith("/api/setup/")
+    (route) => pathname === route || pathname.startsWith("/api/auth/") || pathname === "/api/setup"
   );
 
   // Client public routes
