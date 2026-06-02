@@ -93,3 +93,32 @@ CREATE TABLE IF NOT EXISTS "ClientNotification" (
 -- Add clientId column to Project
 ALTER TABLE "Project" ADD COLUMN "clientId" TEXT;
 ```
+
+---
+
+## Date: 2025-06-03
+
+## Task: Fix internal server error on Client section + Add error display system
+
+### Problem
+- Visiting the Clients section showed "internal server error"
+- No way to see technical error details for debugging
+
+### Files Created
+- `src/components/error-detail-dialog.tsx` — Reusable error popup with copy-to-clipboard
+- `src/hooks/use-api-error.tsx` — Custom hook providing `showError()`, `clearError()`, and pre-connected `ErrorDetailDialog` element
+
+### Files Modified
+- `src/app/api/clients/route.ts` — GET/POST catch blocks now return detailed error messages
+- `src/app/api/clients/[id]/route.ts` — GET/PUT/DELETE catch blocks now return detailed error messages
+- `src/app/api/clients/[id]/notify/route.ts` — POST catch block now returns detailed error messages
+- `src/app/api/clients/me/route.ts` — GET/PUT catch blocks now return detailed error messages
+- `src/app/api/clients/me/activities/route.ts` — GET catch block now returns detailed error messages
+- `src/app/api/clients/me/change-password/route.ts` — POST catch block now returns detailed error messages
+- `src/app/dashboard/clients/page.tsx` — Added useApiError hook with error popup on all fetch/form operations
+- `src/app/client/portal/page.tsx` — Added useApiError hook with error popup on data fetches
+- `src/app/client/profile/page.tsx` — Added useApiError hook with error popup on profile load/save
+- `src/app/client/login/page.tsx` — Added useApiError hook with error popup on login failure
+
+### Build Result
+**PASS** — Build completed successfully. Commit: 64cef4e
