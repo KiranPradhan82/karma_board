@@ -13,6 +13,12 @@ enum Role {
   MEMBER
 }
 
+enum NotificationType {
+  STARTED
+  UPDATE
+  COMPLETED
+}
+
 enum ProjectRole {
   LEAD
   DEVELOPER
@@ -52,6 +58,37 @@ model User {
   aiChats      AiChat[]
 }
 
+model Client {
+  id                 String   @id @default(cuid())
+  name               String
+  email              String   @unique
+  password           String
+  company            String?
+  address            String?
+  phone              String?
+  notes              String?
+  status             String   @default("ACTIVE")
+  mustChangePassword Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  projects      Project[]
+  notifications ClientNotification[]
+}
+
+model ClientNotification {
+  id        String           @id @default(cuid())
+  clientId  String
+  projectId String
+  type      NotificationType
+  message   String?
+  sentBy    String
+  createdAt DateTime         @default(now())
+
+  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
 model Project {
   id          String        @id @default(cuid())
   name        String
@@ -59,16 +96,19 @@ model Project {
   status      ProjectStatus @default(ACTIVE)
   priority    String        @default("MEDIUM")
   clientName  String?
+  clientId    String?
   color       String?
   deadline    DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  members      ProjectMember[]
-  timeLogs     TimeLog[]
-  aiChats      AiChat[]
-  invitations  Invitation[]
+  members       ProjectMember[]
+  timeLogs      TimeLog[]
+  aiChats       AiChat[]
+  invitations   Invitation[]
   protocols     AiProtocol[]
+  client        Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientNotifications ClientNotification[]
 }
 
 model ProjectMember {

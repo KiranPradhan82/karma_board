@@ -116,6 +116,35 @@ CREATE TABLE IF NOT EXISTS "Settings" (
   "value" TEXT NOT NULL,
   "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS "Client" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "name" TEXT NOT NULL,
+  "email" TEXT NOT NULL,
+  "password" TEXT NOT NULL,
+  "company" TEXT,
+  "address" TEXT,
+  "phone" TEXT,
+  "notes" TEXT,
+  "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "mustChangePassword" BOOLEAN NOT NULL DEFAULT 1,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS "ClientNotification" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "clientId" TEXT NOT NULL,
+  "projectId" TEXT NOT NULL,
+  "type" TEXT NOT NULL,
+  "message" TEXT,
+  "sentBy" TEXT NOT NULL,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ClientNotification_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "Client" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "ClientNotification_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "Client_email_key" ON "Client"("email");
 `;
 
 // ALTER TABLE statements for new columns — safe to run multiple times via try/catch
@@ -136,6 +165,7 @@ ALTER TABLE "Project" ADD COLUMN "priority" TEXT NOT NULL DEFAULT 'MEDIUM';
 ALTER TABLE "Project" ADD COLUMN "clientName" TEXT;
 ALTER TABLE "Project" ADD COLUMN "color" TEXT;
 ALTER TABLE "Project" ADD COLUMN "deadline" DATETIME;
+ALTER TABLE "Project" ADD COLUMN "clientId" TEXT;
 `;
 
 async function syncSchema() {

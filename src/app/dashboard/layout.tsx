@@ -15,6 +15,7 @@ import {
   X,
   Menu,
   Hammer,
+  Briefcase,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -26,6 +27,7 @@ import type { NavItem } from "@/lib/constants";
 const ICON_MAP: Record<string, NavItem["icon"]> = {
   Dashboard: LayoutDashboard,
   Team: Users,
+  Clients: Briefcase,
   Projects: FolderKanban,
   "Time Tracker": Clock,
   "Karma Space": Bot,

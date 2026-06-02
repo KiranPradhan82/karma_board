@@ -5,6 +5,7 @@ import {
   Clock,
   Bot,
   Settings,
+  Briefcase,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +40,12 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/team",
     icon: Users,
     minRole: "ADMIN",
+  },
+  {
+    label: "Clients",
+    href: "/dashboard/clients",
+    icon: Briefcase,
+    minRole: "SUPERADMIN",
   },
   {
     label: "Projects",

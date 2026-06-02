@@ -55,6 +55,9 @@ interface Project {
   status: string;
   priority: string;
   clientName: string | null;
+  clientId: string | null;
+  linkedClientName: string | null;
+  linkedClientId: string | null;
   color: string | null;
   deadline: string | null;
   createdAt: string;
@@ -102,9 +105,30 @@ export default function ProjectsPage() {
     description: "",
     priority: "MEDIUM",
     clientName: "",
+    clientId: "",
     color: "#6366f1",
     deadline: "",
   });
+  const [clients, setClients] = useState<{ id: string; name: string; email: string; company: string | null }[]>([]);
+  const [showNewClientForm, setShowNewClientForm] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({ name: "", email: "", company: "", address: "", phone: "" });
+
+  // Fetch clients for dropdown
+  const fetchClients = useCallback(async () => {
+    try {
+      const res = await fetch('/api/clients?limit=100');
+      const data = await res.json();
+      if (data.success) {
+        setClients(data.data.clients);
+      }
+    } catch {
+      // Ignore errors on client fetch
+    }
+  }, []);
+
+  useEffect(() => {
+    if (createOpen) fetchClients();
+  }, [createOpen, fetchClients]);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -148,20 +172,34 @@ export default function ProjectsPage() {
     }
     setCreateLoading(true);
     try {
+      const payload: Record<string, unknown> = {
+        ...createForm,
+        deadline: createForm.deadline || undefined,
+        clientName: createForm.clientName || undefined,
+      };
+
+      if (createForm.clientId === "new" && showNewClientForm) {
+        payload.clientId = "new";
+        payload.newClient = newClientForm;
+      } else if (createForm.clientId) {
+        payload.clientId = createForm.clientId;
+        // Auto-fill clientName from selected client
+        const sel = clients.find(c => c.id === createForm.clientId);
+        if (sel) payload.clientName = sel.name;
+      }
+
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...createForm,
-          deadline: createForm.deadline || undefined,
-          clientName: createForm.clientName || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.success) {
         toast.success("Project created successfully");
         setCreateOpen(false);
-        setCreateForm({ name: "", description: "", priority: "MEDIUM", clientName: "", color: "#6366f1", deadline: "" });
+        setCreateForm({ name: "", description: "", priority: "MEDIUM", clientName: "", clientId: "", color: "#6366f1", deadline: "" });
+        setShowNewClientForm(false);
+        setNewClientForm({ name: "", email: "", company: "", address: "", phone: "" });
         fetchProjects();
         // Navigate to project detail to manage team
         router.push(`/dashboard/projects/${data.data.project.id}`);
@@ -540,6 +578,60 @@ export default function ProjectsPage() {
                 </div>
               </div>
             </div>
+            <div className="grid gap-2">
+              <Label>Link to Client Account</Label>
+              <Select
+                value={createForm.clientId || "none"}
+                onValueChange={(v) => {
+                  if (v === "new") {
+                    setShowNewClientForm(true);
+                    setCreateForm({ ...createForm, clientId: "new" });
+                  } else if (v === "none") {
+                    setShowNewClientForm(false);
+                    setCreateForm({ ...createForm, clientId: "" });
+                  } else {
+                    setShowNewClientForm(false);
+                    setCreateForm({ ...createForm, clientId: v });
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select client..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No linked client</SelectItem>
+                  <SelectItem value="new">+ Create New Client</SelectItem>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}{c.company ? ` (${c.company})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {showNewClientForm && (
+              <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                <p className="text-sm font-medium">New Client Details</p>
+                <div className="grid gap-2">
+                  <Label htmlFor="new-client-name">Client Name *</Label>
+                  <Input id="new-client-name" value={newClientForm.name} onChange={(e) => setNewClientForm({ ...newClientForm, name: e.target.value })} placeholder="Client name" />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="new-client-email">Client Email *</Label>
+                  <Input id="new-client-email" type="email" value={newClientForm.email} onChange={(e) => setNewClientForm({ ...newClientForm, email: e.target.value })} placeholder="client@example.com" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="new-client-company">Company</Label>
+                    <Input id="new-client-company" value={newClientForm.company} onChange={(e) => setNewClientForm({ ...newClientForm, company: e.target.value })} placeholder="Company" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="new-client-phone">Phone</Label>
+                    <Input id="new-client-phone" value={newClientForm.phone} onChange={(e) => setNewClientForm({ ...newClientForm, phone: e.target.value })} placeholder="Phone" />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>

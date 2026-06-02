@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from "@/lib/api-auth";
 import { createProjectSchema } from "@/lib/validations/project";
+import { hashPassword } from "@/lib/auth-utils";
+import { sendClientWelcomeEmail } from "@/lib/email";
 
 // GET /api/projects — List all projects with search/filter/pagination
 export async function GET(request: NextRequest) {
@@ -60,13 +62,15 @@ export async function GET(request: NextRequest) {
     });
     const total = Number(countResult.rows[0].total);
 
-    // Get projects with member count and lead info
+    // Get projects with member count, lead info, and client info
     const offset = (page - 1) * limit;
     const projectsResult = await client.execute({
       sql: `SELECT p.*,
               (SELECT COUNT(*) FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm."removedAt" IS NULL) as memberCount,
               (SELECT u.name FROM "ProjectMember" pm JOIN "User" u ON pm."userId" = u.id WHERE pm."projectId" = p.id AND pm.role = 'LEAD' AND pm."removedAt" IS NULL LIMIT 1) as leadName,
-              (SELECT pm."userId" FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm.role = 'LEAD' AND pm."removedAt" IS NULL LIMIT 1) as leadId
+              (SELECT pm."userId" FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm.role = 'LEAD' AND pm."removedAt" IS NULL LIMIT 1) as leadId,
+              (SELECT c.name FROM "Client" c WHERE c.id = p."clientId") as linkedClientName,
+              (SELECT c.id FROM "Client" c WHERE c.id = p."clientId") as linkedClientId
             FROM "Project" p
             ${whereClause}
             ORDER BY p."${sortField}" ${order}
@@ -81,6 +85,9 @@ export async function GET(request: NextRequest) {
       status: row.status,
       priority: row.priority,
       clientName: row.clientName,
+      clientId: row.clientId,
+      linkedClientName: row.linkedClientName,
+      linkedClientId: row.linkedClientId,
       color: row.color,
       deadline: row.deadline,
       createdAt: row.createdAt,
@@ -131,22 +138,90 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, description, priority, clientName, color, deadline } = result.data;
+    const { name, description, priority, clientName, clientId, newClient, color, deadline } = result.data;
     const client = getTursoClient();
     const ip = getClientIp(request);
     const id = crypto.randomUUID();
 
+    let finalClientId = clientId || null;
+
+    // Handle "new" clientId — create client inline
+    if (clientId === "new" && newClient) {
+      // Check for existing email
+      const existing = await client.execute({
+        sql: 'SELECT id FROM "Client" WHERE email = ?',
+        args: [newClient.email],
+      });
+      if (existing.rows.length > 0) {
+        // Link to existing client instead
+        finalClientId = existing.rows[0].id as string;
+      } else {
+        // Generate temp password
+        const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+        let tempPassword = '';
+        for (let i = 0; i < 12; i++) {
+          tempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        const hashedPassword = await hashPassword(tempPassword);
+        const newClientId = crypto.randomUUID();
+        const now = new Date().toISOString();
+
+        try {
+          await client.execute({
+            sql: `INSERT INTO "Client" (id, name, email, password, company, address, phone, status, "mustChangePassword", createdAt, updatedAt)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1, ?, ?)`,
+            args: [newClientId, newClient.name, newClient.email, hashedPassword, newClient.company || null, newClient.address || null, newClient.phone || null, now, now],
+          });
+        } catch (dbError: unknown) {
+          const dbMsg = dbError instanceof Error ? dbError.message : String(dbError);
+          if (dbMsg.includes('UNIQUE constraint failed')) {
+            return NextResponse.json(
+              { success: false, error: 'A client with this email already exists' },
+              { status: 409 }
+            );
+          }
+          throw dbError;
+        }
+
+        finalClientId = newClientId;
+
+        // Send welcome email (non-blocking)
+        const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://karma-board.vercel.app';
+        try {
+          await sendClientWelcomeEmail({
+            to: newClient.email,
+            name: newClient.name,
+            temporaryPassword: tempPassword,
+            loginUrl: `${baseUrl}/client/login`,
+          });
+        } catch (emailError) {
+          console.error(`[POST /api/projects] Client welcome email error:`, emailError);
+        }
+
+        // Audit log for client creation
+        await logActivity({
+          userId: user.id,
+          action: 'CREATE_CLIENT',
+          details: `Created client inline: ${newClient.name} (${newClient.email})`,
+          entity: 'client',
+          entityId: newClientId,
+          ipAddress: ip,
+          tursoClient: client,
+        });
+      }
+    }
+
     await client.execute({
-      sql: `INSERT INTO "Project" (id, "name", "description", "status", "priority", "clientName", "color", "deadline", "createdAt", "updatedAt")
-            VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      args: [id, name, description || null, priority, clientName || null, color || null, deadline || null],
+      sql: `INSERT INTO "Project" (id, "name", "description", "status", "priority", "clientName", "clientId", "color", "deadline", "createdAt", "updatedAt")
+            VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      args: [id, name, description || null, priority, clientName || null, finalClientId, color || null, deadline || null],
     });
 
     // Audit log
     await logActivity({
       userId: user.id,
       action: "CREATE_PROJECT",
-      details: `Created project: ${name}`,
+      details: `Created project: ${name}${finalClientId ? ` (linked to client)` : ''}`,
       entity: "project",
       entityId: id,
       ipAddress: ip,
@@ -170,6 +245,7 @@ export async function POST(request: NextRequest) {
             status: "ACTIVE",
             priority,
             clientName,
+            clientId: finalClientId,
             color,
             deadline,
             createdAt: created.rows[0].createdAt,

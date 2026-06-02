@@ -30,7 +30,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const project = await client.execute({
       sql: `SELECT p.*,
-              (SELECT COUNT(*) FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm."removedAt" IS NULL) as memberCount
+              (SELECT COUNT(*) FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm."removedAt" IS NULL) as memberCount,
+              (SELECT c.name FROM "Client" c WHERE c.id = p."clientId") as linkedClientName,
+              (SELECT c.id FROM "Client" c WHERE c.id = p."clientId") as linkedClientId
             FROM "Project" p
             WHERE p.id = ?`,
       args: [id],
@@ -52,6 +54,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
           status: row.status,
           priority: row.priority,
           clientName: row.clientName,
+          clientId: row.clientId,
+          linkedClientName: row.linkedClientName,
+          linkedClientId: row.linkedClientId,
           color: row.color,
           deadline: row.deadline,
           createdAt: row.createdAt,
@@ -125,6 +130,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       setClauses.push('"clientName" = ?');
       values.push(updates.clientName);
     }
+    if (updates.clientId !== undefined) {
+      setClauses.push('"clientId" = ?');
+      values.push(updates.clientId);
+    }
     if (updates.color !== undefined) {
       setClauses.push('"color" = ?');
       values.push(updates.color);
@@ -159,7 +168,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     // Fetch updated project
     const updated = await client.execute({
       sql: `SELECT p.*,
-              (SELECT COUNT(*) FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm."removedAt" IS NULL) as memberCount
+              (SELECT COUNT(*) FROM "ProjectMember" pm WHERE pm."projectId" = p.id AND pm."removedAt" IS NULL) as memberCount,
+              (SELECT c.name FROM "Client" c WHERE c.id = p."clientId") as linkedClientName,
+              (SELECT c.id FROM "Client" c WHERE c.id = p."clientId") as linkedClientId
             FROM "Project" p
             WHERE p.id = ?`,
       args: [id],
@@ -177,6 +188,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           status: row.status,
           priority: row.priority,
           clientName: row.clientName,
+          clientId: row.clientId,
+          linkedClientName: row.linkedClientName,
+          linkedClientId: row.linkedClientId,
           color: row.color,
           deadline: row.deadline,
           createdAt: row.createdAt,

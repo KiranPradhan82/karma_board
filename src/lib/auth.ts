@@ -55,6 +55,53 @@ async function findUserByEmail(email: string): Promise<{
   };
 }
 
+async function findClientByEmail(email: string): Promise<{
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  mustChangePassword: boolean;
+} | null> {
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  const tursoToken = process.env.TURSO_AUTH_TOKEN;
+
+  if (tursoUrl && tursoToken) {
+    const { createClient } = await import("@libsql/client");
+    const cleanUrl = tursoUrl.split('?')[0];
+    const client = createClient({ url: cleanUrl, authToken: tursoToken });
+    const result = await client.execute({
+      sql: 'SELECT id, name, email, password, mustChangePassword FROM Client WHERE email = ? AND status = ?',
+      args: [email, 'ACTIVE'],
+    });
+
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    return {
+      id: row.id as string,
+      name: row.name as string,
+      email: row.email as string,
+      password: row.password as string,
+      mustChangePassword: Boolean(row.mustChangePassword),
+    };
+  }
+
+  // Fallback to Prisma for local dev
+  const { db } = await import("@/lib/db");
+  const client = await db.client.findFirst({ where: { email, status: 'ACTIVE' } });
+  if (!client) return null;
+
+  return {
+    id: client.id,
+    name: client.name,
+    email: client.email,
+    password: client.password,
+    mustChangePassword: client.mustChangePassword,
+  };
+}
+
+export { findClientByEmail };
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -72,32 +119,56 @@ export const authOptions: NextAuthOptions = {
 
           console.log("[Auth] Looking up user:", credentials.email);
 
-          const user = await findUserByEmail(credentials.email);
+          // First try User table
+          let user = await findUserByEmail(credentials.email);
 
-          if (!user) {
-            console.log("[Auth] User not found:", credentials.email);
-            return null;
+          if (user) {
+            // Team member login
+            if (!user.isActive) {
+              console.log("[Auth] User inactive:", credentials.email);
+              return null;
+            }
+
+            const isValid = await verifyPassword(credentials.password, user.password);
+            if (!isValid) {
+              console.log("[Auth] Password invalid for:", credentials.email);
+              return null;
+            }
+
+            console.log("[Auth] Login successful (team):", credentials.email, "role:", user.role, "mustChangePassword:", user.mustChangePassword);
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              role: user.role,
+              mustChangePassword: user.mustChangePassword,
+              accountType: "team",
+            };
           }
 
-          if (!user.isActive) {
-            console.log("[Auth] User inactive:", credentials.email);
-            return null;
+          // If not found in User, try Client table
+          const client = await findClientByEmail(credentials.email);
+
+          if (client) {
+            const isValid = await verifyPassword(credentials.password, client.password);
+            if (!isValid) {
+              console.log("[Auth] Password invalid for client:", credentials.email);
+              return null;
+            }
+
+            console.log("[Auth] Login successful (client):", credentials.email, "mustChangePassword:", client.mustChangePassword);
+            return {
+              id: client.id,
+              name: client.name,
+              email: client.email,
+              role: "CLIENT",
+              mustChangePassword: client.mustChangePassword,
+              accountType: "client",
+            };
           }
 
-          const isValid = await verifyPassword(credentials.password, user.password);
-          if (!isValid) {
-            console.log("[Auth] Password invalid for:", credentials.email);
-            return null;
-          }
-
-          console.log("[Auth] Login successful:", credentials.email, "role:", user.role, "mustChangePassword:", user.mustChangePassword);
-          return {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            mustChangePassword: user.mustChangePassword,
-          };
+          console.log("[Auth] User not found:", credentials.email);
+          return null;
         } catch (error) {
           console.error("[Auth] Error during authorization:", error);
           // Re-throw infrastructure errors so next-auth returns a proper error
@@ -113,6 +184,7 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id!;
         token.role = user.role!;
         token.mustChangePassword = (user as unknown as { mustChangePassword?: boolean }).mustChangePassword || false;
+        token.accountType = (user as unknown as { accountType?: "team" | "client" }).accountType || "team";
       }
       return token;
     },
@@ -121,6 +193,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id;
         session.user.role = token.role;
         (session.user as unknown as { mustChangePassword?: boolean }).mustChangePassword = token.mustChangePassword;
+        (session.user as unknown as { accountType?: "team" | "client" }).accountType = token.accountType;
       }
       return session;
     },

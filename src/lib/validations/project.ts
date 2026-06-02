@@ -8,6 +8,14 @@ export const createProjectSchema = z.object({
   description: z.string().max(500, "Description must be under 500 characters").optional(),
   priority: z.enum(priorities).default("MEDIUM"),
   clientName: z.string().max(100).optional(),
+  clientId: z.string().optional(),
+  newClient: z.object({
+    name: z.string().min(2, "Client name must be at least 2 characters"),
+    email: z.string().email("Please enter a valid email address"),
+    company: z.string().optional(),
+    address: z.string().optional(),
+    phone: z.string().optional(),
+  }).optional(),
   color: z
     .string()
     .regex(/^#([0-9A-Fa-f]{3}){1,2}$/, "Must be a valid hex color (e.g. #6366f1)")
@@ -27,6 +35,7 @@ export const updateProjectSchema = z.object({
   priority: z.enum(priorities).optional(),
   status: z.enum(projectStatuses).optional(),
   clientName: z.string().max(100).nullable().optional(),
+  clientId: z.string().nullable().optional(),
   color: z
     .string()
     .regex(/^#([0-9A-Fa-f]{3}){1,2}$/, "Must be a valid hex color")

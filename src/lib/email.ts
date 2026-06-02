@@ -309,3 +309,162 @@ export async function sendWelcomeEmail(params: {
 
   return result;
 }
+
+/**
+ * Send a welcome email to a new client with their temporary password.
+ */
+export async function sendClientWelcomeEmail(params: {
+  to: string;
+  name: string;
+  temporaryPassword: string;
+  loginUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { to, name, temporaryPassword, loginUrl } = params;
+
+  const config = await getEmailConfig();
+
+  console.log(`[email] Sending client welcome email to ${to} via ${config.provider}`);
+
+  const subject = `Welcome to KarmaBoard — Your Client Portal is Ready`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background: #ffffff;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 12px; background: #059669; margin-bottom: 16px;">
+          <span style="color: #ffffff; font-size: 24px; font-weight: 700;">K</span>
+        </div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+        <p style="margin: 8px 0 0; font-size: 14px; color: #6b7280;">Client Portal</p>
+      </div>
+
+      <p style="font-size: 16px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        Hi <strong>${name}</strong>,
+      </p>
+
+      <p style="font-size: 16px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        Your client portal account has been created. You can now log in to track your project progress, view updates, and communicate with our team.
+      </p>
+
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+        <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 16px 0;">Your Login Credentials</p>
+        <div style="margin-bottom: 16px;">
+          <p style="font-size: 12px; color: #6b7280; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Email</p>
+          <p style="font-size: 15px; color: #111827; margin: 0; font-family: monospace; background: #ffffff; padding: 8px 12px; border-radius: 6px; border: 1px solid #e5e7eb;">${to}</p>
+        </div>
+        <div>
+          <p style="font-size: 12px; color: #6b7280; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Temporary Password</p>
+          <p style="font-size: 15px; color: #111827; margin: 0; font-family: monospace; background: #ffffff; padding: 8px 12px; border-radius: 6px; border: 1px solid #e5e7eb; letter-spacing: 0.5px;">${temporaryPassword}</p>
+        </div>
+      </div>
+
+      <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+        <p style="font-size: 14px; color: #92400e; margin: 0; line-height: 1.5;">
+          <strong>Important:</strong> You will be asked to set your own password the first time you log in.
+        </p>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 32px;">
+        <a href="${loginUrl}" target="_blank" style="display: inline-block; background: #059669; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 32px; border-radius: 8px;">
+          Access Client Portal
+        </a>
+      </div>
+
+      <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; text-align: center;">
+        <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+          KarmaBoard — Project Management Made Simple
+        </p>
+      </div>
+    </div>
+  `;
+
+  if (config.provider === "resend") {
+    return sendViaResend(config, to, subject, html);
+  }
+
+  const result = await sendViaGmailSmtp(config, to, subject, html);
+
+  if (!result.success) {
+    console.warn(`[email] Gmail SMTP failed: ${result.error}`);
+  }
+
+  return result;
+}
+
+/**
+ * Send a project notification email to a client.
+ */
+export async function sendClientNotificationEmail(params: {
+  to: string;
+  clientName: string;
+  projectName: string;
+  type: "STARTED" | "UPDATE" | "COMPLETED";
+  message?: string;
+  loginUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { to, clientName, projectName, type, message, loginUrl } = params;
+
+  const config = await getEmailConfig();
+
+  console.log(`[email] Sending client notification email to ${to} via ${config.provider}`);
+
+  const typeLabels: Record<string, { title: string; color: string; description: string }> = {
+    STARTED: { title: "Project Started", color: "#059669", description: "Your project has officially begun and our team is now working on it." },
+    UPDATE: { title: "Project Update", color: "#2563eb", description: "There is an important update about your project." },
+    COMPLETED: { title: "Project Completed", color: "#9333ea", description: "Your project has been completed successfully!" },
+  };
+
+  const typeInfo = typeLabels[type] || typeLabels.UPDATE;
+
+  const subject = `${typeInfo.title}: ${projectName}`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background: #ffffff;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 12px; background: ${typeInfo.color}; margin-bottom: 16px;">
+          <span style="color: #ffffff; font-size: 24px; font-weight: 700;">K</span>
+        </div>
+        <h1 style="margin: 0; font-size: 22px; font-weight: 700; color: #111827;">${typeInfo.title}</h1>
+      </div>
+
+      <p style="font-size: 16px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        Hi <strong>${clientName}</strong>,
+      </p>
+
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 12px; color: #6b7280; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Project</p>
+        <p style="font-size: 18px; font-weight: 600; color: #111827; margin: 0 0 8px 0;">${projectName}</p>
+        <p style="font-size: 14px; color: #374151; margin: 0; line-height: 1.5;">${typeInfo.description}</p>
+      </div>
+
+      ${message ? `
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 12px; color: #6b7280; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">Message from our team</p>
+        <p style="font-size: 15px; color: #111827; margin: 0; line-height: 1.6;">${message}</p>
+      </div>
+      ` : ''}
+
+      <div style="text-align: center; margin-bottom: 32px;">
+        <a href="${loginUrl}" target="_blank" style="display: inline-block; background: ${typeInfo.color}; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 32px; border-radius: 8px;">
+          View in Client Portal
+        </a>
+      </div>
+
+      <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; text-align: center;">
+        <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+          KarmaBoard — Project Management Made Simple
+        </p>
+      </div>
+    </div>
+  `;
+
+  if (config.provider === "resend") {
+    return sendViaResend(config, to, subject, html);
+  }
+
+  const result = await sendViaGmailSmtp(config, to, subject, html);
+
+  if (!result.success) {
+    console.warn(`[email] Gmail SMTP failed: ${result.error}`);
+  }
+
+  return result;
+}
