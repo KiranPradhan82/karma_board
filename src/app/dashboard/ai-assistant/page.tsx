@@ -722,7 +722,7 @@ export default function KarmaSpacePage() {
           </div>
         )}
 
-        {/* File Preview - Multiple images */
+        {/* File Preview - Multiple images */}
         {attachedFiles.length > 0 && (
           <div className="border-t px-4 py-2 flex items-center gap-2 overflow-x-auto shrink-0 bg-muted/50 scrollbar-none">
             <div className="flex gap-2">
