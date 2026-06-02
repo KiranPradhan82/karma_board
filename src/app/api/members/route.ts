@@ -149,8 +149,8 @@ export async function POST(request: NextRequest) {
       if (isDeleted) {
         // Hard-delete the old soft-deleted record to free up the email for reuse
         const oldId = existing.rows[0].id as string;
-        // Clean up related records (SQLite has no cascade in raw SQL)
-        await client.execute({ sql: `DELETE FROM "Invitation" WHERE "userId" = ?`, args: [oldId] });
+        // Clean up related records (no FK cascade in raw SQL)
+        await client.execute({ sql: `DELETE FROM "Invitation" WHERE email = ?`, args: [email] });
         await client.execute({ sql: `DELETE FROM "AiChat" WHERE "userId" = ?`, args: [oldId] });
         await client.execute({ sql: `DELETE FROM "ProjectMember" WHERE "userId" = ?`, args: [oldId] });
         await client.execute({ sql: `DELETE FROM "TimeLog" WHERE "userId" = ?`, args: [oldId] });
