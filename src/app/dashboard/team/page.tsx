@@ -754,7 +754,7 @@ export default function TeamPage() {
           if (json.data.emailSent) {
             toast.success('Member created! A welcome email with temporary password has been sent.');
           } else {
-            toast.success('Member created! Note: Email not sent — RESEND_API_KEY may not be configured.');
+            toast.success('Member created! Note: Email not sent — check EMAIL_PROVIDER, SMTP_USER, and SMTP_PASSWORD settings.');
           }
           setMemberDialogOpen(false);
           fetchMembers();

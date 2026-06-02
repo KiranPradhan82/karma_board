@@ -25,7 +25,11 @@ export async function GET() {
     : "NOT SET";
   envChecks.RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "NOT SET";
   envChecks.EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "NOT SET";
-  envChecks.RESEND_FROM_NAME = process.env.RESEND_FROM_NAME || "NOT SET";
+  envChecks.EMAIL_PROVIDER = process.env.EMAIL_PROVIDER || "NOT SET (defaults to gmail-smtp)";
+  envChecks.SMTP_USER = process.env.SMTP_USER || "NOT SET";
+  envChecks.SMTP_PASSWORD = process.env.SMTP_PASSWORD
+    ? `SET (${process.env.SMTP_PASSWORD.length} chars)`
+    : "NOT SET";
   envChecks.NODE_ENV = process.env.NODE_ENV || "NOT SET";
 
   let dbTest = "NOT ATTEMPTED";

@@ -9,15 +9,16 @@ interface EmailConfig {
   // Resend
   resendApiKey: string | null;
   resendFromEmail: string;
-  fromName: string;
   // Gmail SMTP
   smtpUser: string | null; // your@gmail.com
   smtpPass: string | null; // app password
+  // Shared
+  fromName: string;
 }
 
 /**
  * Get email configuration — reads from Settings DB first, falls back to env vars.
- * Provider is determined by EMAIL_PROVIDER env var or "gmail-smtp" by default.
+ * Provider is determined by EMAIL_PROVIDER env var (or DB setting), defaults to "gmail-smtp".
  */
 async function getEmailConfig(): Promise<EmailConfig> {
   const defaultProvider: EmailProvider =
@@ -29,21 +30,25 @@ async function getEmailConfig(): Promise<EmailConfig> {
 
     if (tursoUrl && tursoToken) {
       const client = getTursoClient();
+
+      // Fetch all email-related settings from DB (now includes SMTP_USER)
       const result = await client.execute({
-        sql: `SELECT key, value FROM "Settings" WHERE key IN (?, ?, ?, ?, ?)`,
+        sql: `SELECT key, value FROM "Settings" WHERE key IN (?, ?, ?, ?, ?, ?)`,
         args: [
           "EMAIL_PROVIDER",
           "RESEND_API_KEY",
           "RESEND_FROM_EMAIL",
-          "RESEND_FROM_NAME",
+          "EMAIL_FROM_NAME",
+          "SMTP_USER",
           "SMTP_PASSWORD",
         ],
       });
 
       let provider = defaultProvider;
       let resendApiKey: string | null = null;
-      let fromEmail = process.env.RESEND_FROM_EMAIL || "";
+      let resendFromEmail = "";
       let fromName = process.env.EMAIL_FROM_NAME || "KarmaBoard";
+      let smtpUser: string | null = null;
       let smtpPass: string | null = null;
 
       for (const row of result.rows) {
@@ -64,13 +69,16 @@ async function getEmailConfig(): Promise<EmailConfig> {
             }
             break;
           case "RESEND_FROM_EMAIL":
-            fromEmail = rawValue || fromEmail;
-            break;
-          case "RESEND_FROM_NAME":
-            fromName = rawValue || fromName;
+            resendFromEmail = rawValue;
             break;
           case "EMAIL_FROM_NAME":
             fromName = rawValue || fromName;
+            break;
+          case "RESEND_FROM_NAME": // legacy key name compatibility
+            fromName = rawValue || fromName;
+            break;
+          case "SMTP_USER":
+            smtpUser = rawValue;
             break;
           case "SMTP_PASSWORD":
             try {
@@ -86,37 +94,44 @@ async function getEmailConfig(): Promise<EmailConfig> {
       if (!resendApiKey && process.env.RESEND_API_KEY) {
         resendApiKey = process.env.RESEND_API_KEY;
       }
+      if (!resendFromEmail && process.env.RESEND_FROM_EMAIL) {
+        resendFromEmail = process.env.RESEND_FROM_EMAIL;
+      }
+      if (!smtpUser && process.env.SMTP_USER) {
+        smtpUser = process.env.SMTP_USER;
+      }
       if (!smtpPass && process.env.SMTP_PASSWORD) {
         smtpPass = process.env.SMTP_PASSWORD;
       }
-      if (!fromEmail && process.env.RESEND_FROM_EMAIL) {
-        fromEmail = process.env.RESEND_FROM_EMAIL;
-      }
 
-      // Gmail SMTP user is always the from email
-      const smtpUser = fromEmail || process.env.SMTP_USER || null;
+      console.log(`[email] Config loaded from DB+env. Provider: ${provider}, SMTP user: ${smtpUser ? "SET" : "NOT SET"}, SMTP pass: ${smtpPass ? "SET" : "NOT SET"}`);
 
       return {
         provider,
         resendApiKey,
-        resendFromEmail: fromEmail,
-        fromName,
+        resendFromEmail,
         smtpUser,
         smtpPass,
+        fromName,
       };
     }
   } catch (error) {
     console.error("[email] Error reading settings from DB:", error);
   }
 
-  // Final fallback to env vars
+  // Final fallback to env vars only
+  const smtpUser = process.env.SMTP_USER || null;
+  const smtpPass = process.env.SMTP_PASSWORD || null;
+
+  console.log(`[email] Config from env vars only. Provider: ${defaultProvider}, SMTP user: ${smtpUser ? "SET" : "NOT SET"}, SMTP pass: ${smtpPass ? "SET" : "NOT SET"}`);
+
   return {
     provider: defaultProvider,
     resendApiKey: process.env.RESEND_API_KEY || null,
     resendFromEmail: process.env.RESEND_FROM_EMAIL || "",
+    smtpUser,
+    smtpPass,
     fromName: process.env.EMAIL_FROM_NAME || "KarmaBoard",
-    smtpUser: process.env.SMTP_USER || null,
-    smtpPass: process.env.SMTP_PASSWORD || null,
   };
 }
 
@@ -135,6 +150,9 @@ async function sendViaResend(
 ): Promise<{ success: boolean; error?: string }> {
   if (!config.resendApiKey) {
     return { success: false, error: "Resend API key not configured" };
+  }
+  if (!config.resendFromEmail) {
+    return { success: false, error: "Resend from email not configured" };
   }
 
   const resend = await getResendClient(config.resendApiKey);
@@ -165,7 +183,7 @@ async function sendViaGmailSmtp(
   if (!config.smtpUser || !config.smtpPass) {
     return {
       success: false,
-      error: "Gmail SMTP not configured (need SMTP_USER and SMTP_PASSWORD)",
+      error: `Gmail SMTP not configured (SMTP_USER: ${config.smtpUser ? "SET" : "NOT SET"}, SMTP_PASSWORD: ${config.smtpPass ? "SET" : "NOT SET"})`,
     };
   }
 
@@ -211,6 +229,8 @@ export async function sendWelcomeEmail(params: {
   const { to, name, temporaryPassword, loginUrl } = params;
 
   const config = await getEmailConfig();
+
+  console.log(`[email] Sending welcome email to ${to} via ${config.provider}`);
 
   const subject = `Welcome to KarmaBoard, ${name}! — Your Account is Ready`;
   const html = `
