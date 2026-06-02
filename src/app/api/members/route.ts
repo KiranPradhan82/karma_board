@@ -146,10 +146,23 @@ export async function POST(request: NextRequest) {
 
     if (existing.rows.length > 0) {
       const isDeleted = existing.rows[0].deletedAt !== null;
-      return NextResponse.json(
-        { success: false, error: isDeleted ? 'A user with this email was previously deleted. Please use a different email or contact your admin to restore the account.' : 'A user with this email already exists' },
-        { status: 409 }
-      );
+      if (isDeleted) {
+        // Hard-delete the old soft-deleted record to free up the email for reuse
+        const oldId = existing.rows[0].id as string;
+        // Clean up related records (SQLite has no cascade in raw SQL)
+        await client.execute({ sql: `DELETE FROM "Invitation" WHERE "userId" = ?`, args: [oldId] });
+        await client.execute({ sql: `DELETE FROM "AiChat" WHERE "userId" = ?`, args: [oldId] });
+        await client.execute({ sql: `DELETE FROM "ProjectMember" WHERE "userId" = ?`, args: [oldId] });
+        await client.execute({ sql: `DELETE FROM "TimeLog" WHERE "userId" = ?`, args: [oldId] });
+        await client.execute({ sql: `DELETE FROM "ActivityLog" WHERE "userId" = ?`, args: [oldId] });
+        await client.execute({ sql: `DELETE FROM "User" WHERE id = ?`, args: [oldId] });
+        console.log(`[POST /api/members] Hard-deleted previously soft-deleted user ${oldId} to free email ${email}`);
+      } else {
+        return NextResponse.json(
+          { success: false, error: 'A user with this email already exists' },
+          { status: 409 }
+        );
+      }
     }
 
     // Generate a temporary password (12 chars, letters + digits)
