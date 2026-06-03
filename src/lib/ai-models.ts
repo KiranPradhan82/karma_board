@@ -52,11 +52,11 @@ export interface ProviderConfig {
 // ===== Model Capabilities Registry =====
 
 const MODEL_REGISTRY: ModelCapability[] = [
-  // ===== Groq Models =====
+  // ===== Groq Models (ACTIVE — decommissioned models removed as of Jun 2025) =====
   {
     id: "llama-3.3-70b-versatile",
     name: "Llama 3.3 70B",
-    description: "Best quality, great for docs and complex tasks",
+    description: "Best quality on Groq, great for docs and complex tasks",
     contextWindow: "128K",
     contextWindowTokens: 128000,
     maxOutputTokens: 16384,
@@ -76,54 +76,6 @@ const MODEL_REGISTRY: ModelCapability[] = [
     contextWindow: "128K",
     contextWindowTokens: 128000,
     maxOutputTokens: 8192,
-    supportsTools: true,
-    supportsVision: false,
-    supportsMultimodal: false,
-    category: "Groq",
-    provider: "groq",
-    providerEnvKey: "GROQ_API_KEY",
-    providerEnvBaseUrl: "GROQ_API_BASE_URL",
-    defaultBaseUrl: "https://api.groq.com/openai/v1",
-  },
-  {
-    id: "llama-3.1-70b-versatile",
-    name: "Llama 3.1 70B",
-    description: "Strong reasoning, good all-rounder",
-    contextWindow: "128K",
-    contextWindowTokens: 128000,
-    maxOutputTokens: 8192,
-    supportsTools: true,
-    supportsVision: false,
-    supportsMultimodal: false,
-    category: "Groq",
-    provider: "groq",
-    providerEnvKey: "GROQ_API_KEY",
-    providerEnvBaseUrl: "GROQ_API_BASE_URL",
-    defaultBaseUrl: "https://api.groq.com/openai/v1",
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral 8x7B",
-    description: "Long context (32K), great for long documents",
-    contextWindow: "32K",
-    contextWindowTokens: 32768,
-    maxOutputTokens: 8192,
-    supportsTools: true,
-    supportsVision: false,
-    supportsMultimodal: false,
-    category: "Groq",
-    provider: "groq",
-    providerEnvKey: "GROQ_API_KEY",
-    providerEnvBaseUrl: "GROQ_API_BASE_URL",
-    defaultBaseUrl: "https://api.groq.com/openai/v1",
-  },
-  {
-    id: "gemma2-9b-it",
-    name: "Gemma 2 9B",
-    description: "Google model, fast and efficient",
-    contextWindow: "8K",
-    contextWindowTokens: 8192,
-    maxOutputTokens: 4096,
     supportsTools: true,
     supportsVision: false,
     supportsMultimodal: false,
@@ -589,15 +541,13 @@ export function findBestModelForPrompt(
       "gpt-4o": 2,
       "gpt-4o-mini": 3,
       "Meta-Llama-3.3-70B-Instruct": 4,
-      "gemini-2.0-flash": 5,
-      "llama-3.3-70b-versatile": 6,
-      "Meta-Llama-3.1-405B-Instruct": 7,
-      "llama-3.1-70b-versatile": 8,
-      "Llama-4-Maverick-17B-128E-Instruct": 9,
-      "gemini-1.5-flash": 10,
-      "gemini-1.5-pro": 11,
-      "llama-3.1-8b-instant": 12,
-      "gpt-3.5-turbo": 13,
+      "llama-3.3-70b-versatile": 5,
+      "gemini-2.0-flash": 6,
+      "Llama-4-Maverick-17B-128E-Instruct": 7,
+      "gemini-1.5-flash": 8,
+      "gemini-1.5-pro": 9,
+      "llama-3.1-8b-instant": 10,
+      "gpt-3.5-turbo": 11,
     };
 
     candidates.sort((a, b) => {
@@ -647,9 +597,14 @@ export function findBestModelForPrompt(
 }
 
 /**
- * Get a list of fallback models for a given model, ordered by suitability.
- * Used for retrying when a provider returns 429 (rate limit) or 413 (too large).
+ * Get a list of fallback models for a given model, ordered by quality and reliability.
+ * Used for retrying when a provider returns 429 (rate limit), 413 (too large), or any 4xx/5xx error.
  * Excludes models from the same provider as the failed model.
+ *
+ * Ordering priority:
+ *   1. Quality (smarter models first — DeepSeek, GPT-4o, etc.)
+ *   2. Larger context windows (for handling big prompts)
+ *   3. NOT by context window alone (Google 1M models would always win but 429 due to low RPM)
  */
 export function getFallbackModels(
   failedModelId: string,
@@ -657,6 +612,26 @@ export function getFallbackModels(
 ): string[] {
   const failedCap = MODEL_MAP[failedModelId];
   const failedProvider = failedCap?.provider;
+
+  // Quality-based priority (lower number = higher priority)
+  // SambaNova models are high priority (free, high RPM, good quality)
+  // OpenAI models are great fallback (paid, very reliable)
+  // Groq models are good (free, fast)
+  // Google models are lower priority despite 1M context (free tier only 15 RPM, frequent 429)
+  const fallbackQuality: Record<string, number> = {
+    "DeepSeek-V3.1": 1,
+    "Meta-Llama-3.3-70B-Instruct": 2,
+    "Llama-4-Maverick-17B-128E-Instruct": 3,
+    "gpt-4o": 4,
+    "gpt-4o-mini": 5,
+    "llama-3.3-70b-versatile": 6,
+    "llama-3.1-8b-instant": 7,
+    "gemini-2.0-flash": 8,
+    "gemini-1.5-flash": 9,
+    "gemini-1.5-pro": 10,
+    "gpt-3.5-turbo": 11,
+    // Together / older models — lowest priority
+  };
 
   return MODEL_REGISTRY
     .filter((m) => {
@@ -670,7 +645,11 @@ export function getFallbackModels(
       return true;
     })
     .sort((a, b) => {
-      // Prefer larger context windows, then by quality heuristic
+      // Primary: quality-based priority
+      const aQ = fallbackQuality[a.id] ?? 50;
+      const bQ = fallbackQuality[b.id] ?? 50;
+      if (aQ !== bQ) return aQ - bQ;
+      // Secondary: larger context window (for handling big prompts)
       if (b.contextWindowTokens !== a.contextWindowTokens) {
         return b.contextWindowTokens - a.contextWindowTokens;
       }

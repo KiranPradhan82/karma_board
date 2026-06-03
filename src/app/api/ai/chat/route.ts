@@ -505,7 +505,7 @@ export async function POST(request: NextRequest) {
             });
             console.log(`[AI Fallback${label ? " " + label : ""}] ${model} failed (${result.error?.slice(0, 60)}). Trying ${fallbacks.length} fallback models: ${fallbacks.join(", ")}`);
 
-            for (const fallbackModel of fallbacks.slice(0, 3)) { // max 3 fallback attempts
+            for (const fallbackModel of fallbacks.slice(0, 4)) { // max 4 fallback attempts (increased for more providers)
               const fbCap = getModelCapability(fallbackModel);
               console.log(`[AI Fallback] Trying ${fallbackModel} (${fbCap?.category}, ${fbCap?.contextWindow})...`);
               const fbResult = await chatCompletion({
@@ -519,7 +519,13 @@ export async function POST(request: NextRequest) {
                 console.log(`[AI Fallback] Success with ${fallbackModel}!`);
                 return { ...fbResult, _fallbackModel: fallbackModel };
               }
-              console.log(`[AI Fallback] ${fallbackModel} also failed: ${fbResult.error?.slice(0, 60)}`);
+              // Skip decommissioned models quickly (don't waste retries)
+              const errStr = fbResult.error || "";
+              if (errStr.includes("decommission") || errStr.includes("no longer supported")) {
+                console.log(`[AI Fallback] ${fallbackModel} is decommissioned, skipping...`);
+                continue;
+              }
+              console.log(`[AI Fallback] ${fallbackModel} also failed: ${errStr.slice(0, 80)}`);
             }
           }
           return result;
