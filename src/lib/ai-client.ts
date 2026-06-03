@@ -35,6 +35,7 @@ export {
   findBestModelForPrompt,
   isModelConfigured,
   getProviderConfig,
+  getFallbackModels,
 } from "./ai-models";
 export type { AiModelOption, ModelCapability, ProviderConfig, ModelRouteResult } from "./ai-models";
 

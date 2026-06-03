@@ -587,3 +587,36 @@ export function findBestModelForPrompt(
     autoRouted: false,
   };
 }
+
+/**
+ * Get a list of fallback models for a given model, ordered by suitability.
+ * Used for retrying when a provider returns 429 (rate limit) or 413 (too large).
+ * Excludes models from the same provider as the failed model.
+ */
+export function getFallbackModels(
+  failedModelId: string,
+  requiredFeatures?: { tools?: boolean; vision?: boolean }
+): string[] {
+  const failedCap = MODEL_MAP[failedModelId];
+  const failedProvider = failedCap?.provider;
+
+  return MODEL_REGISTRY
+    .filter((m) => {
+      // Must have API key configured
+      if (!isModelConfigured(m.id)) return false;
+      // Skip same provider (they'll have same rate limits)
+      if (m.provider === failedProvider) return false;
+      // Must support required features
+      if (requiredFeatures?.tools && !m.supportsTools) return false;
+      if (requiredFeatures?.vision && !m.supportsVision) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // Prefer larger context windows, then by quality heuristic
+      if (b.contextWindowTokens !== a.contextWindowTokens) {
+        return b.contextWindowTokens - a.contextWindowTokens;
+      }
+      return 0;
+    })
+    .map((m) => m.id);
+}

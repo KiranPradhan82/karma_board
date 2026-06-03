@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
-import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt } from "@/lib/ai-client";
+import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt, getFallbackModels, getModelCapability } from "@/lib/ai-client";
 import { getToolsForRole } from "@/lib/ai-tools";
 import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
 import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
@@ -479,19 +479,73 @@ export async function POST(request: NextRequest) {
           aiText = result.content;
         }
       } else {
-        // ===== Agentic Tool-Calling Loop =====
+        // ===== Agentic Tool-Calling Loop with Provider Fallback =====
+        // Helper: call AI with automatic fallback on 429/413/401 errors
+        const callWithFallback = async (
+          messages: AiMessage[],
+          model: string,
+          maxTok: number,
+          tools?: Parameters<typeof chatCompletion>[0]["tools"],
+          toolChoice?: Parameters<typeof chatCompletion>[0]["tool_choice"],
+          label?: string,
+        ) => {
+          let result = await chatCompletion({
+            messages,
+            model,
+            maxTokens: maxTok,
+            tools,
+            tool_choice: toolChoice,
+          });
+
+          // If 429/413/401 — try fallback providers
+          if (!result.success && result.error && /[429]|status 413|status 401/.test(result.error)) {
+            const fallbacks = getFallbackModels(model, {
+              tools: !!tools,
+              vision: false,
+            });
+            console.log(`[AI Fallback${label ? " " + label : ""}] ${model} failed (${result.error?.slice(0, 60)}). Trying ${fallbacks.length} fallback models: ${fallbacks.join(", ")}`);
+
+            for (const fallbackModel of fallbacks.slice(0, 3)) { // max 3 fallback attempts
+              const fbCap = getModelCapability(fallbackModel);
+              console.log(`[AI Fallback] Trying ${fallbackModel} (${fbCap?.category}, ${fbCap?.contextWindow})...`);
+              const fbResult = await chatCompletion({
+                messages,
+                model: fallbackModel,
+                maxTokens: maxTok,
+                tools,
+                tool_choice: toolChoice,
+              });
+              if (fbResult.success) {
+                console.log(`[AI Fallback] Success with ${fallbackModel}!`);
+                return { ...fbResult, _fallbackModel: fallbackModel };
+              }
+              console.log(`[AI Fallback] ${fallbackModel} also failed: ${fbResult.error?.slice(0, 60)}`);
+            }
+          }
+          return result;
+        };
+
         while (round < MAX_TOOL_ROUNDS) {
           round++;
 
-          // Call AI with tools
-          const result = await chatCompletion({
-            messages: aiMessages,
-            model: activeModel,
-            maxTokens: maxTokens,
-            tools: availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
-            tool_choice: availableTools.length > 0 ? "auto" : undefined,
-          });
-          console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""}${modelAutoRouted ? " (auto-routed for capacity)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
+          // Call AI with tools (with provider fallback)
+          const result = await callWithFallback(
+            aiMessages,
+            activeModel,
+            maxTokens,
+            availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
+            availableTools.length > 0 ? "auto" : undefined,
+            `Round ${round}`,
+          );
+
+          // If fallback switched model, update activeModel for display
+          if ((result as any)._fallbackModel) {
+            activeModel = (result as any)._fallbackModel;
+            modelAutoRouted = true;
+            modelRouteReason = `Original model hit a rate limit or error. Auto-switched to "${getModelCapability(activeModel)?.name || activeModel}" (${getModelCapability(activeModel)?.category})`;
+          }
+
+          console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""}${modelAutoRouted ? " (auto-routed)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
 
           if (!result.success) {
             aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
@@ -565,28 +619,28 @@ export async function POST(request: NextRequest) {
           finalContent = toolExecutions.map((t) => `${t.icon} ${t.displayMessage}`).join("\n\n");
         }
 
-        // Better fallback: retry without tools for commands that produced no content
+        // Better fallback: retry without tools (with provider fallback) for commands that produced no content
         if (!finalContent) {
           if (command) {
             // The model got stuck in a tool loop — retry without tools so it just generates text
-            console.log(`[AI Fallback] No content after ${round} rounds for ${command}, retrying without tools...`);
+            console.log(`[AI Fallback] No content after ${round} rounds for ${command}, retrying without tools (with provider fallback)...`);
             try {
-              const retryResult = await chatCompletion({
-                messages: [
-                  { role: "system", content: systemPrompt },
-                  ...chatHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-                ],
-                model: activeModel,
-                maxTokens: maxTokens,
-                tools: undefined,
-                tool_choice: undefined,
-              });
+              const retryMessages: AiMessage[] = [
+                { role: "system", content: systemPrompt },
+                ...chatHistory.map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content) })),
+              ];
+              const retryResult = await callWithFallback(retryMessages, activeModel, maxTokens, undefined, undefined, "No-tools retry");
+              if ((retryResult as any)._fallbackModel) {
+                activeModel = (retryResult as any)._fallbackModel;
+                modelAutoRouted = true;
+                modelRouteReason = `Auto-switched to "${getModelCapability(activeModel)?.name || activeModel}" (${getModelCapability(activeModel)?.category})`;
+              }
               if (retryResult.success && retryResult.content) {
                 finalContent = retryResult.content;
                 console.log(`[AI Fallback] Retry succeeded, content_len=${retryResult.content.length}`);
               } else {
                 console.error(`[AI Fallback] Retry also failed: ${retryResult.error}`);
-                finalContent = `I received your \`${command}\` command but the AI model returned an empty response after retrying.\n\n**Error:** ${retryResult.error || "Model returned empty content"}\n\n**Suggestions:**\n- Try running the command again\n- Try a simpler command like \`/help\`\n- Check if the correct AI model is selected in the model dropdown above`;
+                finalContent = `I received your \`${command}\` command but all AI models returned an error after trying multiple providers.\n\n**Error:** ${retryResult.error || "All providers failed"}\n\n**Suggestions:**\n- Wait a moment and try again (rate limits reset periodically)\n- Try a simpler command like \`/help\`\n- Check that your AI provider API keys are valid in Vercel settings`;
               }
             } catch (retryErr) {
               console.error("[AI Fallback] Retry error:", retryErr);
