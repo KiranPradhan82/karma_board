@@ -199,7 +199,7 @@ const MODEL_REGISTRY: ModelCapability[] = [
     provider: "google",
     providerEnvKey: "GOOGLE_AI_API_KEY",
     providerEnvBaseUrl: "GOOGLE_AI_API_BASE_URL",
-    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
   },
   {
     id: "gemini-1.5-flash",
@@ -215,7 +215,7 @@ const MODEL_REGISTRY: ModelCapability[] = [
     provider: "google",
     providerEnvKey: "GOOGLE_AI_API_KEY",
     providerEnvBaseUrl: "GOOGLE_AI_API_BASE_URL",
-    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
   },
   {
     id: "gemini-1.5-pro",
@@ -231,7 +231,7 @@ const MODEL_REGISTRY: ModelCapability[] = [
     provider: "google",
     providerEnvKey: "GOOGLE_AI_API_KEY",
     providerEnvBaseUrl: "GOOGLE_AI_API_BASE_URL",
-    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
   },
 
   // ===== Together AI Models =====
