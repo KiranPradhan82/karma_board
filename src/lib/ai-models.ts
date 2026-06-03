@@ -286,9 +286,9 @@ const MODEL_REGISTRY: ModelCapability[] = [
     defaultBaseUrl: "https://api.sambanova.ai/v1",
   },
   {
-    id: "DeepSeek-V3",
-    name: "DeepSeek V3 (SambaNova)",
-    description: "FREE, 100+ RPM, excellent reasoning",
+    id: "DeepSeek-V3.1",
+    name: "DeepSeek V3.1 (SambaNova)",
+    description: "FREE, 100+ RPM, excellent reasoning (671B MoE)",
     contextWindow: "128K",
     contextWindowTokens: 128000,
     maxOutputTokens: 16384,
