@@ -26,9 +26,12 @@ async function hasProjectAccess(userId: string, userRole: string, projectId: str
 }
 
 /**
- * Ensure AI tables exist in Turso. Runs silently on first use.
+ * Ensure AI tables exist in Turso. Runs silently on first use only.
+ * Uses a singleton guard to avoid re-running on every request.
  */
+let _tablesEnsured = false;
 async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
+  if (_tablesEnsured) return; // Already done this session
   try {
     await tursoClient.execute({
       sql: `CREATE TABLE IF NOT EXISTS "AiProtocol" (
@@ -61,27 +64,22 @@ async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): P
       args: [],
     });
 
-    // Upsert default protocol — always ensure it has the latest 11-step phased structure
+    // Create default protocol only if it doesn't exist
     const existing = await tursoClient.execute({
       sql: `SELECT id FROM "AiProtocol" WHERE name = ?`,
       args: ["Pre-coding Documentation"],
     });
-    const protocolId = existing.rows.length > 0 ? (existing.rows[0].id as string) : crypto.randomUUID();
 
     if (existing.rows.length === 0) {
+      const protocolId = crypto.randomUUID();
       await tursoClient.execute({
         sql: `INSERT INTO "AiProtocol" (id, name, description, "isGlobal", "projectId", "createdAt", "updatedAt")
               VALUES (?, ?, ?, 1, NULL, datetime('now'), datetime('now'))`,
         args: [protocolId, "Pre-coding Documentation", "Complete pre-coding documentation generation protocol.", 1, null],
       });
-    }
 
-    // Always refresh steps to match the latest 11-step phased protocol
-    await tursoClient.execute({
-      sql: `DELETE FROM "AiProtocolStep" WHERE "protocolId" = ?`,
-      args: [protocolId],
-    });
-    const defaultSteps = [
+      // Seed with 11-step phased protocol
+      const defaultSteps = [
         { title: "Phase 1: COLLECT — Extract Project Data", description: "Gather all project information using tools (list_projects, get_project_info), review context, identify gaps and assumptions", commandTag: null, stepOrder: 1 },
         { title: "Phase 2A: Web Research — 5 Categories", description: "Research competitors, market trends, technology best practices, UX patterns, and security requirements", commandTag: null, stepOrder: 2 },
         { title: "Phase 2B: Think Deeper — Scalability & Edge Cases", description: "Analyze scalability considerations, edge cases, security deep dive, performance optimization, and migration strategy", commandTag: null, stepOrder: 3 },
@@ -101,6 +99,12 @@ async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): P
           args: [crypto.randomUUID(), protocolId, step.title, step.description, step.commandTag, step.stepOrder],
         });
       }
+      console.log("[ensureAiTables] Seeded default 11-step protocol");
+    } else {
+      console.log("[ensureAiTables] Protocol tables already exist, skipping");
+    }
+
+    _tablesEnsured = true;
   } catch (err) {
     console.error("[ensureAiTables] Migration error (non-fatal):", err);
   }
@@ -193,7 +197,8 @@ export async function GET(request: NextRequest) {
 }
 
 // Vercel serverless function config — extend timeout for agentic AI loops
-export const maxDuration = 60;
+// /docs with tool calling + retry may need up to 120s
+export const maxDuration = 120;
 
 // POST /api/ai/chat — Send message and get AI response (with agentic tool-calling loop)
 export async function POST(request: NextRequest) {
@@ -351,7 +356,8 @@ export async function POST(request: NextRequest) {
 
     // ===== Determine max_tokens based on command =====
     const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
-    const maxTokens = isDocCommand ? 16384 : 4096;
+    // Use 8K for individual docs, 16K for full /docs protocol
+    const maxTokens = command === "/docs" ? 16384 : isDocCommand ? 8192 : 4096;
 
     // ===== Agentic Loop =====
     let aiText: string;
@@ -435,7 +441,7 @@ export async function POST(request: NextRequest) {
             tools: availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
             tool_choice: availableTools.length > 0 ? "auto" : undefined,
           });
-          console.log(`[AI Round ${round}] model=${activeModel} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success}`);
+          console.log(`[AI Round ${round}] model=${activeModel} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
 
           if (!result.success) {
             aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
@@ -447,6 +453,14 @@ export async function POST(request: NextRequest) {
           if (!result.tool_calls || result.tool_calls.length === 0) {
             finalContent = result.content;
             break;
+          }
+
+          // If the model returned BOTH content and tool calls, capture the content
+          // This handles the case where the model starts generating but also wants to call tools
+          if (result.content && result.content.length > 100) {
+            finalContent = result.content;
+            // Don't break — continue executing tool calls to show in UI
+            console.log(`[AI Round ${round}] Model returned content alongside tool calls, captured content_len=${result.content.length}`);
           }
 
           // Add assistant message with tool calls to conversation
@@ -501,10 +515,33 @@ export async function POST(request: NextRequest) {
           finalContent = toolExecutions.map((t) => `${t.icon} ${t.displayMessage}`).join("\n\n");
         }
 
-        // Better fallback for commands vs general chat
+        // Better fallback: retry without tools for commands that produced no content
         if (!finalContent) {
           if (command) {
-            finalContent = `I received your \`${command}\` command but encountered an issue generating the response. The AI model may not have sufficient context or capacity for this request.\n\n**Suggestions:**\n- Try running the command again\n- Try a simpler command like \`/help\`\n- If using \`/docs\`, the full protocol requires a model with a large context window (128K+)\n- Check if the correct AI model is selected in the model dropdown above`;
+            // The model got stuck in a tool loop — retry without tools so it just generates text
+            console.log(`[AI Fallback] No content after ${round} rounds for ${command}, retrying without tools...`);
+            try {
+              const retryResult = await chatCompletion({
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  ...chatHistory.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+                ],
+                model: activeModel,
+                maxTokens: maxTokens,
+                tools: undefined,
+                tool_choice: undefined,
+              });
+              if (retryResult.success && retryResult.content) {
+                finalContent = retryResult.content;
+                console.log(`[AI Fallback] Retry succeeded, content_len=${retryResult.content.length}`);
+              } else {
+                console.error(`[AI Fallback] Retry also failed: ${retryResult.error}`);
+                finalContent = `I received your \`${command}\` command but the AI model returned an empty response after retrying.\n\n**Error:** ${retryResult.error || "Model returned empty content"}\n\n**Suggestions:**\n- Try running the command again\n- Try a simpler command like \`/help\`\n- Check if the correct AI model is selected in the model dropdown above`;
+              }
+            } catch (retryErr) {
+              console.error("[AI Fallback] Retry error:", retryErr);
+              finalContent = `I received your \`${command}\` command but encountered an error. Please try again.`;
+            }
           } else {
             finalContent = "I'm here to help! What would you like me to do?";
           }
