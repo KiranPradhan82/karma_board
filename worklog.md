@@ -47,3 +47,29 @@ Stage Summary:
 - web_search tool available for all roles for research during /docs Phase 2A
 - Old Turso DB tables (AiSeedProtocol, AiSeedProtocolStep) will be cleaned on next POST /api/ai/migrate call
 - ensureAiTables still runs on every POST /api/ai/chat to keep protocol steps fresh
+---
+Task ID: 1
+Agent: Main Agent
+Task: Implement multi-provider AI model routing with auto-selection
+
+Work Log:
+- Created src/lib/ai-models.ts with model registry (14 models across 4 providers)
+- Added token estimation function (CJK-aware heuristic)
+- Added findBestModelForPrompt() auto-routing algorithm
+- Added getProviderConfig() for per-model provider resolution
+- Refactored src/lib/ai-client.ts to use multi-provider config
+- Enhanced error messages for 413, 401, 404 API errors
+- Updated route.ts with auto-routing before agentic loop
+- Changed DOC_AUTO_MODEL from llama-3.1-8b-instant to gemini-2.0-flash
+- Added model routing info display in chat UI
+- Updated .env.example with all provider env vars
+- Fixed TypeScript ordering bug (availableTools before declaration)
+- Committed and pushed to GitHub
+
+Stage Summary:
+- Multi-provider support: Groq, OpenAI, Google Gemini, Together AI
+- Auto-routing: estimates prompt tokens, switches model if needed
+- Google Gemini 2.0 Flash (FREE, 1M context) is now default for /docs
+- Backward compatible: existing AI_API_KEY works as generic fallback
+- User needs to add GOOGLE_AI_API_KEY in Vercel for free Gemini access
+
