@@ -22,3 +22,28 @@ Stage Summary:
 - UI shows tool execution steps with visual indicators (success ✓ / error ✗)
 - Tool calls are logged in activity feed
 - Max 5 tool rounds per message to prevent infinite loops
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix Karma Space not responding to shortcut commands + protocol optimization
+
+Work Log:
+- Analyzed screenshot showing AI responding with "I'm here to help!" fallback instead of following commands
+- Identified root causes: (1) Shortcut buttons only filled input without sending, (2) /docs system prompt was ~6000+ tokens overwhelming models, (3) max_tokens too low at 4096, (4) Old Turso DB tables from previous schema
+- Fixed handleCommandClick in page.tsx to directly send messages when shortcut buttons are clicked
+- Rewrote /docs protocol section in ai-prompts.ts from ~6000+ tokens to ~1500 tokens (concise but comprehensive)
+- Increased max_tokens from 4096 to 16384 for documentation commands
+- Improved fallback message to explain why a command might have failed
+- Added diagnostic logging for AI rounds
+- Added web_search tool definition (ai-tools.ts) and executor (ai-tool-executor.ts)
+- Updated migrate endpoint to clean old legacy tables and force-refresh protocol steps
+- Build passed, pushed to GitHub: commit 98bae07
+
+Stage Summary:
+- Shortcut buttons now directly execute commands (no need to press Enter)
+- /docs system prompt reduced by ~75% (6000→1500 tokens) to fit within model context windows
+- max_tokens increased to 16384 for documentation generation
+- web_search tool available for all roles for research during /docs Phase 2A
+- Old Turso DB tables (AiSeedProtocol, AiSeedProtocolStep) will be cleaned on next POST /api/ai/migrate call
+- ensureAiTables still runs on every POST /api/ai/chat to keep protocol steps fresh
