@@ -267,6 +267,56 @@ const MODEL_REGISTRY: ModelCapability[] = [
     providerEnvBaseUrl: "TOGETHER_API_BASE_URL",
     defaultBaseUrl: "https://api.together.xyz/v1",
   },
+
+  // ===== SambaNova (FREE, high RPM) =====
+  {
+    id: "Meta-Llama-3.3-70B-Instruct",
+    name: "Llama 3.3 70B (SambaNova)",
+    description: "FREE, 100+ RPM, great for docs and complex tasks",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 16384,
+    supportsTools: true,
+    supportsVision: false,
+    supportsMultimodal: false,
+    category: "SambaNova (Free)",
+    provider: "sambanova",
+    providerEnvKey: "SAMBANOVA_API_KEY",
+    providerEnvBaseUrl: "SAMBANOVA_API_BASE_URL",
+    defaultBaseUrl: "https://api.sambanova.ai/v1",
+  },
+  {
+    id: "DeepSeek-V3",
+    name: "DeepSeek V3 (SambaNova)",
+    description: "FREE, 100+ RPM, excellent reasoning",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 16384,
+    supportsTools: true,
+    supportsVision: false,
+    supportsMultimodal: false,
+    category: "SambaNova (Free)",
+    provider: "sambanova",
+    providerEnvKey: "SAMBANOVA_API_KEY",
+    providerEnvBaseUrl: "SAMBANOVA_API_BASE_URL",
+    defaultBaseUrl: "https://api.sambanova.ai/v1",
+  },
+  {
+    id: "Meta-Llama-3.1-405B-Instruct",
+    name: "Llama 3.1 405B (SambaNova)",
+    description: "FREE, 100+ RPM, largest open-source model",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    supportsMultimodal: false,
+    category: "SambaNova (Free)",
+    provider: "sambanova",
+    providerEnvKey: "SAMBANOVA_API_KEY",
+    providerEnvBaseUrl: "SAMBANOVA_API_BASE_URL",
+    defaultBaseUrl: "https://api.sambanova.ai/v1",
+  },
 ];
 
 // Build lookup map
@@ -385,6 +435,7 @@ export function isAiConfigured(): boolean {
   if (process.env.OPENAI_API_KEY) return true;
   if (process.env.GOOGLE_AI_API_KEY) return true;
   if (process.env.TOGETHER_API_KEY) return true;
+  if (process.env.SAMBANOVA_API_KEY) return true;
   return false;
 }
 
@@ -574,6 +625,7 @@ export function findBestModelForPrompt(
   if (process.env.OPENAI_API_KEY) configuredProviders.push("OpenAI");
   if (process.env.GOOGLE_AI_API_KEY) configuredProviders.push("Google");
   if (process.env.TOGETHER_API_KEY) configuredProviders.push("Together");
+  if (process.env.SAMBANOVA_API_KEY) configuredProviders.push("SambaNova");
   if (process.env.AI_API_KEY) configuredProviders.push("Generic (AI_API_KEY)");
 
   const providerHint =
