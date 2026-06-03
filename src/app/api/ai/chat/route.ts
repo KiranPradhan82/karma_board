@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
-import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel } from "@/lib/ai-client";
+import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt } from "@/lib/ai-client";
 import { getToolsForRole } from "@/lib/ai-tools";
 import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
 import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
@@ -340,8 +340,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-select model for doc commands if user hasn't explicitly chosen one
-    // Doc commands need higher TPM limits — llama-3.1-8b-instant has 500K TPM on Groq free tier
-    const DOC_AUTO_MODEL = "llama-3.1-8b-instant";
+    // Doc commands need higher TPM limits — prefer models with large context windows
+    const DOC_AUTO_MODEL = "gemini-2.0-flash"; // FREE, 1M context, handles large prompts
     let activeModel: string;
     let modelAutoSelected = false;
     if (projectModel) {
@@ -349,20 +349,11 @@ export async function POST(request: NextRequest) {
       activeModel = projectModel;
     } else if (isDocCommand) {
       // Auto-select the best model for doc generation
-      const defaultModel = getGlobalDefaultModel();
-      if (defaultModel === "llama-3.3-70b-versatile") {
-        // The default model has low TPM limits — auto-switch for docs
-        activeModel = DOC_AUTO_MODEL;
-        modelAutoSelected = true;
-      } else {
-        activeModel = defaultModel;
-      }
+      activeModel = DOC_AUTO_MODEL;
+      modelAutoSelected = true;
     } else {
       activeModel = getGlobalDefaultModel();
     }
-
-    // For vision, use the appropriate vision-capable model
-    const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
 
     // Build system prompt with rich context
     const systemPrompt = buildSystemPrompt({
@@ -383,7 +374,45 @@ export async function POST(request: NextRequest) {
     // Use 8K for individual docs, 16K for full /docs protocol
     const maxTokens = command === "/docs" ? 16384 : isDocCommand ? 8192 : 4096;
 
-    // ===== Agentic Loop =====
+    // Get tools for this user's role
+    // For doc commands, only pass lightweight tools (list_projects, get_project_info, web_search)
+    // to reduce prompt token count — create/update/add_member are irrelevant for doc generation
+    let availableTools = getToolsForRole(user.role);
+    if (isDocCommand) {
+      availableTools = availableTools.filter((tool) =>
+        ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
+      );
+    }
+
+    // For vision, use the appropriate vision-capable model
+    const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
+
+    // ===== Auto-Route: Check if prompt fits the selected model =====
+    let modelAutoRouted = false;
+    let modelRouteReason = "";
+    try {
+      const estimatedTokens = estimatePromptTokens(
+        [{ role: "system", content: systemPrompt }, ...chatHistory.map((m) => ({ role: String(m.role), content: String(m.content) }))],
+        availableTools.length > 0 ? availableTools : undefined
+      );
+      const route = findBestModelForPrompt(estimatedTokens, activeModel, {
+        tools: !hasImages && availableTools.length > 0,
+        vision: hasImages,
+      });
+      if (route.autoRouted) {
+        console.log(`[AI Auto-Route] ${route.reason}`);
+        console.log(`[AI Auto-Route] Switching: ${activeModel} -> ${route.model}`);
+        activeModel = route.model;
+        modelAutoRouted = true;
+        modelRouteReason = route.reason;
+      } else {
+        console.log(`[AI Model] Using ${activeModel} (no routing needed, ~${estimatedTokens.toLocaleString()} tokens estimated)`);
+      }
+    } catch (routeErr) {
+      console.error("[AI Auto-Route] Routing check failed, using selected model:", routeErr);
+    }
+
+    // ===== Agentic Loop Setup =====
     let aiText: string;
     let aiError = false;
     const toolExecutions: {
@@ -401,16 +430,6 @@ export async function POST(request: NextRequest) {
       userName: userName || user.name,
       tursoClient: client,
     };
-
-    // Get tools for this user's role
-    // For doc commands, only pass lightweight tools (list_projects, get_project_info, web_search)
-    // to reduce prompt token count — create/update/add_member are irrelevant for doc generation
-    let availableTools = getToolsForRole(user.role);
-    if (isDocCommand) {
-      availableTools = availableTools.filter((tool) =>
-        ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
-      );
-    }
 
     // Build initial messages array
     const aiMessages: AiMessage[] = [
@@ -472,7 +491,7 @@ export async function POST(request: NextRequest) {
             tools: availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
             tool_choice: availableTools.length > 0 ? "auto" : undefined,
           });
-          console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
+          console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""}${modelAutoRouted ? " (auto-routed for capacity)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
 
           if (!result.success) {
             aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
@@ -617,6 +636,8 @@ export async function POST(request: NextRequest) {
         toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
         model: activeModel,
         modelAutoSelected: modelAutoSelected || undefined,
+        modelAutoRouted: modelAutoRouted || undefined,
+        modelRouteReason: modelRouteReason || undefined,
       },
     });
   } catch (error) {

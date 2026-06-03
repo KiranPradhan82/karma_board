@@ -79,6 +79,7 @@ interface ChatMessage {
   timestamp: string;
   userName?: string;
   toolExecutions?: ToolExecution[];
+  modelRouteReason?: string;
 }
 
 const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
@@ -278,6 +279,7 @@ export default function KarmaSpacePage() {
               timestamp: new Date().toISOString(),
               userName: "Karma Space AI",
               toolExecutions: json.data.toolExecutions || undefined,
+              modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
             },
           ];
         });
@@ -348,6 +350,7 @@ export default function KarmaSpacePage() {
                   timestamp: new Date().toISOString(),
                   userName: "Karma Space AI",
                   toolExecutions: json.data.toolExecutions || undefined,
+                  modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
                 },
               ];
             });
@@ -752,6 +755,14 @@ export default function KarmaSpacePage() {
                             </p>
                           )}
                         </div>
+
+                        {/* Model Auto-Route Notice */}
+                        {message.modelRouteReason && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-blue-500 dark:text-blue-400 mt-0.5 px-1">
+                            <Cpu className="h-3 w-3 shrink-0" />
+                            <span className="break-words">Auto-routed: {message.modelRouteReason.split("Auto-routed to").pop()?.trim()}</span>
+                          </div>
+                        )}
 
                         {/* PDF Download button on AI messages with substantial content */}
                         {message.role === "assistant" && message.content.length > 500 && (

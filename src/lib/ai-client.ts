@@ -4,115 +4,42 @@
  * Makes direct HTTP calls to any OpenAI-compatible chat completions API.
  * No dependency on platform-specific SDKs or config files.
  *
- * Required env vars (set in Vercel Dashboard > Settings > Environment Variables):
- *   AI_API_KEY     - Your API key (e.g. OpenAI, Groq, Together, etc.)
+ * Multi-Provider Support:
+ *   Set provider-specific env vars to use multiple providers simultaneously:
+ *     GROQ_API_KEY         - For Groq models (llama-3.3-70b, etc.)
+ *     OPENAI_API_KEY       - For OpenAI models (gpt-4o, gpt-4o-mini, etc.)
+ *     GOOGLE_AI_API_KEY    - For Google Gemini models (FREE — gemini-2.0-flash, etc.)
+ *     TOGETHER_API_KEY     - For Together AI models
  *
- * Optional env vars:
- *   AI_API_BASE_URL - Base URL for the API (default: https://api.openai.com/v1)
- *   AI_MODEL        - Global default model (default: gpt-4o-mini)
- *   AI_VISION_MODEL - Separate model for image analysis (optional)
+ *   Generic fallback (backward compatible):
+ *     AI_API_KEY           - Used when no provider-specific key is set
+ *     AI_API_BASE_URL      - Base URL fallback
+ *     AI_MODEL             - Global default model
+ *     AI_VISION_MODEL      - Separate model for image analysis (optional)
+ *
+ * Model routing is handled by ai-models.ts — each model is mapped to its
+ * provider, and the correct API key + base URL is auto-selected.
  */
 
-// ===== Available AI Models =====
-// SUPERADMIN can choose per-project. Edit this list to add/remove models.
+// Re-export model utilities so existing imports continue to work
+export {
+  AVAILABLE_MODELS,
+  getModelInfo,
+  getGlobalDefaultModel,
+  supportsMultimodal,
+  getVisionModel,
+  isAiConfigured,
+  getConfiguredModels,
+  getModelCapability,
+  estimatePromptTokens,
+  findBestModelForPrompt,
+  isModelConfigured,
+  getProviderConfig,
+} from "./ai-models";
+export type { AiModelOption, ModelCapability, ProviderConfig, ModelRouteResult } from "./ai-models";
 
-export interface AiModelOption {
-  id: string;
-  name: string;
-  description: string;
-  contextWindow: string;
-  category: string;
-}
-
-export const AVAILABLE_MODELS: AiModelOption[] = [
-  // Groq Models
-  {
-    id: "llama-3.3-70b-versatile",
-    name: "Llama 3.3 70B",
-    description: "Best quality, great for docs and complex tasks",
-    contextWindow: "128K",
-    category: "Groq",
-  },
-  {
-    id: "llama-3.1-8b-instant",
-    name: "Llama 3.1 8B Instant",
-    description: "Ultra fast, good for quick queries",
-    contextWindow: "128K",
-    category: "Groq",
-  },
-  {
-    id: "llama-3.1-70b-versatile",
-    name: "Llama 3.1 70B",
-    description: "Strong reasoning, good all-rounder",
-    contextWindow: "128K",
-    category: "Groq",
-  },
-  {
-    id: "mixtral-8x7b-32768",
-    name: "Mixtral 8x7B",
-    description: "Long context (32K), great for long documents",
-    contextWindow: "32K",
-    category: "Groq",
-  },
-  {
-    id: "gemma2-9b-it",
-    name: "Gemma 2 9B",
-    description: "Google model, fast and efficient",
-    contextWindow: "8K",
-    category: "Groq",
-  },
-  // OpenAI Models
-  {
-    id: "gpt-4o-mini",
-    name: "GPT-4o Mini",
-    description: "Fast, affordable, great quality",
-    contextWindow: "128K",
-    category: "OpenAI",
-  },
-  {
-    id: "gpt-4o",
-    name: "GPT-4o",
-    description: "Best quality, more expensive",
-    contextWindow: "128K",
-    category: "OpenAI",
-  },
-  {
-    id: "gpt-3.5-turbo",
-    name: "GPT-3.5 Turbo",
-    description: "Fastest, cheapest, decent quality",
-    contextWindow: "16K",
-    category: "OpenAI",
-  },
-  // Together AI Models
-  {
-    id: "meta-llama/Llama-3-70b-chat-hf",
-    name: "Llama 3 70B (Together)",
-    description: "Strong open-source model via Together",
-    contextWindow: "8K",
-    category: "Together",
-  },
-  {
-    id: "mistralai/Mixtral-8x7B-Instruct-v0.1",
-    name: "Mixtral 8x7B (Together)",
-    description: "Mixture of experts, good quality",
-    contextWindow: "32K",
-    category: "Together",
-  },
-];
-
-/**
- * Get model display info by ID.
- */
-export function getModelInfo(modelId: string): AiModelOption | undefined {
-  return AVAILABLE_MODELS.find((m) => m.id === modelId);
-}
-
-/**
- * Get the global default model from env var.
- */
-export function getGlobalDefaultModel(): string {
-  return process.env.AI_MODEL || "llama-3.3-70b-versatile";
-}
+// Internal import for use in this file
+import { getProviderConfig, getGlobalDefaultModel } from "./ai-models";
 
 // ===== Types =====
 
@@ -154,8 +81,8 @@ export interface AiMultimodalContent {
 }
 
 export interface AttachedImage {
-  data: string;   // base64 without data URL prefix
-  type: string;   // MIME type
+  data: string; // base64 without data URL prefix
+  type: string; // MIME type
   name: string;
 }
 
@@ -175,62 +102,25 @@ export interface AiResponse {
   tool_calls?: AiToolCall[];
 }
 
-// ===== Internal =====
-
-function getConfig() {
-  const baseUrl = process.env.AI_API_BASE_URL || "https://api.openai.com/v1";
-  const apiKey = process.env.AI_API_KEY;
-  const defaultModel = process.env.AI_MODEL || "llama-3.3-70b-versatile";
-
-  return { baseUrl, apiKey, defaultModel };
-}
-
-/**
- * Check if a model supports OpenAI-style multimodal content (image_url array format).
- * Groq, Together, and most non-OpenAI providers do NOT support this.
- */
-export function supportsMultimodal(modelId?: string): boolean {
-  const model = modelId || getConfig().defaultModel;
-  // OpenAI models with vision support
-  return model.startsWith("gpt-4o") || model.startsWith("gpt-4-turbo") || model === "chatgpt-4o-latest";
-}
-
-/**
- * Get the vision model to use. Falls back to AI_VISION_MODEL env var,
- * then checks if the current model supports vision, and finally defaults to gpt-4o-mini.
- */
-export function getVisionModel(preferredModel?: string): string {
-  // 1. If AI_VISION_MODEL is set, use it
-  if (process.env.AI_VISION_MODEL) return process.env.AI_VISION_MODEL;
-  // 2. If preferred model supports vision, use it
-  if (preferredModel && supportsMultimodal(preferredModel)) return preferredModel;
-  // 3. Default to gpt-4o-mini (best cost/vision quality)
-  return "gpt-4o-mini";
-}
-
-/**
- * Check if AI is properly configured.
- */
-export function isAiConfigured(): boolean {
-  const { apiKey } = getConfig();
-  return !!apiKey;
-}
-
 /**
  * Send a chat completion request to the AI API.
+ * Automatically routes to the correct provider based on the model.
  */
 export async function chatCompletion(options: AiChatOptions): Promise<AiResponse> {
-  const { baseUrl, apiKey, defaultModel } = getConfig();
+  const model = options.model || getGlobalDefaultModel();
+  const { baseUrl, apiKey, provider } = getProviderConfig(model);
 
   if (!apiKey) {
+    const cap = (await import("./ai-models")).getModelCapability(model);
+    const keyHint = cap
+      ? `Set ${cap.providerEnvKey} or AI_API_KEY environment variable.`
+      : "Set AI_API_KEY environment variable.";
     return {
       success: false,
       content: "",
-      error: "AI_API_KEY environment variable is not configured.",
+      error: `No API key configured for model "${model}" (provider: ${provider}). ${keyHint}`,
     };
   }
-
-  const model = options.model || defaultModel;
 
   try {
     const requestBody: Record<string, unknown> = {
@@ -246,7 +136,10 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
       requestBody.tool_choice = options.tool_choice || "auto";
     }
 
-    const response = await fetch(baseUrl + "/chat/completions", {
+    const endpoint = baseUrl + "/chat/completions";
+    console.log(`[ai-client] POST ${endpoint} model=${model} provider=${provider} messages=${options.messages.length} max_tokens=${requestBody.max_tokens} has_tools=${!!requestBody.tools}`);
+
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -257,11 +150,31 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error("[ai-client] API error:", response.status, errorBody);
+      console.error(`[ai-client] API error (${response.status}) from ${provider}:`, errorBody.slice(0, 300));
+
+      // Enhanced error messages for common issues
+      let enhancedError = `AI API returned status ${response.status}: `;
+      if (response.status === 413) {
+        enhancedError += `Prompt too large for model "${model}". ` +
+          `The prompt may exceed the model's context window or the provider's rate limits. ` +
+          `Try using a model with a larger context window (e.g., Gemini 2.0 Flash with 1M context — free via Google AI Studio). ` +
+          `Error: ${errorBody.slice(0, 200)}`;
+      } else if (response.status === 401) {
+        enhancedError += `Authentication failed for provider "${provider}". ` +
+          `Check that the correct API key is set (${provider.toUpperCase()}_API_KEY or AI_API_KEY). ` +
+          `Error: ${errorBody.slice(0, 200)}`;
+      } else if (response.status === 404) {
+        enhancedError += `Model "${model}" not found on provider "${provider}". ` +
+          `The model may not be available on this provider. ` +
+          `Error: ${errorBody.slice(0, 200)}`;
+      } else {
+        enhancedError += errorBody.slice(0, 200);
+      }
+
       return {
         success: false,
         content: "",
-        error: "AI API returned status " + response.status + ": " + errorBody.slice(0, 200),
+        error: enhancedError,
       };
     }
 
@@ -277,6 +190,8 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
       },
     }));
 
+    console.log(`[ai-client] Success: model=${data.model || model} tokens=${data.usage?.total_tokens || "unknown"} has_content=${!!content} has_tools=${!!toolCalls?.length}`);
+
     return {
       success: true,
       content: content || (toolCalls?.length ? "" : "No response generated."),
@@ -285,37 +200,41 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
       tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
     };
   } catch (error) {
-    console.error("[ai-client] Network error:", error);
+    console.error(`[ai-client] Network error (${provider}):`, error);
     return {
       success: false,
       content: "",
-      error: "Failed to reach AI service: " + (error instanceof Error ? error.message : "Unknown error"),
+      error: `Failed to reach AI service (${provider}): ${error instanceof Error ? error.message : "Unknown error"}`,
     };
   }
 }
 
 /**
  * Send a vision (multimodal) chat completion request.
- * Automatically handles model differences - uses OpenAI multimodal format for vision-capable models,
- * and falls back to string-only for models that do not support multimodal content arrays.
+ * Automatically handles model differences — uses OpenAI multimodal format
+ * for vision-capable models, and falls back to string-only for others.
  */
 export async function visionCompletion(options: AiVisionOptions): Promise<AiResponse> {
-  const { baseUrl, apiKey, defaultModel } = getConfig();
+  const model = options.model || getGlobalDefaultModel();
+  const { baseUrl, apiKey, provider } = getProviderConfig(model);
 
   if (!apiKey) {
     return {
       success: false,
       content: "",
-      error: "AI_API_KEY environment variable is not configured.",
+      error: `No API key configured for vision model "${model}" (provider: ${provider}). Set the appropriate API key.`,
     };
   }
 
-  const model = options.model || defaultModel;
-
   // Check if model supports OpenAI multimodal format
+  const { supportsMultimodal } = await import("./ai-models");
+
   if (supportsMultimodal(model)) {
     try {
-      const response = await fetch(baseUrl + "/chat/completions", {
+      const endpoint = baseUrl + "/chat/completions";
+      console.log(`[ai-client] Vision POST ${endpoint} model=${model} provider=${provider}`);
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -335,7 +254,7 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
         return {
           success: false,
           content: "",
-          error: "Vision API returned status " + response.status + ": " + errorBody.slice(0, 200),
+          error: `Vision API returned status ${response.status}: ${errorBody.slice(0, 200)}`,
         };
       }
 
@@ -351,7 +270,7 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
       return {
         success: false,
         content: "",
-        error: "Failed to reach AI vision service: " + (error instanceof Error ? error.message : "Unknown error"),
+        error: `Failed to reach AI vision service (${provider}): ${error instanceof Error ? error.message : "Unknown error"}`,
       };
     }
   }
@@ -374,7 +293,8 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
   });
 
   try {
-    const response = await fetch(baseUrl + "/chat/completions", {
+    const endpoint = baseUrl + "/chat/completions";
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -394,7 +314,7 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
       return {
         success: false,
         content: "",
-        error: "AI API returned status " + response.status + ": " + errorBody.slice(0, 200),
+        error: `AI API returned status ${response.status}: ${errorBody.slice(0, 200)}`,
       };
     }
 
@@ -410,7 +330,7 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
     return {
       success: false,
       content: "",
-      error: "Failed to reach AI service: " + (error instanceof Error ? error.message : "Unknown error"),
+      error: `Failed to reach AI service (${provider}): ${error instanceof Error ? error.message : "Unknown error"}`,
     };
   }
 }
