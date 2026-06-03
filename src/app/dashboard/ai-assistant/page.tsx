@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Command,
   CommandEmpty,
@@ -121,7 +120,7 @@ export default function KarmaSpacePage() {
   const [projectModel, setProjectModel] = useState<string | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -155,13 +154,9 @@ export default function KarmaSpacePage() {
         );
         const json = await res.json();
         if (json.success) {
-          // Messages come from API in DESC order (newest first) — sort ASC for display
-          const msgs = json.data.messages || [];
-          setMessages([...msgs].sort((a, b) => {
-            const ta = new Date(a.timestamp).getTime();
-            const tb = new Date(b.timestamp).getTime();
-            return ta - tb;
-          }));
+          // API returns newest first — reverse so oldest is at top
+          const msgs = (json.data.messages || []).reverse();
+          setMessages(msgs);
         }
       } catch {
         console.error("Failed to fetch messages");
@@ -169,6 +164,16 @@ export default function KarmaSpacePage() {
     }
     fetchMessages();
   }, [selectedProject]);
+
+  // Scroll to bottom on initial load and new messages
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      const el = chatContainerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+  }, [messages]);
 
   // Fetch per-project model when project changes (SUPERADMIN)
   useEffect(() => {
@@ -214,11 +219,6 @@ export default function KarmaSpacePage() {
     }
   };
 
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
   const sendMessage = useCallback(async () => {
     if (!inputValue.trim() || !selectedProject || isLoading) return;
 
@@ -235,7 +235,7 @@ export default function KarmaSpacePage() {
       timestamp: new Date().toISOString(),
       userName: user?.name || "You",
     };
-    setActiveToolSteps([]); // Reset tool steps for new message
+    setActiveToolSteps([]);
     setMessages((prev) => [...prev, optimisticUserMsg]);
 
     try {
@@ -243,7 +243,7 @@ export default function KarmaSpacePage() {
         projectId: selectedProject.id,
         content,
       };
-      // Send images as array (new format)
+      // Send images as array
       if (attachedFiles.length > 0) {
         body.files = attachedFiles;
         setAttachedFiles([]);
@@ -282,8 +282,9 @@ export default function KarmaSpacePage() {
       } else {
         setError(json.error || "Failed to send message");
       }
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (err) {
+      console.error("[sendMessage] Error:", err);
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setIsLoading(false);
       setActiveToolSteps([]);
@@ -307,20 +308,17 @@ export default function KarmaSpacePage() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const newFiles: { data: string; name: string; type: string }[] = [];
     const MAX_FILES = 5;
     const MAX_SIZE_MB = 10;
 
     for (let i = 0; i < Math.min(files.length, MAX_FILES - attachedFiles.length); i++) {
       const file = files[i];
 
-      // Check file size
       if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-        setError(`Image "${file.name}" is too large. Maximum size is ${MAX_SIZE_MB}MB.`);
+        setError(`"${file.name}" is too large. Max ${MAX_SIZE_MB}MB.`);
         continue;
       }
 
-      // Read file as base64
       const reader = new FileReader();
       reader.onload = () => {
         const base64 = (reader.result as string).split(",")[1];
@@ -348,9 +346,7 @@ export default function KarmaSpacePage() {
       const res = await fetch(
         `/api/ai/project-pdf?projectId=${selectedProject.id}`
       );
-      if (!res.ok) {
-        throw new Error("Failed to export PDF");
-      }
+      if (!res.ok) throw new Error("Failed to export PDF");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -466,9 +462,8 @@ export default function KarmaSpacePage() {
             </Popover>
           </div>
 
-          {/* Right side: Model selector + Export PDF (SUPERADMIN only) */}
+          {/* Right side: Model selector + Export PDF */}
           <div className="flex items-center gap-2">
-            {/* AI Model Selector - SUPERADMIN only */}
             {isSuperAdmin && selectedProject && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -515,35 +510,33 @@ export default function KarmaSpacePage() {
               </Tooltip>
             )}
 
-            {/* Export PDF button for SUPERADMIN */}
             {isSuperAdmin && selectedProject && (
               <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={handleExportPdf}
-                  disabled={isExporting}
-                >
-                  {isExporting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  <span className="hidden sm:inline">Export PDF</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Export project report as PDF</TooltipContent>
-            </Tooltip>
-          )}
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleExportPdf}
+                    disabled={isExporting}
+                  >
+                    {isExporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    <span className="hidden sm:inline">Export PDF</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Export project report as PDF</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
 
-        {/* Messages Area */}
+        {/* Messages Area — fills remaining space, scrolls independently */}
         <div className="flex-1 overflow-hidden">
           {!selectedProject ? (
-            // Empty State - No project selected
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
                 <Bot className="h-8 w-8 text-primary" />
@@ -555,7 +548,6 @@ export default function KarmaSpacePage() {
               </p>
             </div>
           ) : messages.length === 0 ? (
-            // Empty State - No messages yet
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
                 <MessageSquare className="h-8 w-8 text-primary" />
@@ -583,24 +575,28 @@ export default function KarmaSpacePage() {
               </div>
             </div>
           ) : (
-            // Messages
-            <ScrollArea className="h-full">
-              <div className="max-w-3xl mx-auto px-4 py-4 space-y-4 overflow-hidden">
+            /* Chat container — native scroll, newest at bottom */
+            <div
+              ref={chatContainerRef}
+              className="h-full overflow-y-auto"
+            >
+              <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${
+                    className={`flex items-start ${
                       message.role === "user" ? "justify-end" : "justify-start"
                     }`}
                   >
                     <div
-                      className={`flex gap-3 min-w-0 max-w-[85%] ${
+                      className={`flex items-start gap-2 ${
                         message.role === "user" ? "flex-row-reverse" : ""
                       }`}
+                      style={{ maxWidth: "80%", minWidth: 0 }}
                     >
                       {/* Avatar */}
                       <div
-                        className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-xs font-medium ${
+                        className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 text-[11px] font-medium mt-0.5 ${
                           message.role === "user"
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-muted-foreground"
@@ -614,15 +610,15 @@ export default function KarmaSpacePage() {
                             .toUpperCase()
                             .slice(0, 2) || "U"
                         ) : (
-                          <Bot className="h-4 w-4" />
+                          <Bot className="h-3.5 w-3.5" />
                         )}
                       </div>
 
-                      {/* Message Bubble */}
-                      <div className="min-w-0 max-w-full flex flex-col gap-1.5">
-                        {/* Tool Executions (shown above the message) */}
+                      {/* Bubble */}
+                      <div className="min-w-0 flex flex-col gap-1">
+                        {/* Tool Executions */}
                         {message.toolExecutions && message.toolExecutions.length > 0 && (
-                          <div className="rounded-lg border bg-card px-3 py-2 space-y-1.5">
+                          <div className="rounded-lg border bg-card px-3 py-2 space-y-1.5 w-full">
                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                               <Wrench className="h-3 w-3" />
                               <span className="font-medium">Actions performed</span>
@@ -630,7 +626,7 @@ export default function KarmaSpacePage() {
                             {message.toolExecutions.map((tool, idx) => (
                               <div key={idx} className="flex items-center gap-2 text-xs">
                                 <span className="text-sm">{tool.icon}</span>
-                                <span className="flex-1 text-muted-foreground">{tool.displayMessage}</span>
+                                <span className="flex-1 break-words text-muted-foreground">{tool.displayMessage}</span>
                                 {tool.status === "success" ? (
                                   <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                                 ) : tool.status === "error" ? (
@@ -642,23 +638,31 @@ export default function KarmaSpacePage() {
                             ))}
                           </div>
                         )}
+
+                        {/* Message Content */}
                         <div
-                          className={`rounded-xl px-4 py-3 break-words overflow-hidden ${
+                          className={`rounded-2xl px-3.5 py-2.5 ${
                             message.role === "user"
                               ? "bg-primary text-primary-foreground"
                               : "bg-muted text-foreground"
                           }`}
+                          style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
                         >
                           {message.role === "assistant" ? (
-                            <div className="prose prose-sm max-w-none dark:prose-invert break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                            <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
+                              [&_a]:text-primary [&_a]:underline [&_a:hover]:text-primary/80
+                              [&_code]:text-xs [&_code]:bg-background/20 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
+                              [&_pre]:bg-background/30 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:overflow-x-auto
+                              [&_table]:text-xs [&_th]:p-1 [&_td]:p-1 [&_th]:border [&_td]:border"
+                            >
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                 {message.content}
                               </ReactMarkdown>
                             </div>
                           ) : (
-                            <div className="text-sm whitespace-pre-wrap break-words">
+                            <p className="text-sm whitespace-pre-wrap m-0">
                               {message.content}
-                            </div>
+                            </p>
                           )}
                         </div>
                       </div>
@@ -666,26 +670,24 @@ export default function KarmaSpacePage() {
                   </div>
                 ))}
 
+                {/* Loading indicator */}
                 {isLoading && (
-                  <div className="flex justify-start">
-                    <div className="flex gap-3">
-                      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
-                        <Bot className="h-4 w-4" />
+                  <div className="flex items-start justify-start">
+                    <div className="flex items-start gap-2" style={{ maxWidth: "80%" }}>
+                      <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground shrink-0 mt-0.5">
+                        <Bot className="h-3.5 w-3.5" />
                       </div>
-                      <div className="rounded-xl px-4 py-3 bg-muted max-w-[85%]">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-                          <Wrench className="h-4 w-4" />
-                          <span>Karma Space is working...</span>
+                      <div className="rounded-2xl px-3.5 py-2.5 bg-muted">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span>Karma Space is thinking...</span>
                         </div>
-                        {/* Show live tool steps during loading */}
                       </div>
                     </div>
                   </div>
                 )}
-
-                <div ref={messagesEndRef} />
               </div>
-            </ScrollArea>
+            </div>
           )}
         </div>
 
@@ -693,11 +695,11 @@ export default function KarmaSpacePage() {
         {error && (
           <div className="border-t px-4 py-2 bg-destructive/10 flex items-center gap-2 shrink-0">
             <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
-            <p className="text-sm text-destructive flex-1">{error}</p>
+            <p className="text-sm text-destructive flex-1 break-words">{error}</p>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-7 px-2 shrink-0"
               onClick={() => setError(null)}
             >
               <X className="h-3.5 w-3.5" />
@@ -728,7 +730,7 @@ export default function KarmaSpacePage() {
           </div>
         )}
 
-        {/* File Preview - Multiple images */}
+        {/* Attached Files Preview */}
         {attachedFiles.length > 0 && (
           <div className="border-t px-4 py-2 flex items-center gap-2 overflow-x-auto shrink-0 bg-muted/50 scrollbar-none">
             <div className="flex gap-2">
@@ -771,7 +773,7 @@ export default function KarmaSpacePage() {
         <div className="border-t px-4 py-3 bg-card shrink-0">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-end gap-2">
-              {/* File Upload */}
+              {/* File Upload (hidden input) */}
               <input
                 type="file"
                 ref={fileInputRef}
@@ -808,11 +810,12 @@ export default function KarmaSpacePage() {
                       : "Select a project to start..."
                   }
                   disabled={!selectedProject || isLoading}
-                  className="w-full resize-none rounded-xl border bg-background px-4 py-2.5 pr-4 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[42px] max-h-[120px]"
+                  className="w-full resize-none rounded-xl border bg-background px-4 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   rows={1}
                   style={{
-                    height: "auto",
-                    minHeight: "42px",
+                    height: "42px",
+                    maxHeight: "120px",
+                    overflow: "hidden",
                   }}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;

@@ -124,24 +124,24 @@ export async function GET(request: NextRequest) {
     let messagesResult;
 
     if (user.role === "SUPERADMIN") {
-      // SUPERADMIN sees all messages
+      // SUPERADMIN sees all messages — newest first (client will reverse for display)
       messagesResult = await client.execute({
         sql: `SELECT m.*, u.name as userName
               FROM "AiChat" m
               LEFT JOIN "User" u ON m."userId" = u.id
               WHERE m."projectId" = ?
-              ORDER BY m."timestamp" ASC
+              ORDER BY m."timestamp" DESC
               LIMIT ? OFFSET ?`,
         args: [projectId, limit, offset],
       });
     } else {
-      // Others see only own messages + assistant messages
+      // Others see only own messages + assistant messages — newest first
       messagesResult = await client.execute({
         sql: `SELECT m.*, u.name as userName
               FROM "AiChat" m
               LEFT JOIN "User" u ON m."userId" = u.id
               WHERE m."projectId" = ? AND (m."userId" = ? OR m."role" = 'assistant')
-              ORDER BY m."timestamp" ASC
+              ORDER BY m."timestamp" DESC
               LIMIT ? OFFSET ?`,
         args: [projectId, user.id, limit, offset],
       });
@@ -180,6 +180,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
   }
 }
+
+// Vercel serverless function config — extend timeout for agentic AI loops
+export const maxDuration = 60;
 
 // POST /api/ai/chat — Send message and get AI response (with agentic tool-calling loop)
 export async function POST(request: NextRequest) {
