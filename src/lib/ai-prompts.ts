@@ -668,6 +668,7 @@ ${canUpdate ? '- **update_project**: Update a project\'s status, priority, deadl
 ${canUpdate ? '- **add_project_member**: Add a team member to a project with a specific role' : '- ~~add_project_member~~ (not available for your role)'}
 - **list_projects**: List all projects the user has access to (filtered by status)
 - **get_project_info**: Get detailed information about a specific project
+- **web_search**: Search the web for real-time information (competitors, trends, best practices)
 
 ### How to Use Tools:
 1. When the user asks you to create/update/modify something, **use the appropriate tool** to do it
@@ -723,231 +724,49 @@ If the user asks a general/non-project question (greetings, small talk, general 
     .map(([cmd, info]) => `- \`/${cmd.slice(1)}\` — **${info.label}**: ${info.description}`)
     .join("\n");
 
-  // ---- /docs: Full Phased Protocol ----
+  // ---- /docs: Full Phased Protocol (concise version to fit model context) ----
   if (command === "/docs" && protocolSteps && protocolSteps.length > 0) {
-    // Group steps by phase
-    const phases = [
-      { name: "Phase 1", title: "COLLECT", description: "Extract and analyze all project data", emoji: "Phase 1" },
-      { name: "Phase 2A", title: "Web Research", description: "Research 5 categories for competitive and market intelligence", emoji: "Phase 2A" },
-      { name: "Phase 2B", title: "Think Deeper", description: "Analyze scalability, edge cases, security, and performance", emoji: "Phase 2B" },
-      { name: "Phase 3", title: "Generate Documents", description: "Generate all 6 pre-coding documents", emoji: "Phase 3" },
-      { name: "Phase 4", title: "Review & Action Items", description: "Summarize all documents, list decisions, open questions", emoji: "Phase 4" },
-      { name: "Phase 5", title: "Save & Commit", description: "Provide save and commit instructions", emoji: "Phase 5" },
-    ];
-
-    const stepsList = protocolSteps
-      .map((step, i) => `${i + 1}. **${step.title}**${step.description ? ` — ${step.description}` : ""}${step.commandTag ? ` (command: /${step.commandTag})` : ""}`)
-      .join("\n");
-
     return `${basePrompt}${projectContextBlock}
 
 ---
 
 # PRE-CODING DOCUMENTATION PROTOCOL
 
-${firstName}, you are executing the **complete pre-coding documentation protocol** for **${projectName || "this project"}**. This is a structured, phased approach to generating all 6 essential pre-coding documents. Follow each phase carefully and sequentially.
+${firstName}, execute the **complete pre-coding documentation protocol** for **${projectName || "this project"}**. Follow each phase sequentially. Output ALL phases in a single response.
 
-## Protocol Phases Overview
+## Phase 1: COLLECT — Extract Project Data
+Use \`list_projects\` and \`get_project_info\` tools to gather data. List: known info, gaps, and assumptions.
 
-${phases.map(p => `- **${p.name}: ${p.title}** — ${p.description}`).join("\n")}
+## Phase 2A: RESEARCH — 5 Categories
+Research and provide insights on: (1) Competitor Analysis (3-5 products, comparison table), (2) Market & Industry Trends, (3) Technology Best Practices, (4) UX Patterns & Accessibility, (5) Security & Compliance.
 
----
+## Phase 2B: THINK DEEPER — 5 Analysis Areas
+Analyze: (1) Scalability (10x growth plan), (2) Edge Cases & Failure Modes (table with mitigations), (3) Security Deep Dive, (4) Performance Optimization targets, (5) Migration & Backward Compatibility.
 
-## PHASE 1: COLLECT — Extract Project Data
+## Phase 3: GENERATE — All 6 Documents
+Generate each document with proper Markdown, tables for structured data, 150-200+ words per section:
 
-Before generating any document, you MUST first collect and understand ALL available information about this project. This phase ensures every subsequent document is grounded in real project context.
+1. **PRD** — Executive summary, vision, target audience with personas, feature requirements (FEAT-001 format with P0/P1/P2), non-functional reqs, user stories (As a/I want/So that), scope, risks table, glossary, action items
+2. **TRD** — Architecture overview, tech stack table (Layer/Tech/Version/Why), frontend/backend requirements, database design, API spec table, security requirements, performance targets, deployment strategy, testing strategy
+3. **App Flow** — User journey maps with steps table, screen flow diagrams, core flows (auth, CRUD, errors), state management, navigation architecture, interaction patterns, data flow
+4. **UI/UX Brief** — Design principles (5-7), design system, color palette table, typography scale, spacing grid, component guidelines, screen designs, accessibility (WCAG), dark mode strategy
+5. **Backend Schema** — ERD description, schema definitions per table (Column/Type/Constraints/Default/Description), enums, indexes, data integrity rules, seed data, migration strategy, API-DB mapping
+6. **Implementation Plan** — Phase breakdown with milestones, task table (ID/Category/Description/Priority/Estimate/Dependencies), sprint planning, resources, risk register, quality gates, deployment plan, success metrics
 
-**Steps:**
-1. Use \`list_projects\` tool to see all projects and understand the broader project landscape
-2. Use \`get_project_info\` tool to get detailed information about the current project
-3. Review the project context provided above (name, description, status, priority, deadline, team size, client)
-4. Identify what information is KNOWN and what is MISSING or needs assumptions
+Separate documents with: ## --- Document N: [Title] ---
 
-**Output format:**
-\`\`\`
-## Phase 1: COLLECT — Complete
+## Phase 4: REVIEW
+- Executive summary linking all docs
+- Critical decisions needing approval
+- Open questions
+- Top 10 priority action items table
 
-### Known Information:
-- [List all confirmed project details]
-
-### Identified Gaps:
-- [List what information is missing or assumed]
-
-### Assumptions Made:
-- [List any assumptions you'll use for document generation]
-\`\`\`
-
----
-
-## PHASE 2A: Web Research — 5 Research Categories
-
-Based on the collected data, perform deep research across these 5 categories. Use your extensive knowledge to provide competitive intelligence and market context.
-
-**Research Categories:**
-
-1. **Competitor Analysis** — Identify 3-5 competing products/platforms. For each: name, key features, pricing model, strengths, weaknesses, differentiators. How does this project compare?
-
-2. **Market & Industry Trends** — Current trends in this product category. Market size and growth. User expectations. Emerging standards. Regulatory considerations.
-
-3. **Technology Trends & Best Practices** — Current best practices for this type of application. Recommended architecture patterns. Popular libraries and frameworks. Performance benchmarks to target.
-
-4. **User Experience Patterns** — Common UX patterns for similar applications. Accessibility standards (WCAG). Mobile-first considerations. User onboarding best practices.
-
-5. **Security & Compliance Requirements** — Industry security standards. Data protection requirements. Compliance frameworks. Authentication best practices. Audit requirements.
-
-**Output format:**
-\`\`\`
-## Phase 2A: Web Research — Complete
-
-### 1. Competitor Analysis
-[Detailed analysis with comparison table]
-
-### 2. Market & Industry Trends
-[Key trends and implications]
-
-### 3. Technology Trends & Best Practices
-[Recommendations with rationale]
-
-### 4. User Experience Patterns
-[UX patterns and accessibility requirements]
-
-### 5. Security & Compliance
-[Security standards and compliance needs]
-\`\`\`
-
----
-
-## PHASE 2B: Think Deeper — Scalability, Edge Cases & Analysis
-
-Go beyond surface-level planning. Think deeply about potential challenges and edge cases.
-
-**Analysis Areas:**
-
-1. **Scalability Considerations** — How will the system handle growth? (10x users, 100x data). Database scaling strategy. API rate limiting. Caching layers. CDN for static assets.
-
-2. **Edge Cases & Failure Modes** — What happens when: database is down, API timeouts, concurrent edits, invalid data, file upload failures, email delivery fails, user deletes own account while active, project with no team members.
-
-3. **Security Deep Dive** — SQL injection prevention, XSS prevention, CSRF protection, token security, rate limiting, input sanitization, secrets rotation, audit logging.
-
-4. **Performance Optimization** — Database query optimization, API response caching, frontend bundle size, lazy loading strategy, image optimization, code splitting.
-
-5. **Migration & Backward Compatibility** — How to handle schema changes, API versioning, data migration for existing users, feature flags for gradual rollout.
-
-**Output format:**
-\`\`\`
-## Phase 2B: Think Deeper — Complete
-
-### 1. Scalability Considerations
-[Analysis and recommendations]
-
-### 2. Edge Cases & Failure Modes
-[Comprehensive edge case table with mitigation]
-
-### 3. Security Deep Dive
-[Security analysis and recommendations]
-
-### 4. Performance Optimization
-[Performance targets and strategies]
-
-### 5. Migration & Backward Compatibility
-[Migration strategy and compatibility plan]
-\`\`\`
-
----
-
-## PHASE 3: Generate All 6 Pre-Coding Documents
-
-Now generate each document using the research and analysis from Phases 1-2. Each document must be comprehensive, actionable, and grounded in the data collected.
-
-${stepsList}
-
-### Document Generation Rules:
-- Each document MUST follow the exact structure defined in its command template
-- Reference specific data from Phase 1 (COLLECT) — use actual project names, dates, team info
-- Incorporate research findings from Phase 2A (Web Research)
-- Apply deep analysis from Phase 2B (Think Deeper) — address scalability, security, edge cases
-- Use tables for ALL structured data (requirements, APIs, schemas, tasks, personas)
-- Each section must be substantial (minimum 150-200 words)
-- End each document with Action Items
-- Separate documents with clear headers: ## --- Document N: [Title] ---
-
----
-
-## PHASE 4: Review & Action Items
-
-After generating all 6 documents:
-
-1. **Executive Summary** — One-paragraph overview linking all documents
-2. **Critical Decisions** — List decisions made that need stakeholder approval
-3. **Open Questions** — Unresolved questions requiring team input
-4. **Cross-Document Consistency Check** — Verify data consistency across all 6 docs
-5. **Priority Action Items** — Top 10 actions ranked by urgency
-
-**Output format:**
-\`\`\`
-## Phase 4: Review — Complete
-
-### Executive Summary
-[2-3 paragraph synthesis]
-
-### Critical Decisions Requiring Approval
-[Numbered list with brief rationale]
-
-### Open Questions
-[Numbered list]
-
-### Cross-Document Consistency Notes
-[Observations on data consistency]
-
-### Top 10 Priority Action Items
-| # | Action | Priority | Owner | Due |
-|---|--------|----------|-------|-----|
-| 1 | ... | P0 | ... | ... |
-\`\`\`
-
----
-
-## PHASE 5: Save & Commit Instructions
-
-Provide instructions for saving and committing the generated documentation:
-
-1. **Recommended File Structure:**
-\`\`\`
-docs/
-  pre-coding/
-    PRD.md
-    TRD.md
-    AppFlow.md
-    UIUX-DesignBrief.md
-    BackendSchema.md
-    ImplementationPlan.md
-\`\`\`
-
-2. **Git Commit Format:**
-\`\`\`
-git add docs/pre-coding/
-git commit -m "[Zai] /docs: Generate pre-coding documentation for <project-name>
-
-- Phase 1: COLLECT — Extracted project data
-- Phase 2A: Web Research — 5 categories analyzed
-- Phase 2B: Think Deeper — Scalability, edge cases, security
-- Phase 3: Generated 6 documents (PRD, TRD, App Flow, UI/UX, Schema, Plan)
-- Phase 4: Review — Action items and open questions
-- Phase 5: Save — File structure and commit instructions
-"
-\`\`\`
-
----
+## Phase 5: SAVE
+Provide file structure (docs/pre-coding/PRD.md etc.) and git commit format: \`[Zai] /docs: Generate pre-coding documentation for <name>\`
 
 ${DOCUMENT_FORMATTING}
 
-**CRITICAL REMINDERS:**
-- Execute ALL phases sequentially — never skip a phase
-- Each phase output must be clearly separated with headers
-- The entire protocol output should be a single comprehensive response
-- Use your tools (list_projects, get_project_info) during Phase 1
-- Be thorough but focused — quality over quantity
-- Address the user as **${firstName}** throughout`;
+**Rules:** Execute ALL phases in order. Use tools in Phase 1. Use tables for structured data. Address user as **${firstName}**.`;
   }
 
   // ---- Individual document commands ----

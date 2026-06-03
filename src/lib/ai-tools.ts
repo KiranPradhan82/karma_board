@@ -192,6 +192,25 @@ export const AI_TOOLS: AiToolDefinition[] = [
       },
     },
   },
+
+  {
+    type: "function",
+    function: {
+      name: "web_search",
+      description:
+        "Search the web for real-time information. Use this for competitive analysis, market research, technology trends, UX patterns, and security best practices during documentation generation.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query string (e.g., 'project management software competitors 2025')",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 /**
@@ -204,13 +223,13 @@ export function getToolsForRole(role: string): AiToolDefinition[] {
     case "ADMIN":
       return AI_TOOLS; // Full access
     case "MEMBER":
-      // Members can view projects and get info, but cannot create/update/add members
+      // Members can view projects, get info, and search web, but cannot create/update/add members
       return AI_TOOLS.filter((tool) =>
-        ["list_projects", "get_project_info"].includes(tool.function.name)
+        ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
       );
     default:
       return AI_TOOLS.filter((tool) =>
-        ["list_projects", "get_project_info"].includes(tool.function.name)
+        ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
       );
   }
 }

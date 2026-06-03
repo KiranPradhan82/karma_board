@@ -302,8 +302,69 @@ export default function KarmaSpacePage() {
   };
 
   const handleCommandClick = (command: string) => {
-    setInputValue(command + " ");
-    inputRef.current?.focus();
+    if (!selectedProject || isLoading) return;
+    // Directly send the command instead of just filling the input
+    setInputValue(command);
+    // Use setTimeout to ensure state is set before sending
+    setTimeout(() => {
+      const content = command.trim();
+      setInputValue("");
+      setError(null);
+      setIsLoading(true);
+
+      const optimisticUserMsg: ChatMessage = {
+        id: `temp-${Date.now()}`,
+        role: "user",
+        content,
+        timestamp: new Date().toISOString(),
+        userName: user?.name || "You",
+      };
+      setActiveToolSteps([]);
+      setMessages((prev) => [...prev, optimisticUserMsg]);
+
+      fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: selectedProject.id, content }),
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success) {
+            setMessages((prev) => {
+              const filtered = prev.filter((m) => m.id !== optimisticUserMsg.id);
+              return [
+                ...filtered,
+                {
+                  id: json.data.userMessage.id,
+                  role: json.data.userMessage.role,
+                  content: json.data.userMessage.content,
+                  timestamp: new Date().toISOString(),
+                  userName: user?.name || "You",
+                },
+                {
+                  id: json.data.aiMessage.id,
+                  role: json.data.aiMessage.role,
+                  content: json.data.aiMessage.content,
+                  timestamp: new Date().toISOString(),
+                  userName: "Karma Space AI",
+                  toolExecutions: json.data.toolExecutions || undefined,
+                },
+              ];
+            });
+          } else {
+            setError(json.error || "Failed to send message");
+          }
+        })
+        .catch((err) => {
+          console.error("[handleCommandClick] Error:", err);
+          setError("Network error. Please check your connection and try again.");
+        })
+        .finally(() => {
+          setIsLoading(false);
+          setActiveToolSteps([]);
+          inputRef.current?.focus();
+        });
+    }, 0);
   };
 
   // Download AI message as PDF

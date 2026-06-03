@@ -349,6 +349,10 @@ export async function POST(request: NextRequest) {
     // For vision, use the appropriate vision-capable model
     const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
 
+    // ===== Determine max_tokens based on command =====
+    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
+    const maxTokens = isDocCommand ? 16384 : 4096;
+
     // ===== Agentic Loop =====
     let aiText: string;
     let aiError = false;
@@ -427,9 +431,11 @@ export async function POST(request: NextRequest) {
           const result = await chatCompletion({
             messages: aiMessages,
             model: activeModel,
+            maxTokens: maxTokens,
             tools: availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
             tool_choice: availableTools.length > 0 ? "auto" : undefined,
           });
+          console.log(`[AI Round ${round}] model=${activeModel} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success}`);
 
           if (!result.success) {
             aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
@@ -495,7 +501,16 @@ export async function POST(request: NextRequest) {
           finalContent = toolExecutions.map((t) => `${t.icon} ${t.displayMessage}`).join("\n\n");
         }
 
-        aiText = finalContent || "I'm here to help! What would you like me to do?";
+        // Better fallback for commands vs general chat
+        if (!finalContent) {
+          if (command) {
+            finalContent = `I received your \`${command}\` command but encountered an issue generating the response. The AI model may not have sufficient context or capacity for this request.\n\n**Suggestions:**\n- Try running the command again\n- Try a simpler command like \`/help\`\n- If using \`/docs\`, the full protocol requires a model with a large context window (128K+)\n- Check if the correct AI model is selected in the model dropdown above`;
+          } else {
+            finalContent = "I'm here to help! What would you like me to do?";
+          }
+        }
+
+        aiText = finalContent;
       }
     } catch (err) {
       console.error("[POST /api/ai/chat] AI call error:", err);
