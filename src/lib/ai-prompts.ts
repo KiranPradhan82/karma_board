@@ -726,7 +726,12 @@ If the user asks a general/non-project question (greetings, small talk, general 
 
   // ---- /docs: Full Phased Protocol (concise version to fit model context) ----
   if (command === "/docs" && protocolSteps && protocolSteps.length > 0) {
-    return `${basePrompt}${projectContextBlock}
+    // Slim prompt for /docs — skip full base prompt to reduce token count
+    const docPrompt = `# Karma Space — Document Generator
+
+You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+
+${projectContextBlock}
 
 ---
 
@@ -735,43 +740,42 @@ If the user asks a general/non-project question (greetings, small talk, general 
 ${firstName}, execute the **complete pre-coding documentation protocol** for **${projectName || "this project"}**. Follow each phase sequentially. Output ALL phases in a single response.
 
 ## Phase 1: COLLECT — Extract Project Data
-Use \`list_projects\` and \`get_project_info\` tools to gather data. List: known info, gaps, and assumptions.
+Use \`list_projects\` and \`get_project_info\` tools to gather data. List: known info, gaps, assumptions.
 
 ## Phase 2A: RESEARCH — 5 Categories
-Research and provide insights on: (1) Competitor Analysis (3-5 products, comparison table), (2) Market & Industry Trends, (3) Technology Best Practices, (4) UX Patterns & Accessibility, (5) Security & Compliance.
+(1) Competitor Analysis (3-5 products, comparison table), (2) Market & Industry Trends, (3) Technology Best Practices, (4) UX Patterns & Accessibility, (5) Security & Compliance.
 
 ## Phase 2B: THINK DEEPER — 5 Analysis Areas
-Analyze: (1) Scalability (10x growth plan), (2) Edge Cases & Failure Modes (table with mitigations), (3) Security Deep Dive, (4) Performance Optimization targets, (5) Migration & Backward Compatibility.
+(1) Scalability (10x growth plan), (2) Edge Cases & Failure Modes (table with mitigations), (3) Security Deep Dive, (4) Performance Optimization targets, (5) Migration & Backward Compatibility.
 
 ## Phase 3: GENERATE — All 6 Documents
-Generate each document with proper Markdown, tables for structured data, 150-200+ words per section:
+Use tables for structured data, 150-200+ words per section. Separate with: ## --- Document N: [Title] ---
 
-1. **PRD** — Executive summary, vision, target audience with personas, feature requirements (FEAT-001 format with P0/P1/P2), non-functional reqs, user stories (As a/I want/So that), scope, risks table, glossary, action items
-2. **TRD** — Architecture overview, tech stack table (Layer/Tech/Version/Why), frontend/backend requirements, database design, API spec table, security requirements, performance targets, deployment strategy, testing strategy
-3. **App Flow** — User journey maps with steps table, screen flow diagrams, core flows (auth, CRUD, errors), state management, navigation architecture, interaction patterns, data flow
-4. **UI/UX Brief** — Design principles (5-7), design system, color palette table, typography scale, spacing grid, component guidelines, screen designs, accessibility (WCAG), dark mode strategy
-5. **Backend Schema** — ERD description, schema definitions per table (Column/Type/Constraints/Default/Description), enums, indexes, data integrity rules, seed data, migration strategy, API-DB mapping
-6. **Implementation Plan** — Phase breakdown with milestones, task table (ID/Category/Description/Priority/Estimate/Dependencies), sprint planning, resources, risk register, quality gates, deployment plan, success metrics
-
-Separate documents with: ## --- Document N: [Title] ---
+1. **PRD** — Executive summary, vision, personas, feature requirements (FEAT-001, P0/P1/P2), user stories, scope, risks table, action items
+2. **TRD** — Architecture, tech stack table, frontend/backend reqs, database design, API spec table, security, performance, testing strategy
+3. **App Flow** — User journeys with steps table, screen flows, core flows (auth, CRUD, errors), state management, navigation
+4. **UI/UX Brief** — Design principles, design system, color palette table, typography, spacing, components, accessibility, dark mode
+5. **Backend Schema** — ERD, schema per table (Column/Type/Constraints/Default), enums, indexes, integrity rules, migration strategy
+6. **Implementation Plan** — Phase breakdown, task table (ID/Category/Priority/Estimate/Dependencies), sprints, resources, risk register, quality gates
 
 ## Phase 4: REVIEW
-- Executive summary linking all docs
-- Critical decisions needing approval
-- Open questions
-- Top 10 priority action items table
+Executive summary, critical decisions, open questions, top 10 action items table.
 
 ## Phase 5: SAVE
-Provide file structure (docs/pre-coding/PRD.md etc.) and git commit format: \`[Zai] /docs: Generate pre-coding documentation for <name>\`
+File structure (docs/pre-coding/PRD.md etc.) and git commit: \`[Zai] /docs: Generate pre-coding documentation for <name>\`
 
-${DOCUMENT_FORMATTING}
-
-**Rules:** Execute ALL phases in order. Use tools in Phase 1. Use tables for structured data. Address user as **${firstName}**.`;
+Use professional Markdown. Tables for structured data. Bold key terms. Be specific and actionable.`;
+    return docPrompt;
   }
 
   // ---- Individual document commands ----
   if (command && command !== "/help" && command !== "/docs" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP") {
-    return `${basePrompt}${projectContextBlock}
+    // Slim prompt for individual docs — skip full base to reduce tokens
+    const docPrompt = `# Karma Space — Document Generator
+
+You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+
+${projectContextBlock}
 
 ---
 
@@ -780,14 +784,12 @@ ${DOCUMENT_FORMATTING}
 ${firstName}, generating the **${COMMAND_DESCRIPTIONS[command]?.label || command}** for **${projectName || "this project"}**.
 
 ### Pre-Generation Steps:
-Before writing the document, briefly:
-1. Use \`list_projects\` and \`get_project_info\` tools to gather current project data
-2. Identify key facts (status, priority, deadline, team size, client)
-3. Note any gaps in information
+Before writing the document, briefly use \`list_projects\` and \`get_project_info\` tools to gather current project data.
 
 ${COMMAND_PROMPTS[command]}
 
 ${DOCUMENT_FORMATTING}`;
+    return docPrompt;
   }
 
   // ---- Help command ----

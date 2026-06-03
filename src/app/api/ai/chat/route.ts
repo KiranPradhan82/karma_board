@@ -322,6 +322,48 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ===== Determine command type =====
+    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
+
+    // Resolve model: per-project setting > auto-selection > env var > global default
+    let projectModel: string | null = null;
+    try {
+      const modelSetting = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = ?`,
+        args: [`ai_model:${projectId}`],
+      });
+      if (modelSetting.rows.length > 0 && modelSetting.rows[0].value) {
+        projectModel = modelSetting.rows[0].value as string;
+      }
+    } catch {
+      // Settings table might not exist yet, fall back to default
+    }
+
+    // Auto-select model for doc commands if user hasn't explicitly chosen one
+    // Doc commands need higher TPM limits — llama-3.1-8b-instant has 500K TPM on Groq free tier
+    const DOC_AUTO_MODEL = "llama-3.1-8b-instant";
+    let activeModel: string;
+    let modelAutoSelected = false;
+    if (projectModel) {
+      // User explicitly chose a model — respect it
+      activeModel = projectModel;
+    } else if (isDocCommand) {
+      // Auto-select the best model for doc generation
+      const defaultModel = getGlobalDefaultModel();
+      if (defaultModel === "llama-3.3-70b-versatile") {
+        // The default model has low TPM limits — auto-switch for docs
+        activeModel = DOC_AUTO_MODEL;
+        modelAutoSelected = true;
+      } else {
+        activeModel = defaultModel;
+      }
+    } else {
+      activeModel = getGlobalDefaultModel();
+    }
+
+    // For vision, use the appropriate vision-capable model
+    const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
+
     // Build system prompt with rich context
     const systemPrompt = buildSystemPrompt({
       userName,
@@ -337,25 +379,7 @@ export async function POST(request: NextRequest) {
       command,
     });
 
-    // Resolve model: per-project setting > env var > global default
-    let projectModel: string | null = null;
-    try {
-      const modelSetting = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = ?`,
-        args: [`ai_model:${projectId}`],
-      });
-      if (modelSetting.rows.length > 0 && modelSetting.rows[0].value) {
-        projectModel = modelSetting.rows[0].value as string;
-      }
-    } catch {
-      // Settings table might not exist yet, fall back to default
-    }
-    const activeModel = projectModel || getGlobalDefaultModel();
-    // For vision, use the appropriate vision-capable model
-    const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
-
     // ===== Determine max_tokens based on command =====
-    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
     // Use 8K for individual docs, 16K for full /docs protocol
     const maxTokens = command === "/docs" ? 16384 : isDocCommand ? 8192 : 4096;
 
@@ -379,7 +403,14 @@ export async function POST(request: NextRequest) {
     };
 
     // Get tools for this user's role
-    const availableTools = getToolsForRole(user.role);
+    // For doc commands, only pass lightweight tools (list_projects, get_project_info, web_search)
+    // to reduce prompt token count — create/update/add_member are irrelevant for doc generation
+    let availableTools = getToolsForRole(user.role);
+    if (isDocCommand) {
+      availableTools = availableTools.filter((tool) =>
+        ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
+      );
+    }
 
     // Build initial messages array
     const aiMessages: AiMessage[] = [
@@ -441,7 +472,7 @@ export async function POST(request: NextRequest) {
             tools: availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
             tool_choice: availableTools.length > 0 ? "auto" : undefined,
           });
-          console.log(`[AI Round ${round}] model=${activeModel} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
+          console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
 
           if (!result.success) {
             aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
@@ -584,6 +615,8 @@ export async function POST(request: NextRequest) {
         aiMessage: { id: aiMsgId, role: "assistant", content: aiText, projectId },
         error: aiError || undefined,
         toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
+        model: activeModel,
+        modelAutoSelected: modelAutoSelected || undefined,
       },
     });
   } catch (error) {
