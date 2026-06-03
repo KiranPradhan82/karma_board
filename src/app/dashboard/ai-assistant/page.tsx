@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   XCircle,
   ImagePlus,
+  FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +113,7 @@ export default function KarmaSpacePage() {
     type: string;
   }[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null); // message ID being exported
 
   // Agentic tool execution steps (shown during loading)
   const [activeToolSteps, setActiveToolSteps] = useState<ToolExecution[]>([]);
@@ -302,6 +304,30 @@ export default function KarmaSpacePage() {
   const handleCommandClick = (command: string) => {
     setInputValue(command + " ");
     inputRef.current?.focus();
+  };
+
+  // Download AI message as PDF
+  const handleDownloadPdf = async (msg: ChatMessage) => {
+    if (!msg.id || downloadingPdf) return;
+    setDownloadingPdf(msg.id);
+    try {
+      const res = await fetch(`/api/ai/export-pdf?messageId=${msg.id}&filename=${encodeURIComponent(msg.content.split("\n")[0]?.replace(/[#*`]/g, "").trim().slice(0, 60) || "Document")}`);
+      if (!res.ok) throw new Error("Failed to export PDF");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const title = msg.content.split("\n")[0]?.replace(/[#*`]/g, "").trim().slice(0, 60) || "Document";
+      a.download = `${title.replace(/\s+/g, "_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("Failed to export PDF");
+    } finally {
+      setDownloadingPdf(null);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -615,7 +641,7 @@ export default function KarmaSpacePage() {
                       </div>
 
                       {/* Bubble */}
-                      <div className="min-w-0 flex flex-col gap-1">
+                      <div className="min-w-0 flex flex-col gap-1 group">
                         {/* Tool Executions */}
                         {message.toolExecutions && message.toolExecutions.length > 0 && (
                           <div className="rounded-lg border bg-card px-3 py-2 space-y-1.5 w-full">
@@ -665,6 +691,23 @@ export default function KarmaSpacePage() {
                             </p>
                           )}
                         </div>
+
+                        {/* PDF Download button on AI messages with substantial content */}
+                        {message.role === "assistant" && message.content.length > 500 && (
+                          <button
+                            onClick={() => handleDownloadPdf(message)}
+                            disabled={downloadingPdf === message.id}
+                            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors mt-1 px-1 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            style={{ opacity: downloadingPdf === message.id ? 1 : undefined }}
+                          >
+                            {downloadingPdf === message.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <FileDown className="h-3 w-3" />
+                            )}
+                            <span>Download PDF</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

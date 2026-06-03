@@ -61,19 +61,27 @@ async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): P
       args: [],
     });
 
-    // Seed default protocol if not exists
+    // Upsert default protocol — always ensure it has the latest 11-step phased structure
     const existing = await tursoClient.execute({
       sql: `SELECT id FROM "AiProtocol" WHERE name = ?`,
       args: ["Pre-coding Documentation"],
     });
+    const protocolId = existing.rows.length > 0 ? (existing.rows[0].id as string) : crypto.randomUUID();
+
     if (existing.rows.length === 0) {
-      const protocolId = crypto.randomUUID();
       await tursoClient.execute({
         sql: `INSERT INTO "AiProtocol" (id, name, description, "isGlobal", "projectId", "createdAt", "updatedAt")
               VALUES (?, ?, ?, 1, NULL, datetime('now'), datetime('now'))`,
         args: [protocolId, "Pre-coding Documentation", "Complete pre-coding documentation generation protocol.", 1, null],
       });
-      const defaultSteps = [
+    }
+
+    // Always refresh steps to match the latest 11-step phased protocol
+    await tursoClient.execute({
+      sql: `DELETE FROM "AiProtocolStep" WHERE "protocolId" = ?`,
+      args: [protocolId],
+    });
+    const defaultSteps = [
         { title: "Phase 1: COLLECT — Extract Project Data", description: "Gather all project information using tools (list_projects, get_project_info), review context, identify gaps and assumptions", commandTag: null, stepOrder: 1 },
         { title: "Phase 2A: Web Research — 5 Categories", description: "Research competitors, market trends, technology best practices, UX patterns, and security requirements", commandTag: null, stepOrder: 2 },
         { title: "Phase 2B: Think Deeper — Scalability & Edge Cases", description: "Analyze scalability considerations, edge cases, security deep dive, performance optimization, and migration strategy", commandTag: null, stepOrder: 3 },
@@ -93,7 +101,6 @@ async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): P
           args: [crypto.randomUUID(), protocolId, step.title, step.description, step.commandTag, step.stepOrder],
         });
       }
-    }
   } catch (err) {
     console.error("[ensureAiTables] Migration error (non-fatal):", err);
   }
