@@ -585,15 +585,19 @@ export function findBestModelForPrompt(
     // Sort: prefer models that are "just big enough" (avoid wasteful 1M context for small prompts)
     // but break ties by preferring well-known quality models
     const qualityOrder: Record<string, number> = {
-      "gemini-2.0-flash": 1,
-      "gpt-4o-mini": 2,
-      "gemini-1.5-flash": 3,
-      "llama-3.3-70b-versatile": 4,
-      "gpt-4o": 5,
-      "llama-3.1-70b-versatile": 6,
-      "gemini-1.5-pro": 7,
-      "llama-3.1-8b-instant": 8,
-      "gpt-3.5-turbo": 9,
+      "DeepSeek-V3.1": 1,
+      "gpt-4o": 2,
+      "gpt-4o-mini": 3,
+      "Meta-Llama-3.3-70B-Instruct": 4,
+      "gemini-2.0-flash": 5,
+      "llama-3.3-70b-versatile": 6,
+      "Meta-Llama-3.1-405B-Instruct": 7,
+      "llama-3.1-70b-versatile": 8,
+      "Llama-4-Maverick-17B-128E-Instruct": 9,
+      "gemini-1.5-flash": 10,
+      "gemini-1.5-pro": 11,
+      "llama-3.1-8b-instant": 12,
+      "gpt-3.5-turbo": 13,
     };
 
     candidates.sort((a, b) => {

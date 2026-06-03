@@ -340,8 +340,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-select model for doc commands if user hasn't explicitly chosen one
-    // Doc commands need higher TPM limits — prefer models with large context windows
-    const DOC_AUTO_MODEL = "gemini-2.0-flash"; // FREE, 1M context, handles large prompts
+    // Priority: DeepSeek-V3.1 (SambaNova, FREE, 671B, best reasoning) -> fallback chain
+    const DOC_AUTO_MODEL = "DeepSeek-V3.1";
     let activeModel: string;
     let modelAutoSelected = false;
     if (projectModel) {
