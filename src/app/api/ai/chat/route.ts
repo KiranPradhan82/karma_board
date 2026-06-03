@@ -74,13 +74,17 @@ async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): P
         args: [protocolId, "Pre-coding Documentation", "Complete pre-coding documentation generation protocol.", 1, null],
       });
       const defaultSteps = [
-        { title: "Product Requirements Document", description: "Define project goals, target audience, features, user stories, and acceptance criteria", commandTag: "prd", stepOrder: 1 },
-        { title: "Technical Requirements Document", description: "Define architecture, technology stack, API specs, and technical constraints", commandTag: "trd", stepOrder: 2 },
-        { title: "Application Flow", description: "Map user journeys, screen flows, core workflows, and navigation architecture", commandTag: "flow", stepOrder: 3 },
-        { title: "UI/UX Design Brief", description: "Define design system, visual language, component guidelines, and responsive strategy", commandTag: "ux", stepOrder: 4 },
-        { title: "Backend Schema", description: "Design database architecture, entity relationships, and schema definitions", commandTag: "schema", stepOrder: 5 },
-        { title: "Implementation Plan", description: "Break down phases, sprints, task estimates, dependencies, and quality gates", commandTag: "plan", stepOrder: 6 },
-        { title: "Review & Action Items", description: "Summarize all documents, list critical decisions, open questions, and next steps", commandTag: null, stepOrder: 7 },
+        { title: "Phase 1: COLLECT — Extract Project Data", description: "Gather all project information using tools (list_projects, get_project_info), review context, identify gaps and assumptions", commandTag: null, stepOrder: 1 },
+        { title: "Phase 2A: Web Research — 5 Categories", description: "Research competitors, market trends, technology best practices, UX patterns, and security requirements", commandTag: null, stepOrder: 2 },
+        { title: "Phase 2B: Think Deeper — Scalability & Edge Cases", description: "Analyze scalability considerations, edge cases, security deep dive, performance optimization, and migration strategy", commandTag: null, stepOrder: 3 },
+        { title: "Product Requirements Document (PRD)", description: "Define product vision, target audience, feature requirements, user stories, acceptance criteria, scope, and risks", commandTag: "prd", stepOrder: 4 },
+        { title: "Technical Requirements Document (TRD)", description: "Define architecture, technology stack, frontend/backend requirements, API specs, security, performance, and testing strategy", commandTag: "trd", stepOrder: 5 },
+        { title: "Application Flow Document", description: "Map user journeys, screen flows, core workflows, state management, navigation architecture, and error handling", commandTag: "flow", stepOrder: 6 },
+        { title: "UI/UX Design Brief", description: "Define design principles, design system, color palette, typography, component guidelines, screen designs, accessibility, and dark mode", commandTag: "ux", stepOrder: 7 },
+        { title: "Backend Schema Document", description: "Design database architecture, entity relationships, schema definitions, data integrity rules, migration strategy, and API mapping", commandTag: "schema", stepOrder: 8 },
+        { title: "Implementation Plan", description: "Break down phases, sprint planning, task estimates, resource requirements, risk register, quality gates, deployment plan, and success metrics", commandTag: "plan", stepOrder: 9 },
+        { title: "Phase 4: Review & Action Items", description: "Cross-document consistency check, critical decisions requiring approval, open questions, and top 10 priority action items", commandTag: null, stepOrder: 10 },
+        { title: "Phase 5: Save & Commit Instructions", description: "Provide recommended file structure for docs/pre-coding/ directory and git commit format with [Zai] /docs prefix", commandTag: null, stepOrder: 11 },
       ];
       for (const step of defaultSteps) {
         await tursoClient.execute({
