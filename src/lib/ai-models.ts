@@ -302,12 +302,12 @@ const MODEL_REGISTRY: ModelCapability[] = [
     defaultBaseUrl: "https://api.sambanova.ai/v1",
   },
   {
-    id: "Meta-Llama-3.1-405B-Instruct",
-    name: "Llama 3.1 405B (SambaNova)",
-    description: "FREE, 100+ RPM, largest open-source model",
+    id: "Llama-4-Maverick-17B-128E-Instruct",
+    name: "Llama 4 Maverick (SambaNova)",
+    description: "FREE, 100+ RPM, latest Llama 4 model",
     contextWindow: "128K",
     contextWindowTokens: 128000,
-    maxOutputTokens: 8192,
+    maxOutputTokens: 16384,
     supportsTools: true,
     supportsVision: false,
     supportsMultimodal: false,
@@ -436,6 +436,7 @@ export function isAiConfigured(): boolean {
   if (process.env.GOOGLE_AI_API_KEY) return true;
   if (process.env.TOGETHER_API_KEY) return true;
   if (process.env.SAMBANOVA_API_KEY) return true;
+  if (process.env.OPENROUTER_API_KEY) return true;
   return false;
 }
 
@@ -626,6 +627,7 @@ export function findBestModelForPrompt(
   if (process.env.GOOGLE_AI_API_KEY) configuredProviders.push("Google");
   if (process.env.TOGETHER_API_KEY) configuredProviders.push("Together");
   if (process.env.SAMBANOVA_API_KEY) configuredProviders.push("SambaNova");
+  if (process.env.OPENROUTER_API_KEY) configuredProviders.push("OpenRouter");
   if (process.env.AI_API_KEY) configuredProviders.push("Generic (AI_API_KEY)");
 
   const providerHint =

@@ -497,8 +497,8 @@ export async function POST(request: NextRequest) {
             tool_choice: toolChoice,
           });
 
-          // If 429/413/401 — try fallback providers
-          if (!result.success && result.error && /[429]|status 413|status 401/.test(result.error)) {
+          // If API error (4xx/5xx) — try fallback providers
+          if (!result.success && result.error && /status [45]\d\d/.test(result.error)) {
             const fallbacks = getFallbackModels(model, {
               tools: !!tools,
               vision: false,
