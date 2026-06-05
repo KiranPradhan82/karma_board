@@ -90,6 +90,7 @@ const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
   "/ux": { label: "UI/UX Brief", icon: "🎨" },
   "/schema": { label: "Schema", icon: "🗄️" },
   "/plan": { label: "Plan", icon: "📅" },
+  "/init": { label: "Init Project", icon: "🚀" },
   "/help": { label: "Help", icon: "❓" },
 };
 
@@ -781,7 +782,7 @@ export default function KarmaSpacePage() {
                           <button
                             onClick={() => handleDownloadPdf(message)}
                             disabled={downloadingPdf === message.id}
-                            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors mt-1 px-1 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors mt-1 px-1 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100"
                             style={{ opacity: downloadingPdf === message.id ? 1 : undefined }}
                           >
                             {downloadingPdf === message.id ? (

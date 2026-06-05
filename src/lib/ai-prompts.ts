@@ -1,13 +1,14 @@
 // ===== Command Definitions =====
 
 export const COMMAND_DESCRIPTIONS: Record<string, { label: string; description: string }> = {
-  "/docs": { label: "Full Protocol", description: "Run the complete pre-coding documentation protocol (11 phases)" },
+  "/docs": { label: "Full Protocol", description: "Generate all 6 pre-coding documents sequentially with confirmation flow" },
   "/prd": { label: "PRD", description: "Generate Product Requirements Document" },
   "/trd": { label: "TRD", description: "Generate Technical Requirements Document" },
   "/flow": { label: "App Flow", description: "Generate Application Flow Document" },
   "/ux": { label: "UI/UX Brief", description: "Generate UI/UX Design Brief" },
   "/schema": { label: "Schema", description: "Generate Backend Schema Document" },
   "/plan": { label: "Plan", description: "Generate Implementation Plan" },
+  "/init": { label: "Init Project", description: "Initialize project with GitHub, database, and API keys" },
   "/help": { label: "Help", description: "Show all available commands" },
 };
 
@@ -496,6 +497,8 @@ Group by category:
 Use professional Markdown. Use tables for all structured data. Be specific with estimates.`,
 
   "/help": "SHOW_HELP",
+
+  "/init": "SHOW_INIT",
 };
 
 const DOCUMENT_FORMATTING = `
@@ -508,6 +511,66 @@ const DOCUMENT_FORMATTING = `
 - Each section must be comprehensive and actionable (minimum 150-200 words)
 - Always end with an Action Items section
 - Be specific — avoid vague descriptions. Include concrete examples, metrics, and criteria.`;
+
+// ===== Document Workflow Footer =====
+// This gets appended to ALL document prompts to enforce the sequential confirmation flow.
+
+function getDocWorkflowFooter(
+  currentDocLabel: string,
+  nextCommand: string | null,
+  firstName: string,
+  isLastDoc: boolean,
+): string {
+  const nextStepSection = nextCommand
+    ? `
+
+---
+
+### Next Document
+
+When ${firstName} confirms (or after changes are applied), the next document is:
+
+**\`${nextCommand}\`** — Type this command to proceed.
+
+| Progress | Document | Status |
+|----------|----------|--------|
+| 1 | Project Overview & PRD (\`/docs\` or \`/prd\`) | ${!nextCommand ? "Current" : "Done"} |
+| 2 | Technical Requirements Document (\`/trd\`) | ${nextCommand === "/trd" ? "Up Next" : currentDocLabel === "TRD" ? "Current" : "Pending"} |
+| 3 | Application Flow Document (\`/flow\`) | ${nextCommand === "/flow" ? "Up Next" : currentDocLabel === "App Flow" ? "Current" : "Pending"} |
+| 4 | UI/UX Design Brief (\`/ux\`) | ${nextCommand === "/ux" ? "Up Next" : currentDocLabel === "UI/UX Brief" ? "Current" : "Pending"} |
+| 5 | Backend Schema Document (\`/schema\`) | ${nextCommand === "/schema" ? "Up Next" : currentDocLabel === "Schema" ? "Current" : "Pending"} |
+| 6 | Implementation Plan (\`/plan\`) | ${nextCommand === "/plan" ? "Up Next" : currentDocLabel === "Plan" ? "Current" : "Pending"} |`
+    : isLastDoc
+    ? `
+
+---
+
+### All Documents Complete!
+
+All 6 pre-coding documents have been generated. ${firstName}, you're ready to initialize the project.
+
+Type **\`/init\`** to start the project initialization flow — Karma Space will guide you through:
+1. GitHub repository setup (repo URL + personal access token)
+2. Database configuration (connection URL + auth token)
+3. API keys (email provider, AI provider, any third-party services)
+
+Run \`/init\` when you're ready to set up your project infrastructure.`
+    : "";
+
+  return `
+
+---
+
+### Document Review
+
+${firstName}, please review the **${currentDocLabel}** above. After reviewing:
+
+1. **If everything looks good** — say "looks good" or "confirmed" and ${nextCommand ? `type **\`${nextCommand}\`** to proceed to the next document` : `type **\`/init\`** to start project initialization`}
+2. **If you want changes** — tell me what to add, remove, or modify and I will revise the document
+3. **If anything is unclear or missing** — I will ask you point-wise questions below
+
+${nextStepSection}`;
+}
 
 // ===== KarmaBoard Knowledge Base =====
 
@@ -810,37 +873,7 @@ If the user provided additional details in their message (tech stack preferences
 - Top 5 priority action items for this project
 - Open questions requiring stakeholder input
 
-## Step 4: Remaining Documents
-
-At the END of your response, include this section exactly:
-
----
-
-### 📋 Documentation Roadmap
-
-The **Project Overview** and **PRD** are above. To complete the full pre-coding documentation set, run these commands one at a time:
-
-| Command | Document | What It Covers |
-|---------|----------|----------------|
-| \`/trd\` | Technical Requirements Document | Architecture, tech stack, API specs, security, testing |
-| \`/flow\` | Application Flow Document | User journeys, screen flows, state management, navigation |
-| \`/ux\` | UI/UX Design Brief | Design system, colors, typography, components, accessibility |
-| \`/schema\` | Backend Schema Document | Database ERD, table definitions, indexes, migrations |
-| \`/plan\` | Implementation Plan | Sprint planning, task breakdown, resource allocation, deployment |
-
-Each command generates a comprehensive, detailed document.
-
-Recommended file structure when all docs are complete:
-\`\`\`
-docs/pre-coding/
-├── PRD.md
-├── TRD.md
-├── APP_FLOW.md
-├── UI_UX_BRIEF.md
-├── BACKEND_SCHEMA.md
-└── IMPLEMENTATION_PLAN.md
-\`\`\`
-Git commit: \`[Zai] /docs: Generate pre-coding documentation for ${projectName || "project"}\`
+${getDocWorkflowFooter("Project Overview & PRD", "/trd", firstName, false)}
 
 ## CRITICAL RULES:
 1. **START WRITING IMMEDIATELY** — do NOT call any tools, do NOT say "let me research" or "I'll start by gathering data"
@@ -855,7 +888,21 @@ Git commit: \`[Zai] /docs: Generate pre-coding documentation for ${projectName |
   }
 
   // ---- Individual document commands ----
-  if (command && command !== "/help" && command !== "/docs" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP") {
+  if (command && command !== "/help" && command !== "/docs" && command !== "/init" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP" && COMMAND_PROMPTS[command] !== "SHOW_INIT") {
+    // Determine next command in the sequence
+    const docSequence: [string, string, string, boolean][] = [
+      ["/prd", "Product Requirements Document (PRD)", "/trd", false],
+      ["/trd", "Technical Requirements Document (TRD)", "/flow", false],
+      ["/flow", "Application Flow Document", "/ux", false],
+      ["/ux", "UI/UX Design Brief", "/schema", false],
+      ["/schema", "Backend Schema Document", "/plan", false],
+      ["/plan", "Implementation Plan", null, true],
+    ];
+    const seqEntry = docSequence.find(([cmd]) => cmd === command);
+    const docLabel = seqEntry ? seqEntry[1] : COMMAND_DESCRIPTIONS[command]?.label || command;
+    const nextCmd = seqEntry ? seqEntry[2] : null;
+    const isLast = seqEntry ? seqEntry[3] : false;
+
     // Slim prompt for individual docs — project context already provided
     const docPrompt = `# Karma Space — Document Generator
 
@@ -879,7 +926,9 @@ If the user provided additional details in their message (tech stack, feature id
 
 ${COMMAND_PROMPTS[command]}
 
-${DOCUMENT_FORMATTING}`;
+${DOCUMENT_FORMATTING}
+
+${getDocWorkflowFooter(docLabel, nextCmd, firstName, isLast)}`;
     return docPrompt;
   }
 
@@ -893,20 +942,121 @@ ${commandList}
 
 ### How Document Generation Works
 
-When you run \`/docs\`, Karma Space immediately generates two documents:
-- **Project Overview & Analysis** — Context, target users, competitive landscape, risks
-- **Product Requirements Document (PRD)** — Features, personas, user stories, risks, action items
+\`/docs\` starts the sequential documentation workflow:
+1. Generates **Project Overview & PRD** (document 1 of 6)
+2. After each document, asks for confirmation and any changes
+3. If anything is ambiguous or missing info, asks point-wise questions
+4. Shows the next command to proceed
+5. After all 6 documents are confirmed, suggests \`/init\` for project setup
 
-Then you can run individual commands to generate the remaining documents:
-  - \`/trd\` — Technical Requirements Document
-  - \`/flow\` — Application Flow Document
-  - \`/ux\` — UI/UX Design Brief
-  - \`/schema\` — Backend Schema Document
-  - \`/plan\` — Implementation Plan
+**Document sequence**: \`/docs\` (or \`/prd\`) → \`/trd\` → \`/flow\` → \`/ux\` → \`/schema\` → \`/plan\` → \`/init\`
 
-You can also run individual document commands directly without running \`/docs\` first.
+### Project Initialization (\`/init\`)
+After all documents are complete, \`/init\` guides you through:
+1. GitHub repository URL and personal access token
+2. Database URL and auth token
+3. Any other API keys required
 
 Respond warmly, addressing ${firstName} by name, and explain each command briefly.`;
+  }
+
+  // ---- /init: Project Initialization ----
+  if (command === "/init") {
+    const initPrompt = `# Karma Space — Project Initialization
+
+You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+
+${projectContextBlock}
+
+---
+
+## Project Initialization for **${projectName || "this project"}**
+
+${firstName}, all pre-coding documents are complete! Now let's set up the project infrastructure.
+
+### IMPORTANT: Follow this exact flow
+
+Do NOT skip steps. Collect information from the user one step at a time. Do NOT call any tools — this is an information-gathering conversation.
+
+---
+
+### Step 1: GitHub Repository
+
+To set up version control and CI/CD, I need:
+
+1. **GitHub Repository URL** — The full URL (e.g., \`https://github.com/username/repo-name\`)
+   - If the repo doesn't exist yet, ask for the preferred repo name and I will note that it needs to be created
+2. **GitHub Personal Access Token (PAT)** — A token with \`repo\` and \`write:packages\` scope
+   - This will be used to push/pull code and set up GitHub Actions
+   - The user should generate this from GitHub Settings > Developer settings > Personal access tokens
+
+**Ask the user for both values now. If they don't have a token yet, tell them how to create one.**
+
+After collecting both, proceed to Step 2.
+
+---
+
+### Step 2: Database Configuration
+
+For the database, I need:
+
+1. **Database URL** — The connection string (e.g., \`libsql://...\` for Turso, \`postgresql://...\` for Postgres)
+2. **Database Auth Token** — The authentication token/password for the database
+3. **Database Type** — Confirm the database engine (Turso/SQLite, PostgreSQL, MySQL, MongoDB, etc.)
+
+**Ask the user for these values now.**
+
+After collecting all, proceed to Step 3.
+
+---
+
+### Step 3: API Keys & Third-Party Services
+
+Based on the project requirements, I need the following API keys:
+
+| Service | Key Needed | What It's For |
+|---------|-----------|---------------|
+| **Email Provider** | SMTP credentials or API key | Transactional emails (Gmail SMTP, Resend, SendGrid) |
+| **AI Provider** | API key | AI features in the app (OpenAI, Groq, Together AI, Google Gemini) |
+| **Payment** | API key + secret | Payment processing (Stripe) — if applicable |
+| **Cloud Storage** | API key + secret | File uploads (AWS S3, Cloudflare R2) — if applicable |
+| **Authentication** | Client ID + Secret | OAuth providers (Google, GitHub) — if applicable |
+
+**Ask the user which services they need and collect the keys for each.**
+
+For services the user doesn't need yet, skip them — they can be configured later.
+
+---
+
+### After All Steps Are Complete
+
+Once all information is collected, present a summary:
+
+#### Project Configuration Summary
+
+| Configuration | Value |
+|---------------|-------|
+| **Project Name** | ${projectName || "—"} |
+| **GitHub Repo** | [collected value] |
+| **GitHub PAT** | [collected value — show only last 4 chars] |
+| **Database Type** | [collected value] |
+| **Database URL** | [collected value — show only host] |
+| **Database Token** | [collected value — show only last 4 chars] |
+| **API Keys** | [list all collected keys, show only last 4 chars] |
+
+Then provide:
+1. **Environment variables** — Show the complete \`.env.local\` file with all collected values
+2. **Next steps** — What the user should do to start coding (clone repo, install deps, run migrations, etc.)
+3. **Git setup** — Commands to initialize the repo, connect to GitHub, and make the first commit
+
+## CRITICAL RULES:
+1. **ONE STEP AT A TIME** — Do NOT dump all questions at once. Ask Step 1 first, wait for the answer, then ask Step 2.
+2. **NEVER call tools** — This is a conversational information-gathering flow
+3. **NEVER skip steps** — Each step must be completed before moving to the next
+4. **MASK sensitive values** — When showing the summary, only show the last 4 characters of tokens/keys
+5. **Be helpful** — If the user doesn't know how to generate a PAT or find a database URL, explain the steps clearly
+6. **DO NOT suggest project setup** — Only run \`/init\` when ALL 6 documents are confirmed. If the user runs \`/init\` without having completed all documents, gently remind them to finish the documentation first.`;
+    return initPrompt;
   }
 
   // ---- General assistant mode ----

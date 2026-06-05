@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
     const command = trimmed.startsWith("/") ? trimmed.split(/[\s\n]/)[0] : undefined;
 
     // Detect command type (needed before loading history to determine history limit)
-    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
+    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan", "/init"].includes(command);
 
     // Load recent chat messages for context
     // For doc commands: only last 6 messages (saves tokens, avoids bloated context)
@@ -382,8 +382,8 @@ export async function POST(request: NextRequest) {
     const modelCap = getModelCapability(activeModel);
     const modelMaxTokens = modelCap?.maxOutputTokens || 4096;
     let maxTokens: number;
-    if (command === "/docs") {
-      maxTokens = modelMaxTokens; // Use full output for /docs (overview + PRD)
+    if (command === "/docs" || command === "/init") {
+      maxTokens = modelMaxTokens; // Use full output for /docs and /init
     } else if (isDocCommand) {
       maxTokens = Math.floor(modelMaxTokens * 0.9); // 90% for individual docs
     } else {
