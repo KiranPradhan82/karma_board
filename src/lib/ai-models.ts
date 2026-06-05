@@ -220,18 +220,22 @@ const MODEL_REGISTRY: ModelCapability[] = [
     defaultBaseUrl: "https://api.together.xyz/v1",
   },
 
-  // ===== Zhipu AI / Z.ai — GLM (FREE, generous rate limits, 200K context) =====
+  // ===== Zhipu AI / Z.ai — GLM (FREE tier, OpenAI-compatible) =====
+  // Verified specs from official docs (docs.z.ai, docs.bigmodel.cn):
+  //   International endpoint: https://api.z.ai/api/paas/v4
+  //   China endpoint: https://open.bigmodel.cn/api/paas/v4
+  //   Model IDs are all lowercase (e.g., "glm-4-plus", NOT "GLM-4-Plus")
   {
     id: "glm-4-plus",
     name: "GLM-4 Plus",
-    description: "FREE tier, excellent reasoning, 200K context, OpenAI-compatible",
-    contextWindow: "200K",
-    contextWindowTokens: 200000,
-    maxOutputTokens: 16384,
+    description: "Excellent reasoning, 128K context, function calling (paid tier)",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 4096,
     supportsTools: true,
     supportsVision: false,
     supportsMultimodal: false,
-    category: "Z.ai (Free)",
+    category: "Z.ai",
     provider: "zai",
     providerEnvKey: "ZAI_API_KEY",
     providerEnvBaseUrl: "ZAI_API_BASE_URL",
@@ -240,10 +244,10 @@ const MODEL_REGISTRY: ModelCapability[] = [
   {
     id: "glm-4-flash",
     name: "GLM-4 Flash",
-    description: "FREE permanently, ultra fast, 200K context, great for chat",
-    contextWindow: "200K",
-    contextWindowTokens: 200000,
-    maxOutputTokens: 8192,
+    description: "FREE permanently, 128K context, 16K output, great for docs and chat",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 16384,
     supportsTools: true,
     supportsVision: false,
     supportsMultimodal: false,
@@ -256,14 +260,14 @@ const MODEL_REGISTRY: ModelCapability[] = [
   {
     id: "glm-4-air",
     name: "GLM-4 Air",
-    description: "FREE permanently, balanced speed and quality, 200K context",
-    contextWindow: "200K",
-    contextWindowTokens: 200000,
-    maxOutputTokens: 8192,
+    description: "Balanced speed and quality, 128K context, 16K output",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 16384,
     supportsTools: true,
     supportsVision: false,
     supportsMultimodal: false,
-    category: "Z.ai (Free)",
+    category: "Z.ai",
     provider: "zai",
     providerEnvKey: "ZAI_API_KEY",
     providerEnvBaseUrl: "ZAI_API_BASE_URL",
@@ -588,36 +592,42 @@ export function findBestModelForPrompt(
     // Sort: prefer models that are "just big enough" (avoid wasteful 1M context for small prompts)
     // but break ties by preferring well-known quality models
     const qualityOrder: Record<string, number> = {
-      "glm-4-plus": 1,
-      "DeepSeek-V3.1": 2,
-      "gpt-4o": 3,
-      "gpt-4o-mini": 4,
-      "glm-4-flash": 5,
-      "Meta-Llama-3.3-70B-Instruct": 6,
-      "llama-3.3-70b-versatile": 7,
+      "DeepSeek-V3.1": 1,
+      "gpt-4o": 2,
+      "glm-4-flash": 3,
+      "Meta-Llama-3.3-70B-Instruct": 4,
+      "gpt-4o-mini": 5,
+      "llama-3.3-70b-versatile": 6,
+      "glm-4-plus": 7,
       "glm-4-air": 8,
-      "gemini-2.0-flash": 9,
-      "Llama-4-Maverick-17B-128E-Instruct": 10,
+      "Llama-4-Maverick-17B-128E-Instruct": 9,
+      "gemini-2.0-flash": 10,
       "gemini-1.5-flash": 11,
       "gemini-1.5-pro": 12,
       "llama-3.1-8b-instant": 13,
       "gpt-3.5-turbo": 14,
     };
 
+    // For tool-calling (doc generation), prefer models with 16K+ output tokens
+    // For regular chat, prefer by quality then context fit
     candidates.sort((a, b) => {
-      const aSurplus = a.contextWindowTokens - estimatedTokens;
-      const bSurplus = b.contextWindowTokens - estimatedTokens;
-      // Both can handle it — prefer the one with context closer to our needs
-      if (aSurplus >= 0 && bSurplus >= 0) {
-        // If both have similar surplus (within 2x), prefer by quality
-        const aQ = qualityOrder[a.id] ?? 50;
-        const bQ = qualityOrder[b.id] ?? 50;
-        if (Math.abs(aSurplus - bSurplus) < estimatedTokens) {
-          return aQ - bQ; // prefer higher quality
-        }
-        return aSurplus - bSurplus; // prefer smaller surplus
+      const aQ = qualityOrder[a.id] ?? 50;
+      const bQ = qualityOrder[b.id] ?? 50;
+      const aOut = a.maxOutputTokens;
+      const bOut = b.maxOutputTokens;
+
+      if (requiredFeatures?.tools) {
+        // For docs: strongly prefer 16K+ output models
+        if (aOut >= 16000 && bOut < 16000) return -1;
+        if (bOut >= 16000 && aOut < 16000) return 1;
       }
-      return b.contextWindowTokens - a.contextWindowTokens;
+
+      // Both have similar output capacity — prefer by quality
+      if (Math.abs(a.contextWindowTokens - estimatedTokens) < estimatedTokens) {
+        return aQ - bQ;
+      }
+      // Otherwise prefer context closer to our needs
+      return a.contextWindowTokens - b.contextWindowTokens;
     });
 
     const best = candidates[0];
@@ -674,15 +684,15 @@ export function getFallbackModels(
   // Groq models are good (free, fast)
   // Google models are lower priority despite 1M context (free tier only 15 RPM, frequent 429)
   const fallbackQuality: Record<string, number> = {
-    "glm-4-plus": 1,
-    "DeepSeek-V3.1": 2,
+    "DeepSeek-V3.1": 1,
+    "glm-4-flash": 2,
     "Meta-Llama-3.3-70B-Instruct": 3,
-    "Llama-4-Maverick-17B-128E-Instruct": 4,
-    "gpt-4o": 5,
+    "gpt-4o": 4,
+    "Llama-4-Maverick-17B-128E-Instruct": 5,
     "gpt-4o-mini": 6,
-    "glm-4-flash": 7,
-    "llama-3.3-70b-versatile": 8,
-    "glm-4-air": 9,
+    "llama-3.3-70b-versatile": 7,
+    "glm-4-air": 8,
+    "glm-4-plus": 9,
     "llama-3.1-8b-instant": 10,
     "gemini-2.0-flash": 11,
     "gemini-1.5-flash": 12,

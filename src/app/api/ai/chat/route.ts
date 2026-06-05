@@ -254,13 +254,19 @@ export async function POST(request: NextRequest) {
     const trimmed = content.trim();
     const command = trimmed.startsWith("/") ? trimmed.split(/[\s\n]/)[0] : undefined;
 
-    // Load last 20 chat messages for context
+    // Detect command type (needed before loading history to determine history limit)
+    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
+
+    // Load recent chat messages for context
+    // For doc commands: only last 6 messages (saves tokens, avoids bloated context)
+    // For regular chat: last 20 messages for natural conversation flow
+    const historyLimit = isDocCommand ? 6 : 20;
     const historyResult = await client.execute({
       sql: `SELECT role, content FROM "AiChat"
             WHERE "projectId" = ?
             ORDER BY "timestamp" DESC
-            LIMIT 20`,
-      args: [projectId],
+            LIMIT ?`,
+      args: [projectId, historyLimit],
     });
     const chatHistory = historyResult.rows.reverse().map((row) => ({
       role: row.role,
@@ -322,9 +328,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ===== Determine command type =====
-    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan"].includes(command);
-
     // Resolve model: per-project setting > auto-selection > env var > global default
     let projectModel: string | null = null;
     try {
@@ -340,8 +343,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-select model for doc commands if user hasn't explicitly chosen one
-    // Priority: GLM-4-Plus (Z.ai, FREE, 200K ctx, excellent tool calling) -> fallback chain
-    const DOC_AUTO_MODEL = "glm-4-plus";
+    // GLM-4-Flash: FREE permanently, 128K context, 16K output, function calling support
+    // Perfect for doc generation — large output window + free + reliable
+    const DOC_AUTO_MODEL = "glm-4-flash";
     let activeModel: string;
     let modelAutoSelected = false;
     if (projectModel) {
@@ -371,11 +375,20 @@ export async function POST(request: NextRequest) {
     });
 
     // ===== Determine max_tokens based on model capability =====
-    // Use the model's actual max_output_tokens instead of hardcoded values
-    // For /docs, use maximum; for individual docs, use 80% of max; for chat, use 4096
+    // Use the model's actual max_output_tokens — NO artificial caps.
+    // For /docs: use the full model output (important: GLM-4-Flash has 16K, which is enough for one doc)
+    // For individual doc commands: use 90% of max to leave room for formatting
+    // For regular chat: use 4096 (plenty for conversational responses)
     const modelCap = getModelCapability(activeModel);
     const modelMaxTokens = modelCap?.maxOutputTokens || 4096;
-    const maxTokens = isDocCommand ? Math.min(modelMaxTokens, 16384) : 4096;
+    let maxTokens: number;
+    if (command === "/docs") {
+      maxTokens = modelMaxTokens; // Use full output for /docs (overview + PRD)
+    } else if (isDocCommand) {
+      maxTokens = Math.floor(modelMaxTokens * 0.9); // 90% for individual docs
+    } else {
+      maxTokens = 4096; // Regular chat doesn't need huge output
+    }
 
     // Get tools for this user's role
     // For doc commands, only pass lightweight tools (list_projects, get_project_info, web_search)
@@ -537,7 +550,7 @@ export async function POST(request: NextRequest) {
         // Check if the active model actually supports tool calling
         const activeModelCap = getModelCapability(activeModel);
         const modelSupportsTools = activeModelCap?.supportsTools !== false;
-        const shouldSendTools = modelSupportsTools && availableTools.length > 0;
+        let shouldSendTools = modelSupportsTools && availableTools.length > 0;
 
         if (!shouldSendTools && availableTools.length > 0) {
           console.log(`[AI Model] ${activeModel} does not support tools — generating without tools`);
@@ -563,6 +576,12 @@ export async function POST(request: NextRequest) {
             activeModel = (result as any)._fallbackModel;
             modelAutoRouted = true;
             modelRouteReason = `Original model hit a rate limit or error. Auto-switched to "${getModelCapability(activeModel)?.name || activeModel}" (${getModelCapability(activeModel)?.category})`;
+            // Recalculate tool support for the new model (fallback may not support tools)
+            const fbCap = getModelCapability(activeModel);
+            if (fbCap && fbCap.supportsTools === false) {
+              shouldSendTools = false;
+              console.log(`[AI Fallback] ${activeModel} does not support tools — continuing without tools`);
+            }
           }
 
           console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""}${modelAutoRouted ? " (auto-routed)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);

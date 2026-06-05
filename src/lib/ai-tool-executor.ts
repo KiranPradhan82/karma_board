@@ -467,10 +467,10 @@ async function addProjectMember(
   }
 }
 
-// ===== Tool: web_search =====
+// ===== Tool: web_search (Knowledge-Based Research) =====
 
 async function webSearch(
-  args: { query: string },
+  args: { query: string; category?: string },
   _ctx: ExecutorContext
 ): Promise<AiToolResult> {
   if (!args.query || args.query.trim().length === 0) {
@@ -478,67 +478,42 @@ async function webSearch(
       toolCallId: "",
       toolName: "web_search",
       success: false,
-      result: "Search query is required.",
-      displayMessage: "Missing search query.",
+      result: "Research query is required.",
+      displayMessage: "Missing research query.",
     };
   }
 
-  try {
-    const baseUrl = process.env.AI_API_BASE_URL || "https://api.openai.com/v1";
-    const apiKey = process.env.AI_API_KEY;
+  const query = args.query.trim();
+  const category = args.category || "general";
 
-    // Use the web search function if available via the AI API gateway
-    // Fall back to providing a structured response based on the query topic
-    const response = await fetch(baseUrl.replace("/v1", "") + "/functions/invoke", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        name: "web_search",
-        arguments: { query: args.query.trim(), num: 5 },
-      }),
-    });
+  // Knowledge-based research: return a structured prompt that guides the AI
+  // to use its extensive training knowledge for the topic. This avoids fake HTTP
+  // calls to non-existent endpoints while still providing valuable research context.
+  const categoryGuidance: Record<string, string> = {
+    competitors: `Provide a competitive analysis including: top 3-5 competitors/products in this space, their key features, pricing models, strengths/weaknesses, and what differentiates them. Include market positioning insights.`,
+    technology: `Provide a technology analysis including: current best practices, recommended tech stack options, version considerations, framework comparisons, performance implications, and community/ecosystem support.`,
+    ux_patterns: `Provide UX/design analysis including: current design trends, common UI patterns for this type of application, accessibility best practices (WCAG), responsive design considerations, and user experience benchmarks.`,
+    security: `Provide security analysis including: common vulnerabilities for this type of application, authentication best practices, data protection requirements, OWASP top 10 relevance, compliance considerations (GDPR, SOC2), and security testing approaches.`,
+    market_trends: `Provide market analysis including: current industry trends, growth projections, target market size, user adoption patterns, emerging technologies, and competitive landscape shifts.`,
+    general: `Provide comprehensive research insights on this topic including: key facts, current best practices, relevant examples, and actionable recommendations.`,
+  };
 
-    if (response.ok) {
-      const data = await response.json();
-      const results = Array.isArray(data) ? data : data?.results || data?.data || [];
+  const guidance = categoryGuidance[category] || categoryGuidance.general;
 
-      if (Array.isArray(results) && results.length > 0) {
-        const summary = results
-          .slice(0, 5)
-          .map((r: Record<string, unknown>, i: number) => `${i + 1}. **${r.name || r.title || "Result"}** — ${(r.snippet || r.description || "").slice(0, 200)}${r.url ? ` (${r.url})` : ""}`)
-          .join("\n");
+  const result = {
+    query,
+    category,
+    researchGuidance: guidance,
+    note: "Use your extensive training knowledge to provide detailed, specific, and current insights for this research topic. Include real product names, specific technologies, concrete examples, and actionable data points.",
+  };
 
-        return {
-          toolCallId: "",
-          toolName: "web_search",
-          success: true,
-          result: JSON.stringify(results.slice(0, 5)),
-          displayMessage: `Found ${results.length} results for "${args.query.trim().slice(0, 50)}"`,
-        };
-      }
-    }
-
-    // Fallback: provide a helpful response based on query type
-    return {
-      toolCallId: "",
-      toolName: "web_search",
-      success: true,
-      result: `Web search for "${args.query}" was performed. Use your training knowledge to provide relevant insights for this topic. Include specific examples, data points, and current trends where possible.`,
-      displayMessage: `Searched for "${args.query.trim().slice(0, 50)}"`,
-    };
-  } catch (error) {
-    console.error("[webSearch tool] Error:", error);
-    return {
-      toolCallId: "",
-      toolName: "web_search",
-      success: true,
-      result: `Web search for "${args.query}" encountered an issue. Use your training knowledge to provide relevant insights for this topic. Include specific examples, data points, and current trends where possible.`,
-      displayMessage: `Searched for "${args.query.trim().slice(0, 50)}" (used knowledge fallback)`,
-    };
-  }
+  return {
+    toolCallId: "",
+    toolName: "web_search",
+    success: true,
+    result: JSON.stringify(result),
+    displayMessage: `Researching: "${query.slice(0, 50)}" (${category})`,
+  };
 }
 
 // ===== Main Executor =====

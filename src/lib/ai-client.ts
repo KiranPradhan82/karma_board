@@ -134,7 +134,13 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
     // Add tools if provided (for agentic/function calling)
     if (options.tools && options.tools.length > 0) {
       requestBody.tools = options.tools;
-      requestBody.tool_choice = options.tool_choice || "auto";
+      // Only send tool_choice if it's NOT "none" — some providers (Z.ai/GLM) reject "none"
+      // Default to "auto" when tools are present
+      if (options.tool_choice && options.tool_choice !== "none") {
+        requestBody.tool_choice = options.tool_choice;
+      } else {
+        requestBody.tool_choice = "auto";
+      }
     }
 
     const endpoint = baseUrl + "/chat/completions";

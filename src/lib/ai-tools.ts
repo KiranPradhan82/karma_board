@@ -198,13 +198,18 @@ export const AI_TOOLS: AiToolDefinition[] = [
     function: {
       name: "web_search",
       description:
-        "Search the web for real-time information. Use this for competitive analysis, market research, technology trends, UX patterns, and security best practices during documentation generation.",
+        "Perform knowledge-based research on a topic. Use this for competitive analysis, market research, technology trends, UX patterns, and security best practices during documentation generation. Returns structured research insights based on extensive training data.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Search query string (e.g., 'project management software competitors 2025')",
+            description: "Research topic (e.g., 'project management software competitors 2025', 'Next.js 16 best practices')",
+          },
+          category: {
+            type: "string",
+            enum: ["competitors", "technology", "ux_patterns", "security", "market_trends", "general"],
+            description: "Category of research to focus the analysis",
           },
         },
         required: ["query"],
