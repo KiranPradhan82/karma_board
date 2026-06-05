@@ -375,20 +375,32 @@ export default function KarmaSpacePage() {
     if (!msg.id || downloadingPdf) return;
     setDownloadingPdf(msg.id);
     try {
-      const res = await fetch(`/api/ai/export-pdf?messageId=${msg.id}&filename=${encodeURIComponent(msg.content.split("\n")[0]?.replace(/[#*`]/g, "").trim().slice(0, 60) || "Document")}`);
-      if (!res.ok) throw new Error("Failed to export PDF");
+      const title = msg.content.split("\n")[0]?.replace(/[#*`]/g, "").trim().slice(0, 60) || "Document";
+      const res = await fetch(`/api/ai/export-pdf?messageId=${msg.id}&filename=${encodeURIComponent(title)}`);
+      if (!res.ok) {
+        // Try to parse error message from the API response
+        let errorMsg = "Failed to export PDF";
+        try {
+          const errJson = await res.json();
+          if (errJson.error) errorMsg = errJson.error;
+        } catch { /* response wasn't JSON */ }
+        throw new Error(errorMsg);
+      }
       const blob = await res.blob();
+      if (blob.size < 100) {
+        throw new Error("Generated PDF is empty or corrupted");
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const title = msg.content.split("\n")[0]?.replace(/[#*`]/g, "").trim().slice(0, 60) || "Document";
       a.download = `${title.replace(/\s+/g, "_")}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch {
-      setError("Failed to export PDF");
+    } catch (err) {
+      console.error("[handleDownloadPdf] Error:", err);
+      setError(err instanceof Error ? err.message : "Failed to export PDF");
     } finally {
       setDownloadingPdf(null);
     }
