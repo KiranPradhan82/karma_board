@@ -73,3 +73,41 @@ Stage Summary:
 - Backward compatible: existing AI_API_KEY works as generic fallback
 - User needs to add GOOGLE_AI_API_KEY in Vercel for free Gemini access
 
+---
+Task ID: 2
+Agent: Main Agent
+Task: Deep analysis + fix all Karma Space AI problems — make it produce detailed docs
+
+Work Log:
+- Read all 6 core AI files: ai-models.ts, ai-client.ts, ai-prompts.ts, ai-tools.ts, ai-tool-executor.ts, route.ts
+- Researched Z.ai API endpoint (verified: https://api.z.ai/api/paas/v4 is correct for international)
+- Researched GLM model specs (GLM-4-Plus: 128K ctx, 4K output — NOT 200K/16K as previously configured)
+- Identified 7 critical problems causing shallow output
+
+Fixed Problems:
+1. web_search tool was fake — called non-existent /functions/invoke endpoint → removed HTTP call, now honest knowledge-based research with category guidance
+2. /docs asked for ALL 6 documents in one response (impossible in 16K tokens) → now generates overview + PRD only, guides user to run /trd, /flow, etc. for remaining docs
+3. GLM-4-Plus specs were wrong (200K/16K → corrected to 128K/4K based on official docs)
+4. DOC_AUTO_MODEL was GLM-4-Plus (only 4K output — too small for docs) → changed to GLM-4-Flash (FREE, 16K output, 128K context)
+5. max_tokens artificially capped at 16384 → now uses model's actual maxOutputTokens (full for /docs, 90% for individual docs)
+6. Chat history bloated (20 messages for doc commands) → reduced to 6 for docs, kept 20 for regular chat
+7. tool_choice "none" could be sent to Z.ai → filtered in ai-client.ts
+8. Fallback model switch didn't recalculate supportsTools → now checks and disables tools if needed
+
+Files Changed:
+- src/lib/ai-models.ts: Corrected GLM specs, updated quality orders, added 16K+ output preference for doc routing
+- src/lib/ai-tools.ts: web_search now honest knowledge research with category param
+- src/lib/ai-tool-executor.ts: Removed fake HTTP call, category-based guidance for research
+- src/lib/ai-prompts.ts: /docs generates overview + PRD only, includes roadmap table for remaining docs
+- src/lib/ai-client.ts: Filter tool_choice "none", default to "auto" for tools
+- src/app/api/ai/chat/route.ts: GLM-4-Flash for docs, dynamic max_tokens, reduced history, moved isDocCommand before history, let shouldSendTools for fallback recalc
+
+- Build passed, pushed to GitHub: commit 91eba91
+
+Stage Summary:
+- /docs now produces detailed PRD (not shallow 6-in-1 garbage)
+- GLM-4-Flash is the free doc generation model (16K output)
+- web_search no longer makes fake HTTP calls
+- max_tokens adapts to model capability
+- Chat context is leaner for doc commands (6 vs 20 messages)
+
