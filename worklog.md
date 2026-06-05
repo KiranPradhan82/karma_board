@@ -21,3 +21,38 @@ Stage Summary:
 - Key insight: The AI was wasting entire agentic loop rounds on fake web_search calls instead of generating content
 - New behavior: /docs will produce the Project Overview + PRD in a single response with zero tool calls
 - web_search tool still exists for general chat (knowledge-based research), just filtered out for doc commands
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Add ProjectDocument storage system for auto-saving doc commands as PDF
+
+Work Log:
+- Added ProjectDocument model to Prisma schema (id, projectId, docType, title, content, pdfData, version, timestamps) with @@unique([projectId, docType])
+- Added documents relation to Project model
+- Ran prisma generate + prisma db push successfully
+- Created src/lib/generate-pdf.ts shared utility with generatePdfBase64() and generatePdfBufferFromContent() — reuses existing PDF theme system, sanitization, markdown parsing, and A4 rendering logic from export-pdf/route.ts
+- Created /api/ai/documents/route.ts with GET (list by projectId), POST (create or upsert), PUT (update by id) endpoints
+- Created /api/ai/documents/[id]/route.ts with GET endpoint that returns metadata JSON or PDF binary when ?download=true
+- Modified /api/ai/chat/route.ts:
+  - Added DOC_TYPE_MAP for command-to-doctype mapping
+  - Added DOC_SIGNATURES array and detectDocTypeFromContent() for detecting document type from AI response content (handles update flow)
+  - After saving AI response to AiChat, checks if content is a document (>500 chars, matches doc command or content signature)
+  - Auto-generates PDF via generatePdfBase64(), creates or updates ProjectDocument row with version increment
+  - Includes documentInfo in API response: { id, docType, title, version }
+- Updated frontend (src/app/dashboard/ai-assistant/page.tsx):
+  - Added documentInfo to ChatMessage interface
+  - Added downloadingDocPdf state and handleDownloadDocumentPdf() function
+  - Added expandedDocs state and toggleDocExpand() for collapsible document cards
+  - Added DOC_TYPE_COLORS and DOC_TYPE_LABELS constants for color-coded rendering
+  - Created inline DocumentCard component with: doc type badge, title, version, auto-saved label, Download PDF button, expandable markdown preview with line count
+  - Updated both sendMessage and handleCommandClick to pass through documentInfo from API response
+- Modified /api/ai/export-all-docs/route.ts to first try ProjectDocument table (SELECT by projectId), falling back to existing chat message detection if no stored docs found
+- Build passed clean with no errors
+
+Stage Summary:
+- Modified files: prisma/schema.prisma, src/app/api/ai/chat/route.ts, src/app/api/ai/documents/route.ts, src/app/api/ai/documents/[id]/route.ts, src/app/api/ai/export-all-docs/route.ts, src/app/dashboard/ai-assistant/page.tsx, src/lib/generate-pdf.ts, worklog.md
+- Key: Doc commands now auto-save PDFs to the database with version tracking
+- Key: Non-command messages that match document signatures also get auto-saved (update detection)
+- Key: Frontend shows rich DocumentCard with color-coded badges, download, and expandable preview
+- Key: export-all-docs prefers stored documents over chat message detection
