@@ -668,7 +668,6 @@ ${canUpdate ? '- **update_project**: Update a project\'s status, priority, deadl
 ${canUpdate ? '- **add_project_member**: Add a team member to a project with a specific role' : '- ~~add_project_member~~ (not available for your role)'}
 - **list_projects**: List all projects the user has access to (filtered by status)
 - **get_project_info**: Get detailed information about a specific project
-- **web_search**: Search the web for real-time information (competitors, trends, best practices)
 
 ### How to Use Tools:
 1. When the user asks you to create/update/modify something, **use the appropriate tool** to do it
@@ -725,11 +724,12 @@ If the user asks a general/non-project question (greetings, small talk, general 
     .join("\n");
 
   // ---- /docs: Full Protocol — generates overview + PRD (first document) ----
-  // Design: We CANNOT generate all 6 documents in one response (token limits).
-  // Instead: /docs generates an executive overview + the PRD (most important doc),
-  // then tells the user to run individual commands (/trd, /flow, etc.) for the rest.
+  // CRITICAL DESIGN: The AI must WRITE the document immediately in its response.
+  // Do NOT force tool calls — the project context is already injected above.
+  // Tools (list_projects, get_project_info) are available but OPTIONAL — only use if
+  // the user explicitly asks for live data. Do NOT waste rounds on web_search.
   if (command === "/docs" && protocolSteps && protocolSteps.length > 0) {
-    const docPrompt = `# Karma Space — Document Generator (Agentic Mode)
+    const docPrompt = `# Karma Space — Document Generator
 
 You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
 
@@ -737,36 +737,32 @@ ${projectContextBlock}
 
 ---
 
-# PRE-CODING DOCUMENTATION PROTOCOL — Phase 1 & PRD Generation
+# PRE-CODING DOCUMENTATION — Project Overview & PRD
 
-${firstName}, I'll execute the **pre-coding documentation protocol** for **${projectName || "this project"}**.
+${firstName}, here is the **Project Overview** and **Product Requirements Document (PRD)** for **${projectName || "this project"}**.
 
-## Step 1: Gather Data Using Tools
+## IMPORTANT: WRITE THE DOCUMENT NOW
 
-You have access to tools. Use them to gather real project data BEFORE writing anything:
+The project context is already provided above. Do NOT call any tools — do NOT call web_search, get_project_info, or list_projects. You already have all the information you need. START WRITING THE DOCUMENT IMMEDIATELY.
 
-1. Call \`get_project_info\` with this project's ID to get full project details
-2. Call \`list_projects\` to understand the broader project portfolio context
-3. Call \`web_search\` with category "competitors" to research the competitive landscape
-4. Call \`web_search\` with category "technology" to research tech stack best practices
-5. Call \`web_search\` with category "market_trends" to understand industry trends
+If the user provided additional details in their message (tech stack preferences, feature ideas, requirements), incorporate them directly into the document.
 
-**IMPORTANT**: Do NOT skip this step. Real project data + research context makes documents 10x more valuable.
+---
 
-## Step 2: Project Overview & Analysis
-
-After gathering data, write a **Project Overview & Analysis** section (300-500 words):
+## Part 1: Project Overview & Analysis (300-500 words)
 
 ### Project Overview & Analysis
-- What is this project really about? (based on actual project data)
-- Who are the target users and what problems does this solve?
-- Competitive landscape summary (from research)
-- Key technology recommendations (from research)
-- Critical risks and considerations identified
 
-## Step 3: Generate the PRD (Product Requirements Document)
+[Write a comprehensive project overview covering:]
+- What this project is about (based on the project data above and user's description)
+- Target users and the problems it solves
+- Competitive landscape (draw from your knowledge of similar products)
+- Recommended technology approach
+- Critical risks and considerations
 
-Now generate a **comprehensive Product Requirements Document**. This is the most critical document — it defines WHAT to build.
+---
+
+## Part 2: Product Requirements Document (PRD)
 
 ### 1. Executive Summary
 - High-level overview of the product vision, goals, and value proposition (150+ words)
@@ -822,7 +818,7 @@ At the END of your response, include this section exactly:
 
 ### 📋 Documentation Roadmap
 
-I've generated the **Project Overview** and **PRD** above. To complete the full pre-coding documentation set, run these commands one at a time:
+The **Project Overview** and **PRD** are above. To complete the full pre-coding documentation set, run these commands one at a time:
 
 | Command | Document | What It Covers |
 |---------|----------|----------------|
@@ -832,7 +828,7 @@ I've generated the **Project Overview** and **PRD** above. To complete the full 
 | \`/schema\` | Backend Schema Document | Database ERD, table definitions, indexes, migrations |
 | \`/plan\` | Implementation Plan | Sprint planning, task breakdown, resource allocation, deployment |
 
-Each command will gather project data and generate a comprehensive, detailed document.
+Each command generates a comprehensive, detailed document.
 
 Recommended file structure when all docs are complete:
 \`\`\`
@@ -847,20 +843,20 @@ docs/pre-coding/
 Git commit: \`[Zai] /docs: Generate pre-coding documentation for ${projectName || "project"}\`
 
 ## CRITICAL RULES:
-1. Use **tools FIRST** before generating any content — real data makes docs 10x better
+1. **START WRITING IMMEDIATELY** — do NOT call any tools, do NOT say "let me research" or "I'll start by gathering data"
 2. Each section must be 150-300+ words — NO shallow one-liners or vague descriptions
 3. Use **tables** for ALL structured data (requirements, risks, personas, user stories)
 4. Use **real, specific** technology names and version numbers
 5. Include **concrete examples** — real API endpoints, real schema columns, real UI components
 6. Be **actionable** — every section should tell the developer WHAT to build and HOW
-7. Focus on the **PRD quality** — this is the single most important document
-8. Use professional Markdown with proper heading hierarchy (##, ###, ####)`;
+7. Use professional Markdown with proper heading hierarchy (##, ###, ####)
+8. If the user mentioned a specific tech stack in the chat, use it directly in the document`;
     return docPrompt;
   }
 
   // ---- Individual document commands ----
   if (command && command !== "/help" && command !== "/docs" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP") {
-    // Slim prompt for individual docs — skip full base to reduce tokens
+    // Slim prompt for individual docs — project context already provided
     const docPrompt = `# Karma Space — Document Generator
 
 You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
@@ -871,13 +867,15 @@ ${projectContextBlock}
 
 ## Current Task: ${COMMAND_DESCRIPTIONS[command]?.label || command}
 
-${firstName}, generating the **${COMMAND_DESCRIPTIONS[command]?.label || command}** for **${projectName || "this project"}**.
+${firstName}, generate the **${COMMAND_DESCRIPTIONS[command]?.label || command}** for **${projectName || "this project"}**.
 
-### Pre-Generation Steps:
-Before writing the document, use your available tools to gather context:
-1. Call \`get_project_info\` with this project's ID to get full project details
-2. If you need market/competitor/tech data, call \`web_search\` with specific queries
-3. Analyze the gathered data, then write a comprehensive, detailed document
+## IMPORTANT: WRITE THE DOCUMENT NOW
+
+The project context is already provided above. Do NOT call any tools — do NOT call web_search, get_project_info, or list_projects. You already have all the information you need. START WRITING THE DOCUMENT IMMEDIATELY.
+
+If the user provided additional details in their message (tech stack, feature ideas, constraints), incorporate them directly.
+
+---
 
 ${COMMAND_PROMPTS[command]}
 
@@ -895,22 +893,18 @@ ${commandList}
 
 ### How Document Generation Works
 
-When you run \`/docs\`, Karma Space follows a structured **6-phase protocol**:
+When you run \`/docs\`, Karma Space immediately generates two documents:
+- **Project Overview & Analysis** — Context, target users, competitive landscape, risks
+- **Product Requirements Document (PRD)** — Features, personas, user stories, risks, action items
 
-**Phase 1: COLLECT** — Extracts all project data using tools (list_projects, get_project_info)
-**Phase 2A: Web Research** — Researches 5 categories: competitors, market trends, tech best practices, UX patterns, security
-**Phase 2B: Think Deeper** — Analyzes scalability, edge cases, security deep dive, performance, migration
-**Phase 3: Generate Documents** — Produces all 6 pre-coding documents:
-  - \`/prd\` — Product Requirements Document
+Then you can run individual commands to generate the remaining documents:
   - \`/trd\` — Technical Requirements Document
   - \`/flow\` — Application Flow Document
   - \`/ux\` — UI/UX Design Brief
   - \`/schema\` — Backend Schema Document
   - \`/plan\` — Implementation Plan
-**Phase 4: Review** — Cross-document consistency check, critical decisions, open questions
-**Phase 5: Save** — File structure, commit format, next steps
 
-You can also run individual document commands (\`/prd\`, \`/trd\`, etc.) to generate a single document at a time.
+You can also run individual document commands directly without running \`/docs\` first.
 
 Respond warmly, addressing ${firstName} by name, and explain each command briefly.`;
   }
@@ -925,7 +919,7 @@ The user can type these for document generation:
 ${commandList}
 
 ### Tip: Use /docs for the Full Protocol
-Running \`/docs\` generates all 6 pre-coding documents in a structured phased approach — from data collection through research, deep analysis, document generation, review, and save instructions.
+Running \`/docs\` immediately generates the Project Overview and PRD. Then use individual commands (\`/trd\`, \`/flow\`, \`/ux\`, \`/schema\`, \`/plan\`) for the remaining documents.
 
 ## Action Guidance
 When relevant, proactively use your tools to help the user or suggest actions:

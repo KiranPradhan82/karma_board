@@ -391,12 +391,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Get tools for this user's role
-    // For doc commands, only pass lightweight tools (list_projects, get_project_info, web_search)
-    // to reduce prompt token count — create/update/add_member are irrelevant for doc generation
+    // For doc commands: ONLY pass list_projects and get_project_info (read-only data tools)
+    // web_search is REMOVED — it's a knowledge-based stub that wastes agentic loop rounds
+    // create/update/add_member are irrelevant for doc generation
     let availableTools = getToolsForRole(user.role);
     if (isDocCommand) {
       availableTools = availableTools.filter((tool) =>
-        ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
+        ["list_projects", "get_project_info"].includes(tool.function.name)
       );
     }
 
@@ -459,7 +460,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const MAX_TOOL_ROUNDS = isDocCommand ? 8 : 5; // More rounds for /docs agentic loop
+    const MAX_TOOL_ROUNDS = isDocCommand ? 4 : 5; // Reduced from 8 — /docs should WRITE, not loop on tools
     let round = 0;
     let finalContent = "";
 
