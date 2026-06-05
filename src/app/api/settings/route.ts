@@ -14,6 +14,8 @@ const ALLOWED_KEYS = [
   'EMAIL_FROM_NAME',
   'SMTP_USER',
   'SMTP_PASSWORD',
+  // PDF Theme (JSON object with color keys)
+  'PDF_THEME',
 ];
 
 // GET /api/settings — Fetch all settings (sensitive values masked)

@@ -117,6 +117,8 @@ export default function KarmaSpacePage() {
   }[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null); // message ID being exported
+  const [isExportingAll, setIsExportingAll] = useState(false);
+  const [hasDocuments, setHasDocuments] = useState(false);
 
   // Agentic tool execution steps (shown during loading)
   const [activeToolSteps, setActiveToolSteps] = useState<ToolExecution[]>([]);
@@ -444,6 +446,53 @@ export default function KarmaSpacePage() {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Check if project has document messages (for "Download All" button)
+  useEffect(() => {
+    if (!selectedProject || messages.length === 0) {
+      setHasDocuments(false);
+      return;
+    }
+    // Detect documents: long assistant messages with 3+ headings
+    const docCount = messages.filter(m => {
+      if (m.role !== "assistant" || m.content.length < 1500) return false;
+      const headings = m.content.split("\n").filter(l => /^#{1,4}\s+/.test(l.trim()));
+      return headings.length >= 3;
+    }).length;
+    setHasDocuments(docCount >= 1);
+  }, [messages, selectedProject]);
+
+  // Download all documents as one combined PDF
+  const handleExportAllDocs = async () => {
+    if (!selectedProject || isExportingAll) return;
+    setIsExportingAll(true);
+    try {
+      const res = await fetch(`/api/ai/export-all-docs?projectId=${selectedProject.id}`);
+      if (!res.ok) {
+        let errorMsg = "Failed to export documents";
+        try {
+          const errJson = await res.json();
+          if (errJson.error) errorMsg = errJson.error;
+        } catch { /* not JSON */ }
+        throw new Error(errorMsg);
+      }
+      const blob = await res.blob();
+      if (blob.size < 100) throw new Error("Generated PDF is empty or corrupted");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${selectedProject.name.replace(/\s+/g, "_")}_All_Documents.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("[handleExportAllDocs] Error:", err);
+      setError(err instanceof Error ? err.message : "Failed to export documents");
+    } finally {
+      setIsExportingAll(false);
+    }
+  };
+
   const handleExportPdf = async () => {
     if (!selectedProject) return;
     setIsExporting(true);
@@ -634,6 +683,29 @@ export default function KarmaSpacePage() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Export project report as PDF</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Download All Documents button - shows when documents exist */
+            {isSuperAdmin && selectedProject && hasDocuments && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="gap-1.5 sm:gap-2 bg-primary text-primary-foreground"
+                    onClick={handleExportAllDocs}
+                    disabled={isExportingAll}
+                  >
+                    {isExportingAll ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileDown className="h-4 w-4" />
+                    )}
+                    <span className="hidden sm:inline">All Documents</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Download all generated documents as one PDF</TooltipContent>
               </Tooltip>
             )}
           </div>

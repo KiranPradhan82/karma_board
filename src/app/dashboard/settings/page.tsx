@@ -12,6 +12,7 @@ import {
   Shield,
   CheckCircle2,
   AlertTriangle,
+  Palette,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,18 @@ export default function SettingsPage() {
   const [resendKeyChanged, setResendKeyChanged] = useState(false);
   const [smtpPassChanged, setSmtpPassChanged] = useState(false);
 
+  // PDF Theme state
+  const [pdfThemePrimary, setPdfThemePrimary] = useState("#1E40AF");
+  const [pdfThemePrimaryLight, setPdfThemePrimaryLight] = useState("#3B82F6");
+  const [pdfThemePrimaryBg, setPdfThemePrimaryBg] = useState("#EFF6FF");
+  const [pdfThemeAltRowBg, setPdfThemeAltRowBg] = useState("#F9FAFB");
+  const [pdfThemeCoverTop, setPdfThemeCoverTop] = useState("#1E3A8A");
+  const [pdfThemeAccent, setPdfThemeAccent] = useState("#059669");
+  const [pdfThemeWarning, setPdfThemeWarning] = useState("#D97706");
+  const [pdfThemeDanger, setPdfThemeDanger] = useState("#DC2626");
+  const [pdfThemeHasChanges, setPdfThemeHasChanges] = useState(false);
+  const [pdfThemeSaving, setPdfThemeSaving] = useState(false);
+
   // Fetch settings
   useEffect(() => {
     async function fetchSettings() {
@@ -102,6 +115,21 @@ export default function SettingsPage() {
           if (data.RESEND_FROM_NAME) setFromName(data.RESEND_FROM_NAME.value);
           if (data.SMTP_USER) setSmtpUser(data.SMTP_USER.value);
           if (data.SMTP_PASSWORD) setSmtpPassword(data.SMTP_PASSWORD.value);
+
+          // Load PDF theme
+          if (data.PDF_THEME) {
+            try {
+              const theme = JSON.parse(data.PDF_THEME.value);
+              if (theme.primary) setPdfThemePrimary(theme.primary);
+              if (theme.primaryLight) setPdfThemePrimaryLight(theme.primaryLight);
+              if (theme.primaryBg) setPdfThemePrimaryBg(theme.primaryBg);
+              if (theme.altRowBg) setPdfThemeAltRowBg(theme.altRowBg);
+              if (theme.coverGradientTop) setPdfThemeCoverTop(theme.coverGradientTop);
+              if (theme.accent) setPdfThemeAccent(theme.accent);
+              if (theme.warning) setPdfThemeWarning(theme.warning);
+              if (theme.danger) setPdfThemeDanger(theme.danger);
+            } catch { /* ignore invalid JSON */ }
+          }
         } else {
           toast.error(json.error || "Failed to load settings");
         }
@@ -190,6 +218,80 @@ export default function SettingsPage() {
       smtpPassChanged
     );
   }
+
+  // Save PDF theme separately
+  async function handleSavePdfTheme() {
+    setPdfThemeSaving(true);
+    try {
+      const themeObj = {
+        primary: pdfThemePrimary,
+        primaryLight: pdfThemePrimaryLight,
+        primaryBg: pdfThemePrimaryBg,
+        altRowBg: pdfThemeAltRowBg,
+        coverGradientTop: pdfThemeCoverTop,
+        coverGradientBottom: pdfThemePrimary,
+        accent: pdfThemeAccent,
+        warning: pdfThemeWarning,
+        danger: pdfThemeDanger,
+      };
+
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { PDF_THEME: JSON.stringify(themeObj) } }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        toast.success("PDF theme saved successfully");
+        setPdfThemeHasChanges(false);
+        // Refresh settings
+        const refreshRes = await fetch("/api/settings");
+        const refreshJson = await refreshRes.json();
+        if (refreshJson.success) {
+          setSettings(refreshJson.data);
+          const data = refreshJson.data as Record<string, SettingItem>;
+          if (data.PDF_THEME) {
+            const theme = JSON.parse(data.PDF_THEME.value);
+            if (theme.primary) setPdfThemePrimary(theme.primary);
+            if (theme.primaryLight) setPdfThemePrimaryLight(theme.primaryLight);
+            if (theme.primaryBg) setPdfThemePrimaryBg(theme.primaryBg);
+            if (theme.altRowBg) setPdfThemeAltRowBg(theme.altRowBg);
+            if (theme.coverGradientTop) setPdfThemeCoverTop(theme.coverGradientTop);
+            if (theme.accent) setPdfThemeAccent(theme.accent);
+            if (theme.warning) setPdfThemeWarning(theme.warning);
+            if (theme.danger) setPdfThemeDanger(theme.danger);
+          }
+        }
+      } else {
+        toast.error(json.error || "Failed to save PDF theme");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setPdfThemeSaving(false);
+    }
+  }
+
+  // Track PDF theme changes
+  useEffect(() => {
+    const saved = settings.PDF_THEME?.value;
+    if (!saved) return;
+    try {
+      const theme = JSON.parse(saved);
+      const changed = (
+        pdfThemePrimary !== (theme.primary || "#1E40AF") ||
+        pdfThemePrimaryLight !== (theme.primaryLight || "#3B82F6") ||
+        pdfThemePrimaryBg !== (theme.primaryBg || "#EFF6FF") ||
+        pdfThemeAltRowBg !== (theme.altRowBg || "#F9FAFB") ||
+        pdfThemeCoverTop !== (theme.coverGradientTop || "#1E3A8A") ||
+        pdfThemeAccent !== (theme.accent || "#059669") ||
+        pdfThemeWarning !== (theme.warning || "#D97706") ||
+        pdfThemeDanger !== (theme.danger || "#DC2626")
+      );
+      setPdfThemeHasChanges(changed);
+    } catch { setPdfThemeHasChanges(true); }
+  }, [pdfThemePrimary, pdfThemePrimaryLight, pdfThemePrimaryBg, pdfThemeAltRowBg, pdfThemeCoverTop, pdfThemeAccent, pdfThemeWarning, pdfThemeDanger, settings.PDF_THEME]);
 
   if (userRole !== "SUPERADMIN") {
     return (
@@ -442,6 +544,284 @@ export default function SettingsPage() {
                 <span className="text-foreground/70">RESEND_FROM_NAME</span>
               </div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* PDF Theme Customization */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Palette className="h-5 w-5" />
+            PDF Theme
+          </CardTitle>
+          <CardDescription>
+            Customize the colors and styling of generated PDF documents. Changes apply
+            immediately to all future PDF exports. Only you (Super Admin) can modify these.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              All PDFs generated by Karma Space AI will use these theme colors. This includes
+              individual message PDFs, project reports, and the combined documents download.
+            </AlertDescription>
+          </Alert>
+
+          <Separator />
+
+          {/* Live preview strip */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Live Preview</Label>
+            <div className="flex flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemePrimary }} />
+                <span className="text-xs text-muted-foreground">Primary</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemePrimaryLight }} />
+                <span className="text-xs text-muted-foreground">Light</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemePrimaryBg }} />
+                <span className="text-xs text-muted-foreground">Table BG</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeAltRowBg }} />
+                <span className="text-xs text-muted-foreground">Alt Row</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeCoverTop }} />
+                <span className="text-xs text-muted-foreground">Cover</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeAccent }} />
+                <span className="text-xs text-muted-foreground">Accent</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeWarning }} />
+                <span className="text-xs text-muted-foreground">Warning</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeDanger }} />
+                <span className="text-xs text-muted-foreground">Danger</span>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Color inputs */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-primary" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemePrimary }} />
+                Primary Color
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-primary"
+                  type="color"
+                  value={pdfThemePrimary}
+                  onChange={(e) => setPdfThemePrimary(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemePrimary}
+                  onChange={(e) => setPdfThemePrimary(e.target.value)}
+                  placeholder="#1E40AF"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Main brand color for headings, accents, and cover</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-primary-light" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemePrimaryLight }} />
+                Light Accent
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-primary-light"
+                  type="color"
+                  value={pdfThemePrimaryLight}
+                  onChange={(e) => setPdfThemePrimaryLight(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemePrimaryLight}
+                  onChange={(e) => setPdfThemePrimaryLight(e.target.value)}
+                  placeholder="#3B82F6"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Table headers, bullet dots, H2 accents</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-primary-bg" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0 border" style={{ backgroundColor: pdfThemePrimaryBg }} />
+                Table Header BG
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-primary-bg"
+                  type="color"
+                  value={pdfThemePrimaryBg}
+                  onChange={(e) => setPdfThemePrimaryBg(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemePrimaryBg}
+                  onChange={(e) => setPdfThemePrimaryBg(e.target.value)}
+                  placeholder="#EFF6FF"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Background color for table headers</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-alt-row" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0 border" style={{ backgroundColor: pdfThemeAltRowBg }} />
+                Alternating Row BG
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-alt-row"
+                  type="color"
+                  value={pdfThemeAltRowBg}
+                  onChange={(e) => setPdfThemeAltRowBg(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemeAltRowBg}
+                  onChange={(e) => setPdfThemeAltRowBg(e.target.value)}
+                  placeholder="#F9FAFB"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Shading for odd-numbered table rows</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-cover-top" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeCoverTop }} />
+                Cover Header
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-cover-top"
+                  type="color"
+                  value={pdfThemeCoverTop}
+                  onChange={(e) => setPdfThemeCoverTop(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemeCoverTop}
+                  onChange={(e) => setPdfThemeCoverTop(e.target.value)}
+                  placeholder="#1E3A8A"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Gradient color for PDF cover page header</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-accent" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeAccent }} />
+                Accent (Success)
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-accent"
+                  type="color"
+                  value={pdfThemeAccent}
+                  onChange={(e) => setPdfThemeAccent(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemeAccent}
+                  onChange={(e) => setPdfThemeAccent(e.target.value)}
+                  placeholder="#059669"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Green accent for success/priority indicators</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-warning" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeWarning }} />
+                Warning Color
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-warning"
+                  type="color"
+                  value={pdfThemeWarning}
+                  onChange={(e) => setPdfThemeWarning(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemeWarning}
+                  onChange={(e) => setPdfThemeWarning(e.target.value)}
+                  placeholder="#D97706"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Amber for warnings and medium priority</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pdf-danger" className="flex items-center gap-1.5">
+                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeDanger }} />
+                Danger Color
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="pdf-danger"
+                  type="color"
+                  value={pdfThemeDanger}
+                  onChange={(e) => setPdfThemeDanger(e.target.value)}
+                  className="w-12 h-9 p-1 cursor-pointer"
+                />
+                <Input
+                  value={pdfThemeDanger}
+                  onChange={(e) => setPdfThemeDanger(e.target.value)}
+                  placeholder="#DC2626"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">Red for critical/high priority and errors</p>
+            </div>
+          </div>
+
+          {/* Reset to default */}
+          <div className="flex gap-2 pt-1">
+            <Button variant="ghost" size="sm" onClick={() => {
+              setPdfThemePrimary("#1E40AF");
+              setPdfThemePrimaryLight("#3B82F6");
+              setPdfThemePrimaryBg("#EFF6FF");
+              setPdfThemeAltRowBg("#F9FAFB");
+              setPdfThemeCoverTop("#1E3A8A");
+              setPdfThemeAccent("#059669");
+              setPdfThemeWarning("#D97706");
+              setPdfThemeDanger("#DC2626");
+            }}>
+              Reset to Default
+            </Button>
+            <div className="flex-1" />
+            <Button onClick={handleSavePdfTheme} disabled={pdfThemeSaving || !pdfThemeHasChanges}>
+              {pdfThemeSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              {pdfThemeSaving ? "Saving..." : "Save Theme"}
+            </Button>
           </div>
         </CardContent>
       </Card>
