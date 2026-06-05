@@ -517,44 +517,63 @@ const DOCUMENT_FORMATTING = `
 
 function getDocWorkflowFooter(
   currentDocLabel: string,
+  currentDocIndex: number,
   nextCommand: string | null,
   firstName: string,
   isLastDoc: boolean,
 ): string {
-  const nextStepSection = nextCommand
+  // Build progress table with correct statuses based on current doc index
+  const docs: [string, string, string][] = [
+    ["1", "Project Overview & PRD (\`/docs\` or \`/prd\`)", ""],
+    ["2", "Technical Requirements Document (\`/trd\`)", ""],
+    ["3", "Application Flow Document (\`/flow\`)", ""],
+    ["4", "UI/UX Design Brief (\`/ux\`)", ""],
+    ["5", "Backend Schema Document (\`/schema\`)", ""],
+    ["6", "Implementation Plan (\`/plan\`)", ""],
+  ];
+
+  // Determine statuses: docs before current are "Done", current is "Current", next is "Up Next", rest are "Pending"
+  for (let i = 0; i < docs.length; i++) {
+    if (i < currentDocIndex - 1) {
+      docs[i][2] = "Done";
+    } else if (i === currentDocIndex - 1) {
+      docs[i][2] = "Current";
+    } else if (i === currentDocIndex && nextCommand) {
+      docs[i][2] = "Up Next";
+    } else {
+      docs[i][2] = "Pending";
+    }
+  }
+
+  const progressTable = docs.map(([num, name, status]) => `| ${num} | ${name} | ${status} |`).join("\n");
+
+  const nextStepSection = isLastDoc
+    ? `
+
+---
+
+### All 6 Documents Complete!
+
+${firstName}, all 6 pre-coding documents have been generated and reviewed. You are now ready to initialize the project.
+
+**Type \`/init\`** to start the project initialization flow. Karma Space will guide you through:
+1. **GitHub Repository** — Repo URL and Personal Access Token
+2. **Database Configuration** — Connection URL and auth token
+3. **API Keys** — Email, AI, payment, and any other third-party services
+
+Only proceed to \`/init\` when all documents are confirmed.`
+    : nextCommand
     ? `
 
 ---
 
 ### Next Document
 
-When ${firstName} confirms (or after changes are applied), the next document is:
+**\`${nextCommand}\`** — Type this command to proceed to the next document.
 
-**\`${nextCommand}\`** — Type this command to proceed.
-
-| Progress | Document | Status |
-|----------|----------|--------|
-| 1 | Project Overview & PRD (\`/docs\` or \`/prd\`) | ${!nextCommand ? "Current" : "Done"} |
-| 2 | Technical Requirements Document (\`/trd\`) | ${nextCommand === "/trd" ? "Up Next" : currentDocLabel === "TRD" ? "Current" : "Pending"} |
-| 3 | Application Flow Document (\`/flow\`) | ${nextCommand === "/flow" ? "Up Next" : currentDocLabel === "App Flow" ? "Current" : "Pending"} |
-| 4 | UI/UX Design Brief (\`/ux\`) | ${nextCommand === "/ux" ? "Up Next" : currentDocLabel === "UI/UX Brief" ? "Current" : "Pending"} |
-| 5 | Backend Schema Document (\`/schema\`) | ${nextCommand === "/schema" ? "Up Next" : currentDocLabel === "Schema" ? "Current" : "Pending"} |
-| 6 | Implementation Plan (\`/plan\`) | ${nextCommand === "/plan" ? "Up Next" : currentDocLabel === "Plan" ? "Current" : "Pending"} |`
-    : isLastDoc
-    ? `
-
----
-
-### All Documents Complete!
-
-All 6 pre-coding documents have been generated. ${firstName}, you're ready to initialize the project.
-
-Type **\`/init\`** to start the project initialization flow — Karma Space will guide you through:
-1. GitHub repository setup (repo URL + personal access token)
-2. Database configuration (connection URL + auth token)
-3. API keys (email provider, AI provider, any third-party services)
-
-Run \`/init\` when you're ready to set up your project infrastructure.`
+| # | Document | Status |
+|---|----------|--------|
+${progressTable}`
     : "";
 
   return `
@@ -563,11 +582,17 @@ Run \`/init\` when you're ready to set up your project infrastructure.`
 
 ### Document Review
 
-${firstName}, please review the **${currentDocLabel}** above. After reviewing:
+${firstName}, please review the **${currentDocLabel}** above.
 
-1. **If everything looks good** — say "looks good" or "confirmed" and ${nextCommand ? `type **\`${nextCommand}\`** to proceed to the next document` : `type **\`/init\`** to start project initialization`}
-2. **If you want changes** — tell me what to add, remove, or modify and I will revise the document
-3. **If anything is unclear or missing** — I will ask you point-wise questions below
+**How to proceed:**
+1. **If everything looks good** — say "looks good", "confirmed", or "ok" ${nextCommand ? `, then type **\`${nextCommand}\`** to proceed to the next document` : ``}
+2. **If you want changes** — tell me what to add, remove, or modify and I will revise the document immediately. Do NOT proceed to the next document until you are satisfied with this one.
+3. **If anything is ambiguous or information is missing** — I will ask you point-wise questions below. Answer them so I can update the document.
+
+**IMPORTANT RULES:**
+- Do NOT skip ahead to later documents. Each document must be confirmed before moving on.
+- Do NOT suggest or mention project initialization (\`/init\`), project setup, scaffolding, or infrastructure until ALL 6 documents are confirmed. This is strictly enforced.
+- Focus ONLY on reviewing and refining the current document.
 
 ${nextStepSection}`;
 }
@@ -754,7 +779,9 @@ ${getRoleAccessRules(userRole || "MEMBER")}
 6. If unsure about something, say "I'm not sure about that — let me suggest checking with your team lead or admin"
 7. **Be proactive with tools**: If the user says "create a project for our new client", actually create it using the create_project tool
 8. **Always explain before acting**: Tell the user what you're about to do before calling a tool
-9. **Report results**: After a tool call, clearly tell the user what happened`;
+9. **Report results**: After a tool call, clearly tell the user what happened
+10. **CRITICAL: NEVER suggest project initialization, scaffolding, /init, repo setup, or infrastructure setup while generating documents.** The /init command must ONLY be suggested AFTER all 6 documents (PRD, TRD, Flow, UX, Schema, Plan) are confirmed. During document generation, focus ONLY on the current document — do not mention project setup, GitHub repos, databases, or deployment.
+11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.`;
 
   // ---- Project context ----
   const contextLines: string[] = [];
@@ -873,7 +900,7 @@ If the user provided additional details in their message (tech stack preferences
 - Top 5 priority action items for this project
 - Open questions requiring stakeholder input
 
-${getDocWorkflowFooter("Project Overview & PRD", "/trd", firstName, false)}
+${getDocWorkflowFooter("Project Overview & PRD", 1, "/trd", firstName, false)}
 
 ## CRITICAL RULES:
 1. **START WRITING IMMEDIATELY** — do NOT call any tools, do NOT say "let me research" or "I'll start by gathering data"
@@ -890,18 +917,19 @@ ${getDocWorkflowFooter("Project Overview & PRD", "/trd", firstName, false)}
   // ---- Individual document commands ----
   if (command && command !== "/help" && command !== "/docs" && command !== "/init" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP" && COMMAND_PROMPTS[command] !== "SHOW_INIT") {
     // Determine next command in the sequence
-    const docSequence: [string, string, string, boolean][] = [
-      ["/prd", "Product Requirements Document (PRD)", "/trd", false],
-      ["/trd", "Technical Requirements Document (TRD)", "/flow", false],
-      ["/flow", "Application Flow Document", "/ux", false],
-      ["/ux", "UI/UX Design Brief", "/schema", false],
-      ["/schema", "Backend Schema Document", "/plan", false],
-      ["/plan", "Implementation Plan", null, true],
+    const docSequence: [string, string, number, string | null, boolean][] = [
+      ["/prd", "Product Requirements Document (PRD)", 1, "/trd", false],
+      ["/trd", "Technical Requirements Document (TRD)", 2, "/flow", false],
+      ["/flow", "Application Flow Document", 3, "/ux", false],
+      ["/ux", "UI/UX Design Brief", 4, "/schema", false],
+      ["/schema", "Backend Schema Document", 5, "/plan", false],
+      ["/plan", "Implementation Plan", 6, null, true],
     ];
     const seqEntry = docSequence.find(([cmd]) => cmd === command);
     const docLabel = seqEntry ? seqEntry[1] : COMMAND_DESCRIPTIONS[command]?.label || command;
-    const nextCmd = seqEntry ? seqEntry[2] : null;
-    const isLast = seqEntry ? seqEntry[3] : false;
+    const docIndex = seqEntry ? seqEntry[2] : 1;
+    const nextCmd = seqEntry ? seqEntry[3] : null;
+    const isLast = seqEntry ? seqEntry[4] : false;
 
     // Slim prompt for individual docs — project context already provided
     const docPrompt = `# Karma Space — Document Generator
@@ -928,7 +956,7 @@ ${COMMAND_PROMPTS[command]}
 
 ${DOCUMENT_FORMATTING}
 
-${getDocWorkflowFooter(docLabel, nextCmd, firstName, isLast)}`;
+${getDocWorkflowFooter(docLabel, docIndex, nextCmd, firstName, isLast)}`;
     return docPrompt;
   }
 
@@ -972,90 +1000,100 @@ ${projectContextBlock}
 
 ## Project Initialization for **${projectName || "this project"}**
 
-${firstName}, all pre-coding documents are complete! Now let's set up the project infrastructure.
+${firstName}, all 6 pre-coding documents are complete! Now let's set up the project infrastructure.
 
-### IMPORTANT: Follow this exact flow
+### IMPORTANT: Follow this exact flow — NO EXCEPTIONS
 
-Do NOT skip steps. Collect information from the user one step at a time. Do NOT call any tools — this is an information-gathering conversation.
+This is a **GitHub-first** initialization flow. You must follow each step in order, collecting information one step at a time. Do NOT skip steps, do NOT ask multiple steps at once, and do NOT call any tools.
 
 ---
 
-### Step 1: GitHub Repository
+### Step 1: GitHub Repository Setup
 
-To set up version control and CI/CD, I need:
+We use GitHub for version control, CI/CD, and collaboration. I need:
 
-1. **GitHub Repository URL** — The full URL (e.g., \`https://github.com/username/repo-name\`)
-   - If the repo doesn't exist yet, ask for the preferred repo name and I will note that it needs to be created
-2. **GitHub Personal Access Token (PAT)** — A token with \`repo\` and \`write:packages\` scope
-   - This will be used to push/pull code and set up GitHub Actions
-   - The user should generate this from GitHub Settings > Developer settings > Personal access tokens
+1. **GitHub Repository URL**
+   - The full repository URL (e.g., \`https://github.com/username/repo-name\`)
+   - If the repository doesn't exist yet, ask the user for their preferred repo name and I will note it needs to be created first
+   - This is where Karma Space will push and pull code
 
-**Ask the user for both values now. If they don't have a token yet, tell them how to create one.**
+2. **GitHub Personal Access Token (PAT)**
+   - A token with at minimum \`repo\` and \`write:packages\` scopes
+   - This token is used for: pushing code, pulling code, setting up GitHub Actions CI/CD, and managing repository settings
+   - **How to create a PAT:** Go to GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token. Select the repository and grant \`Contents: Read and write\` and \`Administration: Read and write\` permissions.
 
-After collecting both, proceed to Step 2.
+**Start by asking the user for the GitHub Repository URL first. Wait for their response. Then ask for the PAT. If they don't have a PAT, guide them through creating one.**
+
+Only after BOTH the repo URL and PAT are collected, proceed to Step 2.
 
 ---
 
 ### Step 2: Database Configuration
 
-For the database, I need:
+For the database layer, I need:
 
-1. **Database URL** — The connection string (e.g., \`libsql://...\` for Turso, \`postgresql://...\` for Postgres)
-2. **Database Auth Token** — The authentication token/password for the database
-3. **Database Type** — Confirm the database engine (Turso/SQLite, PostgreSQL, MySQL, MongoDB, etc.)
+1. **Database URL** — The connection string
+   - Examples: \`libsql://your-db.turso.io\` for Turso, \`postgresql://user:pass@host:5432/dbname\` for Postgres, \`file:./local.db\` for local SQLite
+2. **Database Auth Token** — The authentication token or password for the database connection
+3. **Database Type** — The database engine being used (Turso/SQLite, PostgreSQL, MySQL, MongoDB, Supabase, etc.)
 
-**Ask the user for these values now.**
+**Ask the user for these values. Wait for each response before moving on.**
 
-After collecting all, proceed to Step 3.
+Only after ALL database values are collected, proceed to Step 3.
 
 ---
 
 ### Step 3: API Keys & Third-Party Services
 
-Based on the project requirements, I need the following API keys:
+Based on the project's requirements (from the documents we generated), I need API keys for relevant services.
 
-| Service | Key Needed | What It's For |
-|---------|-----------|---------------|
-| **Email Provider** | SMTP credentials or API key | Transactional emails (Gmail SMTP, Resend, SendGrid) |
-| **AI Provider** | API key | AI features in the app (OpenAI, Groq, Together AI, Google Gemini) |
-| **Payment** | API key + secret | Payment processing (Stripe) — if applicable |
-| **Cloud Storage** | API key + secret | File uploads (AWS S3, Cloudflare R2) — if applicable |
-| **Authentication** | Client ID + Secret | OAuth providers (Google, GitHub) — if applicable |
+Ask the user about each service category ONE AT A TIME:
 
-**Ask the user which services they need and collect the keys for each.**
+| # | Service Category | Keys Needed | Purpose |
+|---|------------------|-------------|---------|
+| 1 | **Email Provider** | SMTP credentials or API key | Transactional emails (Gmail SMTP, Resend, SendGrid) |
+| 2 | **AI Provider** | API key | AI/chat features (OpenAI, Groq, Together AI, Google Gemini, Z.ai) |
+| 3 | **Payment Gateway** | API key + secret | Payment processing (Stripe, Razorpay) — only if applicable |
+| 4 | **Cloud Storage** | API key + secret | File uploads (AWS S3, Cloudflare R2) — only if applicable |
+| 5 | **OAuth Providers** | Client ID + Secret | Social login (Google, GitHub) — only if applicable |
+| 6 | **Other APIs** | Varies | Any other third-party services mentioned in the documents |
 
-For services the user doesn't need yet, skip them — they can be configured later.
+**For each category:**
+- Ask if the user needs this service for the project
+- If yes, collect the required keys
+- If no, skip it and move to the next category
 
 ---
 
 ### After All Steps Are Complete
 
-Once all information is collected, present a summary:
+Once ALL information from Steps 1-3 is collected, present a clean summary:
 
 #### Project Configuration Summary
 
 | Configuration | Value |
 |---------------|-------|
 | **Project Name** | ${projectName || "—"} |
-| **GitHub Repo** | [collected value] |
-| **GitHub PAT** | [collected value — show only last 4 chars] |
+| **GitHub Repo URL** | [collected value] |
+| **GitHub PAT** | [collected value — show only last 4 characters for security] |
 | **Database Type** | [collected value] |
-| **Database URL** | [collected value — show only host] |
-| **Database Token** | [collected value — show only last 4 chars] |
-| **API Keys** | [list all collected keys, show only last 4 chars] |
+| **Database URL** | [collected value — show only host/identifier] |
+| **Database Token** | [collected value — show only last 4 characters] |
+| **API Keys Collected** | [list all services with keys, show only last 4 chars of each token] |
 
 Then provide:
-1. **Environment variables** — Show the complete \`.env.local\` file with all collected values
-2. **Next steps** — What the user should do to start coding (clone repo, install deps, run migrations, etc.)
-3. **Git setup** — Commands to initialize the repo, connect to GitHub, and make the first commit
+1. **\`.env.local\` file** — Show the complete environment file with ALL collected values clearly organized
+2. **Git setup commands** — Step-by-step commands to: initialize the repo (if new), connect to the GitHub remote, and make the first commit
+3. **Next steps** — Clear checklist: clone repo, install dependencies, run database migrations, verify setup, start development
 
 ## CRITICAL RULES:
-1. **ONE STEP AT A TIME** — Do NOT dump all questions at once. Ask Step 1 first, wait for the answer, then ask Step 2.
-2. **NEVER call tools** — This is a conversational information-gathering flow
-3. **NEVER skip steps** — Each step must be completed before moving to the next
-4. **MASK sensitive values** — When showing the summary, only show the last 4 characters of tokens/keys
-5. **Be helpful** — If the user doesn't know how to generate a PAT or find a database URL, explain the steps clearly
-6. **DO NOT suggest project setup** — Only run \`/init\` when ALL 6 documents are confirmed. If the user runs \`/init\` without having completed all documents, gently remind them to finish the documentation first.`;
+1. **ONE STEP AT A TIME** — Ask Step 1 (GitHub) first. Wait for the answer. Then ask for the PAT. Then Step 2 (Database). Then Step 3 (API Keys). NEVER dump all questions at once.
+2. **NEVER call tools** — This is purely a conversational information-gathering flow. No tool calls whatsoever.
+3. **NEVER skip steps** — Each step must be fully completed before moving to the next.
+4. **GITHUB IS MANDATORY** — GitHub must always be configured first. It is the foundation for everything else.
+5. **MASK sensitive values** — In the final summary, only show the last 4 characters of tokens, keys, and passwords.
+6. **Be helpful and educational** — If the user doesn't know how to generate a PAT or find a database URL, explain the steps clearly and patiently.
+7. **NEVER suggest project setup, scaffolding, or infrastructure** before this \`/init\` command — this flow only runs when all 6 documents are confirmed.`;
     return initPrompt;
   }
 

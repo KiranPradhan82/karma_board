@@ -55,6 +55,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface Project {
   id: string;
@@ -124,6 +125,7 @@ export default function KarmaSpacePage() {
   const [projectModel, setProjectModel] = useState<string | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(false);
 
+  const isMobile = useIsMobile();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -566,11 +568,11 @@ export default function KarmaSpacePage() {
           </div>
 
           {/* Right side: Model selector + Export PDF */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {isSuperAdmin && selectedProject && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5">
+                  <div className="hidden sm:flex items-center gap-1.5">
                     {isModelLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                     <Select
                       value={projectModel || "__default__"}
@@ -619,7 +621,7 @@ export default function KarmaSpacePage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-2"
+                    className="gap-1.5 sm:gap-2"
                     onClick={handleExportPdf}
                     disabled={isExporting}
                   >
@@ -782,13 +784,17 @@ export default function KarmaSpacePage() {
                           <button
                             onClick={() => handleDownloadPdf(message)}
                             disabled={downloadingPdf === message.id}
-                            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors mt-1 px-1 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100"
+                            className={`inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors mt-1 px-1 ${
+                              isMobile
+                                ? "text-xs min-h-[32px] px-2 py-1 rounded-md border hover:bg-accent"
+                                : "text-[11px] lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100"
+                            }`}
                             style={{ opacity: downloadingPdf === message.id ? 1 : undefined }}
                           >
                             {downloadingPdf === message.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <Loader2 className={isMobile ? "h-3.5 w-3.5" : "h-3 w-3"} animate-spin />
                             ) : (
-                              <FileDown className="h-3 w-3" />
+                              <FileDown className={isMobile ? "h-3.5 w-3.5" : "h-3 w-3"} />
                             )}
                             <span>Download PDF</span>
                           </button>
