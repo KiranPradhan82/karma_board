@@ -340,8 +340,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Auto-select model for doc commands if user hasn't explicitly chosen one
-    // Priority: DeepSeek-V3.1 (SambaNova, FREE, 671B, best reasoning) -> fallback chain
-    const DOC_AUTO_MODEL = "DeepSeek-V3.1";
+    // Priority: GLM-4-Plus (Z.ai, FREE, 200K ctx, excellent tool calling) -> fallback chain
+    const DOC_AUTO_MODEL = "glm-4-plus";
     let activeModel: string;
     let modelAutoSelected = false;
     if (projectModel) {
@@ -370,9 +370,12 @@ export async function POST(request: NextRequest) {
       command,
     });
 
-    // ===== Determine max_tokens based on command =====
-    // Use 8K for individual docs, 16K for full /docs protocol
-    const maxTokens = command === "/docs" ? 16384 : isDocCommand ? 8192 : 4096;
+    // ===== Determine max_tokens based on model capability =====
+    // Use the model's actual max_output_tokens instead of hardcoded values
+    // For /docs, use maximum; for individual docs, use 80% of max; for chat, use 4096
+    const modelCap = getModelCapability(activeModel);
+    const modelMaxTokens = modelCap?.maxOutputTokens || 4096;
+    const maxTokens = isDocCommand ? Math.min(modelMaxTokens, 16384) : 4096;
 
     // Get tools for this user's role
     // For doc commands, only pass lightweight tools (list_projects, get_project_info, web_search)
@@ -443,7 +446,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const MAX_TOOL_ROUNDS = 5; // Prevent infinite loops
+    const MAX_TOOL_ROUNDS = isDocCommand ? 8 : 5; // More rounds for /docs agentic loop
     let round = 0;
     let finalContent = "";
 
@@ -531,16 +534,27 @@ export async function POST(request: NextRequest) {
           return result;
         };
 
+        // Check if the active model actually supports tool calling
+        const activeModelCap = getModelCapability(activeModel);
+        const modelSupportsTools = activeModelCap?.supportsTools !== false;
+        const shouldSendTools = modelSupportsTools && availableTools.length > 0;
+
+        if (!shouldSendTools && availableTools.length > 0) {
+          console.log(`[AI Model] ${activeModel} does not support tools — generating without tools`);
+        }
+
         while (round < MAX_TOOL_ROUNDS) {
           round++;
 
-          // Call AI with tools (with provider fallback)
+          // Call AI — only send tools if model supports them
+          // For Z.ai GLM models: tool_choice "auto" is the ONLY supported value
+          const toolChoice = shouldSendTools ? "auto" : undefined;
           const result = await callWithFallback(
             aiMessages,
             activeModel,
             maxTokens,
-            availableTools.length > 0 ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
-            availableTools.length > 0 ? "auto" : undefined,
+            shouldSendTools ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
+            toolChoice,
             `Round ${round}`,
           );
 
