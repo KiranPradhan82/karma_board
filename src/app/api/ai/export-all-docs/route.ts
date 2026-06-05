@@ -34,15 +34,55 @@ function sanitizeForPdf(text: string): string {
   return text.replace(/[\u{10000}-\u{10FFFF}]/gu, "").replace(/[^\x20-\x7E\xA1-\xFF]/g, "").trim();
 }
 
-// ===== Detect document messages from chat history =====
+// ===== Document type keyword signatures =====
+// Each document type has a set of unique section headings that identify it.
+// A message must match at least 3 keywords from ONE signature to be classified as a document.
+const DOC_SIGNATURES = [
+  {
+    label: "Project Overview & PRD",
+    keywords: ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements", "Scope & Constraints", "Risks & Mitigations"],
+  },
+  {
+    label: "Technical Requirements Document",
+    keywords: ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements", "Deployment & Infrastructure", "Testing Strategy"],
+  },
+  {
+    label: "Application Flow Document",
+    keywords: ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns", "Data Flow", "Error Handling & Edge Cases"],
+  },
+  {
+    label: "UI/UX Design Brief",
+    keywords: ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Motion & Animation", "Accessibility", "Dark Mode Strategy"],
+  },
+  {
+    label: "Backend Schema Document",
+    keywords: ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data", "Migration Strategy", "API-Database Mapping"],
+  },
+  {
+    label: "Implementation Plan",
+    keywords: ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Dependency Map", "Risk Register", "Quality Gates", "Deployment Plan", "Success Metrics"],
+  },
+];
+
+// Count how many keywords from a signature appear in the content (case-insensitive)
+function countKeywordMatches(content: string, keywords: string[]): number {
+  const lower = content.toLowerCase();
+  return keywords.filter(kw => lower.includes(kw.toLowerCase())).length;
+}
+
+// ===== Detect the 6 generated document messages from chat history =====
+// This ONLY matches the structured documents (PRD, TRD, Flow, UX, Schema, Plan),
+// NOT general chat responses that happen to be long.
 function detectDocumentMessages(messages: { id: string; role: string; content: string; timestamp: string }[]) {
+  const MIN_CONTENT_LENGTH = 1500;
+  const MIN_KEYWORD_MATCHES = 3; // Must match at least 3 section headings from one signature
+
   const docMessages = messages.filter((msg) => {
     if (msg.role !== "assistant") return false;
-    const content = msg.content;
-    if (content.length < 1500) return false;
-    const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
-    const headingCount = lines.filter(l => /^#{1,4}\s+/.test(l)).length;
-    return headingCount >= 3;
+    if (msg.content.length < MIN_CONTENT_LENGTH) return false;
+
+    // Check if this message matches any known document signature
+    return DOC_SIGNATURES.some(sig => countKeywordMatches(msg.content, sig.keywords) >= MIN_KEYWORD_MATCHES);
   });
 
   // Limit to last 6 documents (most recent)

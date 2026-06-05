@@ -446,18 +446,32 @@ export default function KarmaSpacePage() {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Check if project has document messages (for "Download All" button)
+  // Check if project has generated documents (for "Download All" button)
+  // Uses the same keyword-signature detection as the backend export-all-docs endpoint
   useEffect(() => {
     if (!selectedProject || messages.length === 0) {
       setHasDocuments(false);
       return;
     }
-    // Detect documents: long assistant messages with 3+ headings
-    const docCount = messages.filter(m => {
-      if (m.role !== "assistant" || m.content.length < 1500) return false;
-      const headings = m.content.split("\n").filter(l => /^#{1,4}\s+/.test(l.trim()));
-      return headings.length >= 3;
-    }).length;
+
+    const DOC_SIGNATURES = [
+      ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements"],
+      ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements"],
+      ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns"],
+      ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Accessibility"],
+      ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data"],
+      ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Risk Register", "Quality Gates"],
+    ];
+
+    const isDocument = (content: string): boolean => {
+      if (content.length < 1500) return false;
+      const lower = content.toLowerCase();
+      return DOC_SIGNATURES.some(keywords =>
+        keywords.filter(kw => lower.includes(kw.toLowerCase())).length >= 3
+      );
+    };
+
+    const docCount = messages.filter(m => m.role === "assistant" && isDocument(m.content)).length;
     setHasDocuments(docCount >= 1);
   }, [messages, selectedProject]);
 
