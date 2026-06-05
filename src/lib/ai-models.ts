@@ -220,6 +220,56 @@ const MODEL_REGISTRY: ModelCapability[] = [
     defaultBaseUrl: "https://api.together.xyz/v1",
   },
 
+  // ===== Zhipu AI / Z.ai — GLM (FREE, generous rate limits, 200K context) =====
+  {
+    id: "glm-4-plus",
+    name: "GLM-4 Plus",
+    description: "FREE tier, excellent reasoning, 200K context, OpenAI-compatible",
+    contextWindow: "200K",
+    contextWindowTokens: 200000,
+    maxOutputTokens: 16384,
+    supportsTools: true,
+    supportsVision: false,
+    supportsMultimodal: false,
+    category: "Z.ai (Free)",
+    provider: "zai",
+    providerEnvKey: "ZAI_API_KEY",
+    providerEnvBaseUrl: "ZAI_API_BASE_URL",
+    defaultBaseUrl: "https://api.z.ai/api/paas/v4",
+  },
+  {
+    id: "glm-4-flash",
+    name: "GLM-4 Flash",
+    description: "FREE permanently, ultra fast, 200K context, great for chat",
+    contextWindow: "200K",
+    contextWindowTokens: 200000,
+    maxOutputTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    supportsMultimodal: false,
+    category: "Z.ai (Free)",
+    provider: "zai",
+    providerEnvKey: "ZAI_API_KEY",
+    providerEnvBaseUrl: "ZAI_API_BASE_URL",
+    defaultBaseUrl: "https://api.z.ai/api/paas/v4",
+  },
+  {
+    id: "glm-4-air",
+    name: "GLM-4 Air",
+    description: "FREE permanently, balanced speed and quality, 200K context",
+    contextWindow: "200K",
+    contextWindowTokens: 200000,
+    maxOutputTokens: 8192,
+    supportsTools: true,
+    supportsVision: false,
+    supportsMultimodal: false,
+    category: "Z.ai (Free)",
+    provider: "zai",
+    providerEnvKey: "ZAI_API_KEY",
+    providerEnvBaseUrl: "ZAI_API_BASE_URL",
+    defaultBaseUrl: "https://api.z.ai/api/paas/v4",
+  },
+
   // ===== SambaNova (FREE, high RPM) =====
   {
     id: "Meta-Llama-3.3-70B-Instruct",
@@ -389,6 +439,7 @@ export function isAiConfigured(): boolean {
   if (process.env.TOGETHER_API_KEY) return true;
   if (process.env.SAMBANOVA_API_KEY) return true;
   if (process.env.OPENROUTER_API_KEY) return true;
+  if (process.env.ZAI_API_KEY) return true;
   return false;
 }
 
@@ -537,17 +588,20 @@ export function findBestModelForPrompt(
     // Sort: prefer models that are "just big enough" (avoid wasteful 1M context for small prompts)
     // but break ties by preferring well-known quality models
     const qualityOrder: Record<string, number> = {
-      "DeepSeek-V3.1": 1,
-      "gpt-4o": 2,
-      "gpt-4o-mini": 3,
-      "Meta-Llama-3.3-70B-Instruct": 4,
-      "llama-3.3-70b-versatile": 5,
-      "gemini-2.0-flash": 6,
-      "Llama-4-Maverick-17B-128E-Instruct": 7,
-      "gemini-1.5-flash": 8,
-      "gemini-1.5-pro": 9,
-      "llama-3.1-8b-instant": 10,
-      "gpt-3.5-turbo": 11,
+      "glm-4-plus": 1,
+      "DeepSeek-V3.1": 2,
+      "gpt-4o": 3,
+      "gpt-4o-mini": 4,
+      "glm-4-flash": 5,
+      "Meta-Llama-3.3-70B-Instruct": 6,
+      "llama-3.3-70b-versatile": 7,
+      "glm-4-air": 8,
+      "gemini-2.0-flash": 9,
+      "Llama-4-Maverick-17B-128E-Instruct": 10,
+      "gemini-1.5-flash": 11,
+      "gemini-1.5-pro": 12,
+      "llama-3.1-8b-instant": 13,
+      "gpt-3.5-turbo": 14,
     };
 
     candidates.sort((a, b) => {
@@ -582,6 +636,7 @@ export function findBestModelForPrompt(
   if (process.env.TOGETHER_API_KEY) configuredProviders.push("Together");
   if (process.env.SAMBANOVA_API_KEY) configuredProviders.push("SambaNova");
   if (process.env.OPENROUTER_API_KEY) configuredProviders.push("OpenRouter");
+  if (process.env.ZAI_API_KEY) configuredProviders.push("Z.ai (GLM)");
   if (process.env.AI_API_KEY) configuredProviders.push("Generic (AI_API_KEY)");
 
   const providerHint =
@@ -591,7 +646,7 @@ export function findBestModelForPrompt(
 
   return {
     model: preferredModel,
-    reason: `No configured model can handle ~${estimatedTokens.toLocaleString()} tokens.${providerHint} Add GOOGLE_AI_API_KEY for free 1M-context Gemini models, or OPENAI_API_KEY for GPT-4o models.`,
+    reason: `No configured model can handle ~${estimatedTokens.toLocaleString()} tokens.${providerHint} Add ZAI_API_KEY for free GLM-4 (200K context), GOOGLE_AI_API_KEY for Gemini, or OPENAI_API_KEY for GPT-4o.`,
     autoRouted: false,
   };
 }
@@ -619,17 +674,20 @@ export function getFallbackModels(
   // Groq models are good (free, fast)
   // Google models are lower priority despite 1M context (free tier only 15 RPM, frequent 429)
   const fallbackQuality: Record<string, number> = {
-    "DeepSeek-V3.1": 1,
-    "Meta-Llama-3.3-70B-Instruct": 2,
-    "Llama-4-Maverick-17B-128E-Instruct": 3,
-    "gpt-4o": 4,
-    "gpt-4o-mini": 5,
-    "llama-3.3-70b-versatile": 6,
-    "llama-3.1-8b-instant": 7,
-    "gemini-2.0-flash": 8,
-    "gemini-1.5-flash": 9,
-    "gemini-1.5-pro": 10,
-    "gpt-3.5-turbo": 11,
+    "glm-4-plus": 1,
+    "DeepSeek-V3.1": 2,
+    "Meta-Llama-3.3-70B-Instruct": 3,
+    "Llama-4-Maverick-17B-128E-Instruct": 4,
+    "gpt-4o": 5,
+    "gpt-4o-mini": 6,
+    "glm-4-flash": 7,
+    "llama-3.3-70b-versatile": 8,
+    "glm-4-air": 9,
+    "llama-3.1-8b-instant": 10,
+    "gemini-2.0-flash": 11,
+    "gemini-1.5-flash": 12,
+    "gemini-1.5-pro": 13,
+    "gpt-3.5-turbo": 14,
     // Together / older models — lowest priority
   };
 
