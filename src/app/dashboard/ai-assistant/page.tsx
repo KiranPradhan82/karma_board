@@ -686,7 +686,7 @@ export default function KarmaSpacePage() {
               </Tooltip>
             )}
 
-            {/* Download All Documents button - shows when documents exist */
+            {/* Download All Documents button */}
             {isSuperAdmin && selectedProject && hasDocuments && (
               <Tooltip>
                 <TooltipTrigger asChild>
