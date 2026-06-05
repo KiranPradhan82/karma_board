@@ -107,6 +107,7 @@ model Project {
   aiChats       AiChat[]
   invitations   Invitation[]
   protocols     AiProtocol[]
+  documents    ProjectDocument[]
   client        Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
   clientNotifications ClientNotification[]
 }
@@ -206,4 +207,20 @@ model Settings {
   key       String @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model ProjectDocument {
+  id        String   @id @default(cuid())
+  projectId String
+  docType   String
+  title     String
+  content   String
+  pdfData   String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, docType])
 }

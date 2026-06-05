@@ -1,11 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
+import { generatePdfBase64 } from "@/lib/generate-pdf";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
 import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt, getFallbackModels, getModelCapability } from "@/lib/ai-client";
 import { getToolsForRole } from "@/lib/ai-tools";
 import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
 import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
 import type { AiMessage } from "@/lib/ai-client";
+
+// ===== Document type mapping =====
+const DOC_TYPE_MAP: Record<string, string> = {
+  "/prd": "prd",
+  "/trd": "trd",
+  "/flow": "flow",
+  "/ux": "ux",
+  "/schema": "schema",
+  "/plan": "plan",
+};
+
+// Document keyword signatures for detecting update-type messages
+const DOC_SIGNATURES = [
+  { label: "prd", keywords: ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements"] },
+  { label: "trd", keywords: ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements"] },
+  { label: "flow", keywords: ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns"] },
+  { label: "ux", keywords: ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Accessibility"] },
+  { label: "schema", keywords: ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data"] },
+  { label: "plan", keywords: ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Risk Register", "Quality Gates"] },
+];
+
+function detectDocTypeFromContent(content: string): string | null {
+  if (content.length < 1500) return null;
+  const lower = content.toLowerCase();
+  let bestMatch = "";
+  let bestCount = 0;
+  for (const sig of DOC_SIGNATURES) {
+    const count = sig.keywords.filter(kw => lower.includes(kw.toLowerCase())).length;
+    if (count >= 3 && count > bestCount) {
+      bestCount = count;
+      bestMatch = sig.label;
+    }
+  }
+  return bestMatch || null;
+}
 
 interface RouteContext {
   params: Promise<{}>;
@@ -707,6 +743,68 @@ export async function POST(request: NextRequest) {
       args: [aiMsgId, user.id, projectId, aiText],
     });
 
+    // ===== Auto-save document to ProjectDocument =====
+    let documentInfo: { id: string; docType: string; title: string; version: number } | undefined;
+    if (!aiError && aiText.length > 500) {
+      try {
+        let docType: string | undefined;
+
+        // Check if this is a direct doc command
+        if (isDocCommand && command && DOC_TYPE_MAP[command]) {
+          docType = DOC_TYPE_MAP[command];
+        }
+        // Or if the AI response matches a document signature (update flow)
+        if (!docType) {
+          const detected = detectDocTypeFromContent(aiText);
+          docType = detected || undefined;
+        }
+
+        if (docType) {
+          // Extract title from markdown heading
+          const title = aiText.split("\n").find(l => l.trim().startsWith("#"))
+            ?.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim().slice(0, 100)
+            || docType.toUpperCase() + " Document";
+
+          // Generate PDF from markdown content
+          let pdfBase64 = "";
+          try {
+            pdfBase64 = await generatePdfBase64(aiText);
+          } catch (pdfErr) {
+            console.error("[POST /api/ai/chat] PDF generation error (non-fatal):", pdfErr);
+          }
+
+          // Check if document already exists for this project+type
+          const existing = await client.execute({
+            sql: `SELECT id, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" = ?`,
+            args: [projectId, docType],
+          });
+
+          if (existing.rows.length > 0) {
+            // Update existing — increment version
+            const existingId = existing.rows[0].id as string;
+            const newVersion = Number(existing.rows[0].version) + 1;
+            await client.execute({
+              sql: `UPDATE "ProjectDocument" SET title = ?, content = ?, "pdfData" = ?, version = ?, "updatedAt" = datetime('now') WHERE id = ?`,
+              args: [title, aiText, pdfBase64, newVersion, existingId],
+            });
+            documentInfo = { id: existingId, docType, title, version: newVersion };
+            console.log("[POST /api/ai/chat] Auto-saved document update:", docType, "v" + newVersion);
+          } else {
+            // Create new
+            const newDocId = crypto.randomUUID();
+            await client.execute({
+              sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", title, content, "pdfData", version, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+              args: [newDocId, projectId, docType, title, aiText, pdfBase64],
+            });
+            documentInfo = { id: newDocId, docType, title, version: 1 };
+            console.log("[POST /api/ai/chat] Auto-saved new document:", docType, "v1");
+          }
+        }
+      } catch (docErr) {
+        console.error("[POST /api/ai/chat] Auto-save document error (non-fatal):", docErr);
+      }
+    }
+
     // Log activity
     const toolSummary = toolExecutions.length > 0
       ? ` (tools used: ${toolExecutions.map((t) => t.toolName).join(", ")})`
@@ -732,6 +830,7 @@ export async function POST(request: NextRequest) {
         modelAutoSelected: modelAutoSelected || undefined,
         modelAutoRouted: modelAutoRouted || undefined,
         modelRouteReason: modelRouteReason || undefined,
+        documentInfo: documentInfo || undefined,
       },
     });
   } catch (error) {
