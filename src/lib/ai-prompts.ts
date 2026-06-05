@@ -781,7 +781,8 @@ ${getRoleAccessRules(userRole || "MEMBER")}
 8. **Always explain before acting**: Tell the user what you're about to do before calling a tool
 9. **Report results**: After a tool call, clearly tell the user what happened
 10. **CRITICAL: NEVER suggest project initialization, scaffolding, /init, repo setup, or infrastructure setup while generating documents.** The /init command must ONLY be suggested AFTER all 6 documents (PRD, TRD, Flow, UX, Schema, Plan) are confirmed. During document generation, focus ONLY on the current document — do not mention project setup, GitHub repos, databases, or deployment.
-11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.`;
+11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.
+12. **MANDATORY: Test, Debug, and Verify Before Every GitHub Push.** Before pushing ANY code to GitHub, you MUST follow this strict cycle: (1) Run the build command to check for compilation/type errors. (2) If there are errors, fix them immediately. (3) Re-run the build. (4) Repeat steps 1-3 until the build passes with ZERO errors. (5) Only then commit and push to GitHub. NEVER push code with known build failures, type errors, lint errors, or broken functionality. This rule applies EVERY time — there are NO exceptions, not even for "quick fixes" or "minor changes." A broken build pushed to main is unacceptable.`;
 
   // ---- Project context ----
   const contextLines: string[] = [];
@@ -1084,7 +1085,15 @@ Once ALL information from Steps 1-3 is collected, present a clean summary:
 Then provide:
 1. **\`.env.local\` file** — Show the complete environment file with ALL collected values clearly organized
 2. **Git setup commands** — Step-by-step commands to: initialize the repo (if new), connect to the GitHub remote, and make the first commit
-3. **Next steps** — Clear checklist: clone repo, install dependencies, run database migrations, verify setup, start development
+3. **Test-Debug-Push Protocol** — This is a STRICT mandatory workflow that MUST be followed EVERY time before pushing code to GitHub:
+   - **Step A**: Run the build/test command (e.g., npm run build, npm test, or equivalent for the project's tech stack)
+   - **Step B**: If ANY errors, warnings, or test failures appear — fix them immediately
+   - **Step C**: Re-run the build/test command to verify the fix
+   - **Step D**: Repeat Steps A-C until the build passes with ZERO errors
+   - **Step E**: ONLY then — git add, commit with a descriptive message, and git push
+   - **NEVER push code with known failures** — not even "quick fixes," "hotfixes," or "trivial changes"
+   - This cycle applies EVERY single push — there are NO exceptions
+4. **Next steps** — Clear checklist: clone repo, install dependencies, run database migrations, verify setup, start development
 
 ## CRITICAL RULES:
 1. **ONE STEP AT A TIME** — Ask Step 1 (GitHub) first. Wait for the answer. Then ask for the PAT. Then Step 2 (Database). Then Step 3 (API Keys). NEVER dump all questions at once.
@@ -1093,7 +1102,8 @@ Then provide:
 4. **GITHUB IS MANDATORY** — GitHub must always be configured first. It is the foundation for everything else.
 5. **MASK sensitive values** — In the final summary, only show the last 4 characters of tokens, keys, and passwords.
 6. **Be helpful and educational** — If the user doesn't know how to generate a PAT or find a database URL, explain the steps clearly and patiently.
-7. **NEVER suggest project setup, scaffolding, or infrastructure** before this \`/init\` command — this flow only runs when all 6 documents are confirmed.`;
+7. **NEVER suggest project setup, scaffolding, or infrastructure** before this \`/init\` command — this flow only runs when all 6 documents are confirmed.
+8. **TEST-DEBUG-PUSH IS MANDATORY**: Every time code is about to be pushed to GitHub, the test-debug loop MUST be followed. This is non-negotiable. A broken build on main is a critical failure.`;
     return initPrompt;
   }
 
