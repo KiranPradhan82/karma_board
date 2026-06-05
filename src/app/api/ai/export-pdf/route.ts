@@ -81,7 +81,7 @@ function parseMarkdownToLines(md: string): { text: string; style: "h1" | "h2" | 
 }
 
 // Generate PDF from markdown content
-function generatePdfBuffer(content: string): Buffer {
+async function generatePdfBuffer(content: string): Promise<Buffer> {
   const buffers: Buffer[] = [];
   const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
   doc.on("data", (chunk: Buffer) => buffers.push(chunk));
@@ -154,6 +154,9 @@ function generatePdfBuffer(content: string): Buffer {
     try { doc.end(); } catch { /* ignore */ }
   }
 
+  // CRITICAL: Wait for doc.end() to flush all data chunks before concatenating
+  await new Promise<void>((resolve) => doc.on("end", resolve));
+
   return Buffer.concat(buffers);
 }
 
@@ -173,7 +176,7 @@ export async function POST(request: NextRequest) {
     }
 
     const safeFilename = (filename || "Document").replace(/[^a-zA-Z0-9_-]/g, "_");
-    const pdfBuffer = generatePdfBuffer(content);
+    const pdfBuffer = await generatePdfBuffer(content);
 
     return new NextResponse(pdfBuffer, {
       headers: {
@@ -232,7 +235,7 @@ export async function GET(request: NextRequest) {
     }
 
     const safeFilename = filename.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const pdfBuffer = generatePdfBuffer(content);
+    const pdfBuffer = await generatePdfBuffer(content);
 
     console.log("[GET /api/ai/export-pdf] PDF generated:", pdfBuffer.length, "bytes");
 
