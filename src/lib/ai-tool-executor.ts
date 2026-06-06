@@ -519,8 +519,26 @@ async function webSearch(
 
 // ===== Tool: save_github_config =====
 
+async function upsertSetting(tursoClient: ExecutorContext["tursoClient"], key: string, value: string): Promise<void> {
+  const existing = await tursoClient.execute({
+    sql: `SELECT key FROM "Settings" WHERE key = ?`,
+    args: [key],
+  });
+  if (existing.rows.length > 0) {
+    await tursoClient.execute({
+      sql: `UPDATE "Settings" SET value = ?, "updatedAt" = datetime('now') WHERE key = ?`,
+      args: [value, key],
+    });
+  } else {
+    await tursoClient.execute({
+      sql: `INSERT INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+      args: [key, value],
+    });
+  }
+}
+
 async function saveGithubConfig(
-  args: { repoUrl: string; pat: string },
+  args: { repoUrl: string; pat: string; patExpiry?: string },
   ctx: ExecutorContext
 ): Promise<AiToolResult> {
   const { tursoClient, userRole } = ctx;
@@ -549,46 +567,32 @@ async function saveGithubConfig(
   try {
     const encryptedPat = encrypt(args.pat);
 
-    // Upsert GITHUB_REPO_URL
-    const existingUrl = await tursoClient.execute({
-      sql: `SELECT key FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
-      args: [],
-    });
-    if (existingUrl.rows.length > 0) {
-      await tursoClient.execute({
-        sql: `UPDATE "Settings" SET value = ?, "updatedAt" = datetime('now') WHERE key = 'GITHUB_REPO_URL'`,
-        args: [args.repoUrl.trim()],
-      });
-    } else {
-      await tursoClient.execute({
-        sql: `INSERT INTO "Settings" (key, value, "updatedAt") VALUES ('GITHUB_REPO_URL', ?, datetime('now'))`,
-        args: [args.repoUrl.trim()],
-      });
+    // Upsert GITHUB_REPO_URL, GITHUB_PAT, GITHUB_PAT_EXPIRY
+    await upsertSetting(tursoClient, "GITHUB_REPO_URL", args.repoUrl.trim());
+    await upsertSetting(tursoClient, "GITHUB_PAT", encryptedPat);
+
+    // Store expiry date (YYYY-MM-DD format, validated)
+    if (args.patExpiry) {
+      const expiryDate = new Date(args.patExpiry);
+      if (isNaN(expiryDate.getTime())) {
+        return {
+          toolCallId: "",
+          toolName: "save_github_config",
+          success: false,
+          result: "Invalid expiry date format. Use YYYY-MM-DD.",
+          displayMessage: "The expiry date format is invalid. Please provide a date like 2025-12-31.",
+        };
+      }
+      await upsertSetting(tursoClient, "GITHUB_PAT_EXPIRY", args.patExpiry);
     }
 
-    // Upsert GITHUB_PAT
-    const existingPat = await tursoClient.execute({
-      sql: `SELECT key FROM "Settings" WHERE key = 'GITHUB_PAT'`,
-      args: [],
-    });
-    if (existingPat.rows.length > 0) {
-      await tursoClient.execute({
-        sql: `UPDATE "Settings" SET value = ?, "updatedAt" = datetime('now') WHERE key = 'GITHUB_PAT'`,
-        args: [encryptedPat],
-      });
-    } else {
-      await tursoClient.execute({
-        sql: `INSERT INTO "Settings" (key, value, "updatedAt") VALUES ('GITHUB_PAT', ?, datetime('now'))`,
-        args: [encryptedPat],
-      });
-    }
-
+    const expiryNote = args.patExpiry ? ` Expiry reminder set for ${args.patExpiry}.` : "";
     return {
       toolCallId: "",
       toolName: "save_github_config",
       success: true,
-      result: JSON.stringify({ repoUrl: args.repoUrl.trim(), saved: true }),
-      displayMessage: "GitHub credentials saved securely. PAT encrypted and stored.",
+      result: JSON.stringify({ repoUrl: args.repoUrl.trim(), patExpiry: args.patExpiry || null, saved: true }),
+      displayMessage: `GitHub credentials saved securely. PAT encrypted and stored.${expiryNote}`,
     };
   } catch (error) {
     console.error("[saveGithubConfig tool] DB error:", error);
@@ -598,6 +602,78 @@ async function saveGithubConfig(
       success: false,
       result: "Database error: " + (error instanceof Error ? error.message : "Unknown error"),
       displayMessage: "Failed to save GitHub configuration.",
+    };
+  }
+}
+
+// ===== Tool: save_database_config =====
+
+async function saveDatabaseConfig(
+  args: { dbUrl: string; dbAuthToken: string; dbType: string; dbTokenExpiry?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  // RBAC: SUPERADMIN and ADMIN can save database config
+  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+    return {
+      toolCallId: "",
+      toolName: "save_database_config",
+      success: false,
+      result: "Permission denied: Only SUPERADMIN can save database configuration.",
+      displayMessage: "Permission denied — only Super Admin can save database config.",
+    };
+  }
+
+  if (!args.dbUrl || !args.dbAuthToken || !args.dbType) {
+    return {
+      toolCallId: "",
+      toolName: "save_database_config",
+      success: false,
+      result: "dbUrl, dbAuthToken, and dbType are required.",
+      displayMessage: "Missing database URL, auth token, or database type.",
+    };
+  }
+
+  try {
+    const encryptedToken = encrypt(args.dbAuthToken);
+
+    // Upsert DB_URL, DB_AUTH_TOKEN, DB_TYPE, DB_TOKEN_EXPIRY
+    await upsertSetting(tursoClient, "DB_URL", args.dbUrl.trim());
+    await upsertSetting(tursoClient, "DB_AUTH_TOKEN", encryptedToken);
+    await upsertSetting(tursoClient, "DB_TYPE", args.dbType.trim());
+
+    // Store expiry date (YYYY-MM-DD format, validated)
+    if (args.dbTokenExpiry) {
+      const expiryDate = new Date(args.dbTokenExpiry);
+      if (isNaN(expiryDate.getTime())) {
+        return {
+          toolCallId: "",
+          toolName: "save_database_config",
+          success: false,
+          result: "Invalid expiry date format. Use YYYY-MM-DD.",
+          displayMessage: "The expiry date format is invalid. Please provide a date like 2025-12-31.",
+        };
+      }
+      await upsertSetting(tursoClient, "DB_TOKEN_EXPIRY", args.dbTokenExpiry);
+    }
+
+    const expiryNote = args.dbTokenExpiry ? ` Token expiry reminder set for ${args.dbTokenExpiry}.` : "";
+    return {
+      toolCallId: "",
+      toolName: "save_database_config",
+      success: true,
+      result: JSON.stringify({ dbType: args.dbType.trim(), dbTokenExpiry: args.dbTokenExpiry || null, saved: true }),
+      displayMessage: `Database configuration saved securely. Auth token encrypted and stored.${expiryNote}`,
+    };
+  } catch (error) {
+    console.error("[saveDatabaseConfig tool] DB error:", error);
+    return {
+      toolCallId: "",
+      toolName: "save_database_config",
+      success: false,
+      result: "Database error: " + (error instanceof Error ? error.message : "Unknown error"),
+      displayMessage: "Failed to save database configuration.",
     };
   }
 }
@@ -652,7 +728,9 @@ export async function executeToolCall(
     case "web_search":
       return { ...(await webSearch(parsedArgs as { query: string }, ctx)), toolCallId: toolCall.id };
     case "save_github_config":
-      return { ...(await saveGithubConfig(parsedArgs as { repoUrl: string; pat: string }, ctx)), toolCallId: toolCall.id };
+      return { ...(await saveGithubConfig(parsedArgs as { repoUrl: string; pat: string; patExpiry?: string }, ctx)), toolCallId: toolCall.id };
+    case "save_database_config":
+      return { ...(await saveDatabaseConfig(parsedArgs as { dbUrl: string; dbAuthToken: string; dbType: string; dbTokenExpiry?: string }, ctx)), toolCallId: toolCall.id };
     default:
       return {
         toolCallId: toolCall.id,
@@ -682,6 +760,7 @@ export function getToolLabel(toolName: string): string {
     add_project_member: "Adding team member",
     web_search: "Searching the web",
     save_github_config: "Saving GitHub config",
+    save_database_config: "Saving database config",
   };
   return labels[toolName] || toolName;
 }
@@ -698,6 +777,7 @@ export function getToolIcon(toolName: string): string {
     add_project_member: "👤",
     web_search: "🌐",
     save_github_config: "🚀",
+    save_database_config: "🗄️",
   };
   return icons[toolName] || "🔧";
 }

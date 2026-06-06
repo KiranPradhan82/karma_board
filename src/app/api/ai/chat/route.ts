@@ -439,7 +439,7 @@ export async function POST(request: NextRequest) {
       );
     } else if (command === "/init") {
       availableTools = availableTools.filter((tool) =>
-        ["save_github_config"].includes(tool.function.name)
+        ["save_github_config", "save_database_config"].includes(tool.function.name)
       );
     }
 

@@ -1025,9 +1025,15 @@ We use GitHub for version control, CI/CD, and collaboration. I need:
    - This token is used for: pushing code, pulling code, setting up GitHub Actions CI/CD, and managing repository settings
    - **How to create a PAT:** Go to GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token. Select the repository and grant \`Contents: Read and write\` and \`Administration: Read and write\` permissions.
 
-**Start by asking the user for the GitHub Repository URL first. Wait for their response. Then ask for the PAT. If they don't have a PAT, guide them through creating one.**
+3. **GitHub PAT Expiry Date**
+   - The date when the GitHub PAT will expire (format: YYYY-MM-DD, e.g., \`2025-12-31\`)
+   - This is critical — when the expiry date arrives, KarmaBoard will automatically send you an **email notification** reminding you to regenerate the token and provide a new one
+   - If the PAT has no expiry, set a date 1 year from today as a safety reminder
+   - **This ensures you never lose access due to an expired token**
 
-Only after BOTH the repo URL and PAT are collected, proceed to Step 2.
+**Start by asking the user for the GitHub Repository URL first. Wait for their response. Then ask for the PAT. Then ask for the PAT expiry date. If they don't have a PAT, guide them through creating one.**
+
+Only after ALL THREE values (repo URL, PAT, and expiry date) are collected, call the \`save_github_config\` tool to save them. Then proceed to Step 2.
 
 ---
 
@@ -1039,10 +1045,15 @@ For the database layer, I need:
    - Examples: \`libsql://your-db.turso.io\` for Turso, \`postgresql://user:pass@host:5432/dbname\` for Postgres, \`file:./local.db\` for local SQLite
 2. **Database Auth Token** — The authentication token or password for the database connection
 3. **Database Type** — The database engine being used (Turso/SQLite, PostgreSQL, MySQL, MongoDB, Supabase, etc.)
+4. **Database Auth Token Expiry Date**
+   - The date when the database auth token/password will expire (format: YYYY-MM-DD, e.g., \`2025-12-31\`)
+   - When this date arrives, KarmaBoard will automatically send you an **email notification** reminding you to regenerate the token and provide a new one
+   - If the token has no expiry, set a date 1 year from today as a safety reminder
+   - **This ensures you never lose database access due to an expired credential**
 
 **Ask the user for these values. Wait for each response before moving on.**
 
-Only after ALL database values are collected, proceed to Step 3.
+Only after ALL FOUR values are collected, call the \`save_database_config\` tool to save them. Then proceed to Step 3.
 
 ---
 
@@ -1079,9 +1090,11 @@ Once ALL information from Steps 1-3 is collected, present a clean summary:
 | **Project Name** | ${projectName || "—"} |
 | **GitHub Repo URL** | [collected value] |
 | **GitHub PAT** | [collected value — show only last 4 characters for security] |
+| **GitHub PAT Expiry** | [collected expiry date] |
 | **Database Type** | [collected value] |
 | **Database URL** | [collected value — show only host/identifier] |
 | **Database Token** | [collected value — show only last 4 characters] |
+| **Database Token Expiry** | [collected expiry date] |
 | **API Keys Collected** | [list all services with keys, show only last 4 chars of each token] |
 
 Then provide:
@@ -1099,7 +1112,7 @@ Then provide:
 
 ## CRITICAL RULES:
 1. **ONE STEP AT A TIME** — Ask Step 1 (GitHub) first. Wait for the answer. Then ask for the PAT. Then Step 2 (Database). Then Step 3 (API Keys). NEVER dump all questions at once.
-2. **USE THE save_github_config TOOL** — After collecting both the GitHub repo URL and PAT from the user, you MUST call the save_github_config tool to save them to project settings. This is the ONLY tool you should call during /init. This ensures the credentials are stored securely for future GitHub push operations.
+2. **USE THE TOOLS TO SAVE CREDENTIALS** — After collecting the GitHub repo URL, PAT, and expiry date, you MUST call the \`save_github_config\` tool to save them. After collecting the database URL, auth token, database type, and token expiry date, you MUST call the \`save_database_config\` tool to save them. These are the ONLY tools you should call during /init.
 3. **NEVER skip steps** — Each step must be fully completed before moving to the next.
 4. **GITHUB IS MANDATORY** — GitHub must always be configured first. It is the foundation for everything else.
 5. **MASK sensitive values** — In the final summary, only show the last 4 characters of tokens, keys, and passwords.

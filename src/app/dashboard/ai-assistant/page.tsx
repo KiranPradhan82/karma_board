@@ -1606,7 +1606,6 @@ export default function KarmaSpacePage() {
         <Dialog open={isSuperAdmin && deleteRequests.length > 0 && false} onOpenChange={() => {}}>
           {/* Auto-opened via polling badge in top bar, shown as section in messages area instead */}
         </Dialog>
-      </div>
     </TooltipProvider>
   );
 }

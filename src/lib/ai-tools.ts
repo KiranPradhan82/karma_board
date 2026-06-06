@@ -222,7 +222,7 @@ export const AI_TOOLS: AiToolDefinition[] = [
     function: {
       name: "save_github_config",
       description:
-        "Save GitHub repository URL and Personal Access Token (PAT) to settings. Use this during the /init flow after collecting both the repo URL and PAT from the user. The PAT is encrypted before storage.",
+        "Save GitHub repository URL, Personal Access Token (PAT), and PAT expiry date to settings. Use this during the /init flow after collecting the repo URL, PAT, and expiry date from the user. The PAT is encrypted before storage. The expiry date is used to send email reminders before the token expires.",
       parameters: {
         type: "object",
         properties: {
@@ -234,8 +234,42 @@ export const AI_TOOLS: AiToolDefinition[] = [
             type: "string",
             description: "GitHub Personal Access Token with repo scope",
           },
+          patExpiry: {
+            type: "string",
+            description: "Expiry date for the GitHub PAT in ISO date format (e.g., '2025-12-31'). This is used to send an email notification to the user when the token is about to expire.",
+          },
         },
-        required: ["repoUrl", "pat"],
+        required: ["repoUrl", "pat", "patExpiry"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_database_config",
+      description:
+        "Save database connection details including auth token and token expiry date to settings. Use this during the /init flow after collecting the database URL, auth token, database type, and token expiry from the user. The auth token is encrypted before storage. The expiry date is used to send email reminders before the token expires.",
+      parameters: {
+        type: "object",
+        properties: {
+          dbUrl: {
+            type: "string",
+            description: "Database connection URL (e.g., 'libsql://your-db.turso.io', 'postgresql://user:pass@host:5432/dbname', 'file:./local.db')",
+          },
+          dbAuthToken: {
+            type: "string",
+            description: "Database authentication token or password",
+          },
+          dbType: {
+            type: "string",
+            description: "Database engine type (e.g., 'Turso/SQLite', 'PostgreSQL', 'MySQL', 'MongoDB', 'Supabase')",
+          },
+          dbTokenExpiry: {
+            type: "string",
+            description: "Expiry date for the database auth token in ISO date format (e.g., '2025-12-31'). This is used to send an email notification to the user when the token is about to expire.",
+          },
+        },
+        required: ["dbUrl", "dbAuthToken", "dbType", "dbTokenExpiry"],
       },
     },
   },

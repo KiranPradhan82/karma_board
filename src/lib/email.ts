@@ -460,11 +460,91 @@ export async function sendClientNotificationEmail(params: {
     return sendViaResend(config, to, subject, html);
   }
 
-  const result = await sendViaGmailSmtp(config, to, subject, html);
+  const notificationResult = await sendViaGmailSmtp(config, to, subject, html);
 
-  if (!result.success) {
-    console.warn(`[email] Gmail SMTP failed: ${result.error}`);
+  if (!notificationResult.success) {
+    console.warn(`[email] Gmail SMTP failed: ${notificationResult.error}`);
   }
 
-  return result;
+  return notificationResult;
+}
+
+/**
+ * Send a token expiry reminder email to the user.
+ * Used when GitHub PAT or database auth token is about to expire or has expired.
+ */
+export async function sendTokenExpiryEmail(params: {
+  to: string;
+  name: string;
+  tokenType: "GitHub PAT" | "Database Auth Token";
+  expiryDate: string;
+  dashboardUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { to, name, tokenType, expiryDate, dashboardUrl } = params;
+
+  const config = await getEmailConfig();
+
+  console.log(`[email] Sending ${tokenType} expiry notification to ${to} via ${config.provider}`);
+
+  const subject = `Action Required: Your ${tokenType} Expires on ${expiryDate}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background: #ffffff;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 12px; background: #dc2626; margin-bottom: 16px;">
+          <span style="color: #ffffff; font-size: 24px; font-weight: 700;">!</span>
+        </div>
+        <h1 style="margin: 0; font-size: 22px; font-weight: 700; color: #111827;">Token Expiry Reminder</h1>
+      </div>
+
+      <p style="font-size: 16px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        Hi <strong>${name}</strong>,
+      </p>
+
+      <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 15px; color: #991b1b; margin: 0; line-height: 1.6;">
+          <strong>Your ${tokenType.toUpperCase()}</strong> is set to expire on <strong>${expiryDate}</strong>.
+        </p>
+      </div>
+
+      <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 16px;">
+        When this token expires, KarmaBoard will lose access to ${tokenType === "GitHub PAT" ? "GitHub operations such as pushing code, managing repositories, and running CI/CD pipelines" : "the project database, which may disrupt active development and data synchronization"}. To prevent service interruption, please regenerate your token and update it in KarmaBoard.
+      </p>
+
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 12px 0;">How to update your token:</p>
+        <ol style="font-size: 14px; color: #374151; line-height: 1.8; margin: 0; padding-left: 20px;">
+          <li>${tokenType === "GitHub PAT" ? "Go to GitHub &gt; Settings &gt; Developer settings &gt; Personal access tokens and generate a new token" : "Go to your database provider dashboard and generate a new auth token or password"}</li>
+          <li>Note the new token and its expiry date</li>
+          <li>Go to KarmaBoard and provide the new token when prompted by Karma Space, or update it in Settings</li>
+        </ol>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 32px;">
+        <a href="${dashboardUrl}" target="_blank" style="display: inline-block; background: #6366f1; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 32px; border-radius: 8px;">
+          Go to KarmaBoard
+        </a>
+      </div>
+
+      <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; text-align: center;">
+        <p style="font-size: 13px; color: #9ca3af; margin: 0 0 4px 0;">
+          This is an automated reminder from KarmaBoard. You will receive this email on the token expiry date.
+        </p>
+        <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+          KarmaBoard — Project Management Made Simple
+        </p>
+      </div>
+    </div>
+  `;
+
+  if (config.provider === "resend") {
+    return sendViaResend(config, to, subject, html);
+  }
+
+  const expiryResult = await sendViaGmailSmtp(config, to, subject, html);
+
+  if (!expiryResult.success) {
+    console.warn(`[email] Gmail SMTP failed for token expiry notification: ${expiryResult.error}`);
+  }
+
+  return expiryResult;
 }
