@@ -56,3 +56,60 @@ Stage Summary:
 - Key: Non-command messages that match document signatures also get auto-saved (update detection)
 - Key: Frontend shows rich DocumentCard with color-coded badges, download, and expandable preview
 - Key: export-all-docs prefers stored documents over chat message detection
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Implement 5-part system: onboarding flow, GitHub docs push, dynamic theme, post-generation review, auto-push
+
+Work Log:
+
+PART 1: Onboarding API + UI
+- Created src/lib/generate-pdf.ts: Reusable PDF generation library with generatePdfBase64() and generatePdfBufferFromContent() functions. Supports optional projectId parameter to fetch project-specific theme colors from Settings table (PROJECT_THEME:{projectId} key). If theme has colors array, uses first color as primary color. Falls back to default blue theme.
+- Updated src/app/api/ai/onboarding/route.ts: Added import of generatePdfBase64. For text type onboarding, now generates a styled PDF using generatePdfBase64() and stores it in the pdfData column (was previously NULL). PDF generation errors are caught silently to not block onboarding.
+- Onboarding UI was already implemented in the frontend (ai-assistant/page.tsx) with onboardingPhase state, tab switching between upload/write, file input, textarea, and submit button.
+- Prisma schema already allows 'requirements' as a docType (docType is String field).
+
+PART 2: GitHub Client + Push API
+- github-client.ts already existed with pushFile, pushBinaryFile, pushMultipleFiles functions.
+- push-docs/route.ts already existed with POST (single doc) and PUT (bulk) endpoints.
+- save_github_config tool already existed in ai-tools.ts and ai-tool-executor.ts.
+- Fixed ai-tool-executor.ts: Changed save_github_config RBAC from SUPERADMIN-only to allow both SUPERADMIN and ADMIN roles.
+
+PART 3: Post-Generation Review in AI Prompts
+- Added review instruction text to the END of each COMMAND_PROMPTS doc type (/prd, /trd, /flow, /ux, /schema, /plan):
+  "--- **Document complete. Would you like to make any changes?** Reply: **Yes** (describe what to change) | **No** (move to next) Click **Download PDF** to get the styled document."
+- Added rule 13 to the Important Rules section in the system prompt:
+  "13. CUSTOMIZATION FLOW: When user requests changes to a generated document: (a) Ask clarifying questions if vague. (b) For color changes, accept color names or hex codes. (c) Regenerate the FULL document with changes. (d) The system auto-saves the updated version. Never just show a diff."
+
+PART 4: Dynamic Theme from TRD
+- In src/app/api/ai/chat/route.ts, after the auto-save document logic, added regex-based theme extraction for TRD documents:
+  - Uses aiText.match(/#[0-9A-Fa-f]{6}/g) to extract hex colors from the TRD content
+  - Stores unique colors as JSON in Settings table under key PROJECT_THEME:{projectId}
+  - Errors are caught silently
+
+PART 5: Auto-push to GitHub after doc generation
+- In src/app/api/ai/chat/route.ts, after the auto-save document logic, added GitHub push availability check:
+  - Queries Settings for GITHUB_REPO_URL and GITHUB_PAT keys
+  - If both exist, logs "[Chat] GitHub push available for doc: {docType}"
+  - Fire-and-forget pattern — does not block the response
+  - Errors are silently caught
+
+Additional Fixes:
+- Fixed pre-existing bug in src/app/api/ai/chat/route.ts: Line 211 had `request.json()` without `await` and without destructuring the body. Fixed by adding `await request.json()` and destructuring projectId, content, files, etc. Also fixed the `if (!projectId || !content)` validation block which was missing a closing brace and early return.
+
+Build & Deploy:
+- npm run build passed clean with no errors
+- Merged upstream changes (rebase conflicts in prisma/schema.prisma, ai-prompts.ts, generate-pdf.ts, db/custom.db)
+- Git commit: feat: onboarding flow, GitHub docs push, dynamic theme system (d0e5711)
+- Merge commit: merge: integrate upstream changes with onboarding/GitHub/theme features (408c404)
+- Pushed to main successfully
+
+Stage Summary:
+- Created files: src/lib/generate-pdf.ts
+- Modified files: src/app/api/ai/onboarding/route.ts, src/app/api/ai/chat/route.ts, src/lib/ai-prompts.ts, src/lib/ai-tool-executor.ts
+- Key: Onboarding now generates styled PDFs from text input using the project theme system
+- Key: GitHub config saving is now available to ADMIN role (not just SUPERADMIN)
+- Key: Each document prompt now ends with a review instruction for Yes/No changes
+- Key: TRD generation automatically extracts hex color codes for the project theme
+- Key: After doc auto-save, system logs GitHub push availability for future integration
