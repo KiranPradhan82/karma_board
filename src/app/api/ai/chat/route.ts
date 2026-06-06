@@ -7,6 +7,8 @@ import { getToolsForRole } from "@/lib/ai-tools";
 import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
 import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
 import type { AiMessage } from "@/lib/ai-client";
+import { pushFile, pushBinaryFile } from "@/lib/github-client";
+import { decrypt } from "@/lib/encryption";
 
 // ===== Document type mapping =====
 const DOC_TYPE_MAP: Record<string, string> = {
@@ -823,87 +825,84 @@ export async function POST(request: NextRequest) {
       tursoClient: client,
     });
 
-    // After TRD is generated, extract theme data in the background
-    if (command === "/trd" && finalContent && finalContent.length > 500) {
-      // Fire-and-forget: extract theme from TRD
-      const settingsKey = "PROJECT_THEME:" + projectId;
-      const existingTheme = await client.execute({
-        sql: `SELECT key FROM "Settings" WHERE key = ?`,
-        args: [settingsKey],
-      });
-      if (existingTheme.rows.length === 0) {
-        fetch("/api/ai/extract-theme?XTransformPort=3000", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ projectId, trdContent: finalContent }),
-        }).catch((err) => {
-          console.error("[Chat] Theme extraction failed (non-fatal):", err);
+    // ===== Extract TRD theme colors (runs after doc save if TRD was generated) =====
+    if ((command === "/trd" || (documentInfo && documentInfo.docType === "trd")) && aiText && aiText.length > 500) {
+      try {
+        const settingsKey = "PROJECT_THEME:" + projectId;
+        const existingTheme = await client.execute({
+          sql: `SELECT key FROM "Settings" WHERE key = ?`,
+          args: [settingsKey],
         });
+        if (existingTheme.rows.length === 0) {
+          const colorMatches = aiText.match(/#[0-9A-Fa-f]{6}/g) || [];
+          if (colorMatches.length > 0) {
+            const themeColors = { colors: [...new Set(colorMatches)] };
+            await client.execute({
+              sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+              args: [settingsKey, JSON.stringify(themeColors)],
+            });
+            console.log("[Chat] Extracted theme colors from TRD:", themeColors.colors.length);
+          }
+        }
+      } catch (themeErr) {
+        console.error("[Chat] Theme extraction error (non-fatal):", themeErr);
       }
     }
 
-    // Auto-save document content to ProjectDocument for doc commands
-    if (isDocCommand && finalContent && finalContent.length > 500 && command !== "/init") {
-      const docTypeMap: Record<string, string> = {
-        "/docs": "prd",
-        "/prd": "prd",
-        "/trd": "trd",
-        "/flow": "flow",
-        "/ux": "ux",
-        "/schema": "schema",
-        "/plan": "plan",
-      };
-      const docType = docTypeMap[command || ""] || "prd";
-
-      try {
-        const existingDoc = await client.execute({
-          sql: `SELECT id, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" = ?`,
-          args: [projectId, docType],
-        });
-
-        if (existingDoc.rows.length > 0) {
-          const currentVersion = Number(existingDoc.rows[0].version) || 1;
-          await client.execute({
-            sql: `UPDATE "ProjectDocument" SET content = ?, version = ?, "updatedAt" = datetime('now') WHERE id = ?`,
-            args: [finalContent, currentVersion + 1, existingDoc.rows[0].id],
-          });
-        } else {
-          await client.execute({
-            sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", content, "version", "createdAt", "updatedAt")
-                  VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
-            args: [crypto.randomUUID(), projectId, docType, finalContent],
-          });
-        }
-        console.log("[Chat] Auto-saved document:", docType, "for project:", projectId);
-
-        // After saving document, if it's a TRD, extract theme via regex
-        if (docType === "trd") {
-          try {
-            const colorMatches = finalContent.match(/#[0-9A-Fa-f]{6}/g) || [];
-            if (colorMatches.length > 0) {
-              const themeColors = { colors: [...new Set(colorMatches)] };
-              await client.execute({
-                sql: "INSERT OR REPLACE INTO \"Settings\" (key, value, \"updatedAt\") VALUES (?, ?, datetime('now'))",
-                args: ["PROJECT_THEME:" + projectId, JSON.stringify(themeColors)],
-              });
-              console.log("[Chat] Extracted theme colors from TRD:", themeColors.colors.length);
-            }
-          } catch (themeErr) {
-            console.error("[Chat] Theme extraction error:", themeErr);
-          }
-        }
-
-        // After saving document, check if GitHub push is available
+    // ===== Auto-push document to GitHub (fire-and-forget, non-blocking) =====
+    if (documentInfo && !aiError) {
+      // Fire-and-forget: push to GitHub in background without blocking the response
+      (async () => {
         try {
-          const ghConfig = await client.execute({ sql: "SELECT value FROM \"Settings\" WHERE key = ?", args: ["GITHUB_REPO_URL"] });
-          const ghToken = await client.execute({ sql: "SELECT value FROM \"Settings\" WHERE key = ?", args: ["GITHUB_PAT"] });
-          if (ghConfig.rows.length > 0 && ghToken.rows.length > 0) {
-            console.log("[Chat] GitHub push available for doc:", docType);
+          const repoResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+            args: [],
+          });
+          const patResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_PAT'`,
+            args: [],
+          });
+
+          if (repoResult.rows.length === 0 || patResult.rows.length === 0) {
+            console.log("[Chat] No GitHub config, skipping auto-push for", documentInfo.docType);
+            return;
           }
-        } catch { /* ignore */ }
-      } catch (saveErr) {
-        console.error("[Chat] Auto-save document failed (non-fatal):", saveErr);
-      }
+
+          const repoUrl = repoResult.rows[0].value as string;
+          let token: string;
+          try {
+            token = decrypt(patResult.rows[0].value as string);
+          } catch {
+            token = patResult.rows[0].value as string; // Legacy unencrypted
+          }
+
+          const githubConfig = { repoUrl, token };
+          const docLabel = documentInfo.docType.toUpperCase();
+          const commitMsg = `docs: update ${docLabel} document (v${documentInfo.version})`;
+
+          // Push markdown file
+          const mdPath = "docs/pre-coding/" + documentInfo.docType + ".md";
+          await pushFile(githubConfig, mdPath, aiText, commitMsg);
+          console.log("[Chat] GitHub push: markdown", mdPath);
+
+          // Push PDF if available
+          if (documentInfo) {
+            const pdfResult = await client.execute({
+              sql: `SELECT "pdfData" FROM "ProjectDocument" WHERE id = ? AND "pdfData" IS NOT NULL AND "pdfData" != ''`,
+              args: [documentInfo.id],
+            });
+            if (pdfResult.rows.length > 0 && pdfResult.rows[0].pdfData) {
+              const pdfPath = "docs/pre-coding/" + documentInfo.docType + ".pdf";
+              await pushBinaryFile(githubConfig, pdfPath, pdfResult.rows[0].pdfData as string, commitMsg);
+              console.log("[Chat] GitHub push: PDF", pdfPath);
+            }
+          }
+
+          console.log("[Chat] GitHub auto-push complete for", documentInfo.docType, "v" + documentInfo.version);
+        } catch (ghErr) {
+          console.error("[Chat] GitHub auto-push failed (non-fatal):", ghErr);
+        }
+      })();
     }
 
     return NextResponse.json({
