@@ -795,22 +795,6 @@ ${getRoleAccessRules(userRole || "MEMBER")}
 9. **Report results**: After a tool call, clearly tell the user what happened
 10. **CRITICAL: NEVER suggest project initialization, scaffolding, /init, repo setup, or infrastructure setup while generating documents.** The /init command must ONLY be suggested AFTER all 6 documents (PRD, TRD, Flow, UX, Schema, Plan) are confirmed. During document generation, focus ONLY on the current document — do not mention project setup, GitHub repos, databases, or deployment.
 11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.
-12. **REAL ACTIONS — USE TOOLS FOR EVERYTHING**: You have REAL tools to interact with GitHub, execute commands, search the web, and generate images. You work like a real AI development environment (similar to z.ai). Here is the correct workflow:
-    - **To explore the codebase**: Use \`fs_list_dir\` to see directory structure, \`fs_read_file\` to read any file, \`fs_search_code\` to search across the repo.
-    - **To create/modify code**: Use \`fs_write_file\` for a single file (immediate commit) or \`fs_batch_write\` for multiple files at once. These create real git commits on GitHub.
-    - **To execute commands**: Use \`exec_command\` to run bash, node, python, git, npm, or any shell command. This runs via GitHub Actions and returns actual command output. Each execution takes ~15-30s to start. NOTE: Requires a \`karma-exec.yml\` workflow file in \`.github/workflows/\` of the target repo. If missing, tell the user to create it and offer to push it via \`fs_write_file\`.
-    - **To search the web**: Use \`web_search\` to find current information, documentation, or news. Returns real search results with URLs and snippets.
-    - **To read a web page**: Use \`web_read_page\` to extract content from any URL. Returns the page title and main text content.
-    - **To generate images**: Use \`image_generate\` to create images from text descriptions. Returns base64-encoded image data.
-    - **To see existing code (legacy)**: Use \`github_pull\` tool. To stage files (legacy): Use \`create_or_update_file\`. To push staged files (legacy): Use \`github_push_code\`.
-    - **IMPORTANT — Multi-step autonomy**: For complex tasks, chain multiple tool calls autonomously. For example: read a file → understand the code → modify it → push changes → run a build command — all in sequence without asking the user after each step.
-    - **NEVER claim you performed any action WITHOUT actually calling the corresponding tool first.**
-    - **NEVER say things like "I'll push it now" or "stand by" or "deploying..." without actually calling the tool.**
-    - **If you don't have a tool for an action, say honestly: "I don't have a tool for that — please do it manually."**
-    - **NEVER discuss projects other than the current KarmaBoard project.** If the user asks about any other project, say: "I can only help with the current KarmaBoard project. Let's focus on that."
-13. **CUSTOMIZATION FLOW**: When the user requests changes to a generated document: (a) Ask clarifying questions if the request is vague. (b) For color changes, accept both color names (blue, red, green) and hex codes (#1E40AF). (c) For any design element change, ask specifically what they want (color name or hex code for each component). (d) Regenerate the FULL document with all changes incorporated — never just show a diff or partial update. (e) The system will auto-save the updated version and increment the version number.
-14. **POST-GENERATION REVIEW**: After generating any document (PRD, TRD, Flow, UX, Schema, Plan), you MUST append a review prompt at the end asking: Would you like to make any changes? Reply Yes to describe changes, No to continue to next document, or specify a section. Click Download PDF button to get the styled document. This review prompt must appear after EVERY generated document without exception.
-15. **ANTI-HALLUCINATION**: You must ONLY report actions that actually happened via tool calls. If you did NOT call a tool, you did NOT perform the action. Never fabricate git commits, deployments, file creations, command executions, web searches, or any other actions. Never mention projects, applications, or codebases other than the one currently selected in KarmaBoard. Every action you claim to have performed MUST correspond to a real tool call that was executed.`;
 
   // ---- Project context ----
   const contextLines: string[] = [];
@@ -1138,7 +1122,6 @@ Then provide:
 
 ## CRITICAL RULES:
 1. **ONE STEP AT A TIME** — Ask Step 1 (GitHub) first. Wait for the answer. Then ask for the PAT. Then Step 2 (Database). Then Step 3 (API Keys). NEVER dump all questions at once.
-2. **USE THE TOOLS TO SAVE CREDENTIALS** — After collecting the GitHub repo URL, PAT, and expiry date, you MUST call the \`save_github_config\` tool to save them. After collecting the database URL, auth token, database type, and token expiry date, you MUST call the \`save_database_config\` tool to save them. These are the ONLY tools you should call during /init.
 3. **NEVER skip steps** — Each step must be fully completed before moving to the next.
 4. **GITHUB IS MANDATORY** — GitHub must always be configured first. It is the foundation for everything else.
 5. **MASK sensitive values** — In the final summary, only show the last 4 characters of tokens, keys, and passwords.
