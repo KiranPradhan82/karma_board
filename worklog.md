@@ -113,3 +113,35 @@ Stage Summary:
 - Key: Each document prompt now ends with a review instruction for Yes/No changes
 - Key: TRD generation automatically extracts hex color codes for the project theme
 - Key: After doc auto-save, system logs GitHub push availability for future integration
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Add PAT expiry date tracking with email notification system
+
+Work Log:
+- Explored current PAT storage (Settings table with key-value pairs, encrypted with AES-256-GCM)
+- Found /init command flow: collects GitHub repo URL, PAT, then DB URL/token/type, then API keys
+- Found save_github_config tool stores GITHUB_REPO_URL and GITHUB_PAT in Settings
+- No database config tool existed — Step 2 values were only output as .env.local text
+- Found email system supports both Gmail SMTP and Resend with dual provider support
+- Added patExpiry parameter to save_github_config tool definition and executor
+- Created save_database_config tool definition and executor (stores DB_URL, DB_AUTH_TOKEN, DB_TYPE, DB_TOKEN_EXPIRY)
+- Updated /init AI prompt to ask for expiry dates (Step 1: GitHub PAT expiry, Step 2: DB token expiry)
+- Updated /init AI prompt summary table to include expiry date rows
+- Updated /init critical rules to reference both save_github_config and save_database_config tools
+- Updated chat route to allow save_database_config tool during /init command
+- Added sendTokenExpiryEmail function to email.ts with professional red-themed HTML template
+- Created /api/cron/check-token-expiry endpoint protected by CRON_SECRET bearer token
+- Cron checks GITHUB_PAT_EXPIRY and DB_TOKEN_EXPIRY against today's date
+- Sends email to all active SUPERADMIN users when token expires
+- Prevents duplicate notifications using TOKEN_EXPIRY_NOTIFIED sentinel keys in Settings
+- Fixed pre-existing JSX syntax error in ai-assistant page.tsx (orphan </div> tag)
+- Build passed, pushed as commit 07dade2
+
+Stage Summary:
+- Files modified: ai-tools.ts, ai-tool-executor.ts, ai-prompts.ts, email.ts, chat/route.ts
+- Files created: api/cron/check-token-expiry/route.ts
+- File fixed: dashboard/ai-assistant/page.tsx
+- To set up cron: Configure CRON_SECRET env var, set up daily cron to call GET /api/cron/check-token-expiry with Bearer CRON_SECRET header
+- Expiry dates stored as plain text YYYY-MM-DD in Settings table
