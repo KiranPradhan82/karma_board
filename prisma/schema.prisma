@@ -207,3 +207,14 @@ model Settings {
   value     String
   updatedAt DateTime @updatedAt
 }
+
+model ProjectDocument {
+  id        String   @id @default(cuid())
+  projectId String
+  docType   String
+  content   String?
+  pdfData   String?
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -216,6 +216,29 @@ export const AI_TOOLS: AiToolDefinition[] = [
       },
     },
   },
+
+  {
+    type: "function",
+    function: {
+      name: "save_github_config",
+      description:
+        "Save GitHub repository URL and Personal Access Token (PAT) to settings. Use this during the /init flow after collecting both the repo URL and PAT from the user. The PAT is encrypted before storage.",
+      parameters: {
+        type: "object",
+        properties: {
+          repoUrl: {
+            type: "string",
+            description: "Full GitHub repository URL (e.g., 'https://github.com/username/repo-name')",
+          },
+          pat: {
+            type: "string",
+            description: "GitHub Personal Access Token with repo scope",
+          },
+        },
+        required: ["repoUrl", "pat"],
+      },
+    },
+  },
 ];
 
 /**

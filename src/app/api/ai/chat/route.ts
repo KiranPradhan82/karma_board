@@ -208,14 +208,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { projectId, content, files, fileData, fileName, fileType } = body;
+    const rawBody = await request.json();
+    const { projectId, content, files, fileData, fileName, fileType } = rawBody as { projectId: string; content: string; files?: unknown[]; fileData?: string; fileName?: string; fileType?: string };
 
     if (!projectId || !content) {
       return NextResponse.json({ success: false, error: "projectId and content are required" }, { status: 400 });
     }
 
-    // Normalize: support both old single-file and new multi-file format
     const attachedImages: { data: string; type: string; name: string }[] = [];
     if (files && Array.isArray(files) && files.length > 0) {
       // New format: array of { data, type, name }
@@ -394,10 +393,15 @@ export async function POST(request: NextRequest) {
     // For doc commands: ONLY pass list_projects and get_project_info (read-only data tools)
     // web_search is REMOVED — it's a knowledge-based stub that wastes agentic loop rounds
     // create/update/add_member are irrelevant for doc generation
+    // For /init: add save_github_config tool so AI can save credentials
     let availableTools = getToolsForRole(user.role);
-    if (isDocCommand) {
+    if (isDocCommand && command !== "/init") {
       availableTools = availableTools.filter((tool) =>
         ["list_projects", "get_project_info"].includes(tool.function.name)
+      );
+    } else if (command === "/init") {
+      availableTools = availableTools.filter((tool) =>
+        ["save_github_config"].includes(tool.function.name)
       );
     }
 
@@ -720,6 +724,89 @@ export async function POST(request: NextRequest) {
       ipAddress: ip,
       tursoClient: client,
     });
+
+    // After TRD is generated, extract theme data in the background
+    if (command === "/trd" && finalContent && finalContent.length > 500) {
+      // Fire-and-forget: extract theme from TRD
+      const settingsKey = "PROJECT_THEME:" + projectId;
+      const existingTheme = await client.execute({
+        sql: `SELECT key FROM "Settings" WHERE key = ?`,
+        args: [settingsKey],
+      });
+      if (existingTheme.rows.length === 0) {
+        fetch("/api/ai/extract-theme?XTransformPort=3000", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, trdContent: finalContent }),
+        }).catch((err) => {
+          console.error("[Chat] Theme extraction failed (non-fatal):", err);
+        });
+      }
+    }
+
+    // Auto-save document content to ProjectDocument for doc commands
+    if (isDocCommand && finalContent && finalContent.length > 500 && command !== "/init") {
+      const docTypeMap: Record<string, string> = {
+        "/docs": "prd",
+        "/prd": "prd",
+        "/trd": "trd",
+        "/flow": "flow",
+        "/ux": "ux",
+        "/schema": "schema",
+        "/plan": "plan",
+      };
+      const docType = docTypeMap[command || ""] || "prd";
+
+      try {
+        const existingDoc = await client.execute({
+          sql: `SELECT id, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" = ?`,
+          args: [projectId, docType],
+        });
+
+        if (existingDoc.rows.length > 0) {
+          const currentVersion = Number(existingDoc.rows[0].version) || 1;
+          await client.execute({
+            sql: `UPDATE "ProjectDocument" SET content = ?, version = ?, "updatedAt" = datetime('now') WHERE id = ?`,
+            args: [finalContent, currentVersion + 1, existingDoc.rows[0].id],
+          });
+        } else {
+          await client.execute({
+            sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", content, "version", "createdAt", "updatedAt")
+                  VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+            args: [crypto.randomUUID(), projectId, docType, finalContent],
+          });
+        }
+        console.log("[Chat] Auto-saved document:", docType, "for project:", projectId);
+
+        // After saving document, if it's a TRD, extract theme via regex
+        if (docType === "trd") {
+          try {
+            const colorMatches = finalContent.match(/#[0-9A-Fa-f]{6}/g) || [];
+            if (colorMatches.length > 0) {
+              const themeColors = { colors: [...new Set(colorMatches)] };
+              await client.execute({
+                sql: "INSERT OR REPLACE INTO \"Settings\" (key, value, \"updatedAt\") VALUES (?, ?, datetime('now'))",
+                args: ["PROJECT_THEME:" + projectId, JSON.stringify(themeColors)],
+              });
+              console.log("[Chat] Extracted theme colors from TRD:", themeColors.colors.length);
+            }
+          } catch (themeErr) {
+            console.error("[Chat] Theme extraction error:", themeErr);
+          }
+        }
+
+        // After saving document, check if GitHub push is available
+        try {
+          const ghConfig = await client.execute({ sql: "SELECT value FROM \"Settings\" WHERE key = ?", args: ["GITHUB_REPO_URL"] });
+          const ghToken = await client.execute({ sql: "SELECT value FROM \"Settings\" WHERE key = ?", args: ["GITHUB_PAT"] });
+          if (ghConfig.rows.length > 0 && ghToken.rows.length > 0) {
+            console.log("[Chat] GitHub push available for doc:", docType);
+          }
+        } catch { /* ignore */ }
+      } catch (saveErr) {
+        console.error("[Chat] Auto-save document failed (non-fatal):", saveErr);
+      }
+    }
 
     return NextResponse.json({
       success: true,

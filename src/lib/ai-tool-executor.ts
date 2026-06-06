@@ -6,6 +6,7 @@
  */
 
 import type { AiToolCall, AiToolResult } from "./ai-tools";
+import { encrypt } from "./encryption";
 
 interface ExecutorContext {
   userId: string;
@@ -516,6 +517,91 @@ async function webSearch(
   };
 }
 
+// ===== Tool: save_github_config =====
+
+async function saveGithubConfig(
+  args: { repoUrl: string; pat: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  // RBAC: SUPERADMIN and ADMIN can save GitHub config
+  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+    return {
+      toolCallId: "",
+      toolName: "save_github_config",
+      success: false,
+      result: "Permission denied: Only SUPERADMIN can save GitHub configuration.",
+      displayMessage: "Permission denied — only Super Admin can save GitHub config.",
+    };
+  }
+
+  if (!args.repoUrl || !args.pat) {
+    return {
+      toolCallId: "",
+      toolName: "save_github_config",
+      success: false,
+      result: "Both repoUrl and pat are required.",
+      displayMessage: "Missing GitHub URL or Personal Access Token.",
+    };
+  }
+
+  try {
+    const encryptedPat = encrypt(args.pat);
+
+    // Upsert GITHUB_REPO_URL
+    const existingUrl = await tursoClient.execute({
+      sql: `SELECT key FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+      args: [],
+    });
+    if (existingUrl.rows.length > 0) {
+      await tursoClient.execute({
+        sql: `UPDATE "Settings" SET value = ?, "updatedAt" = datetime('now') WHERE key = 'GITHUB_REPO_URL'`,
+        args: [args.repoUrl.trim()],
+      });
+    } else {
+      await tursoClient.execute({
+        sql: `INSERT INTO "Settings" (key, value, "updatedAt") VALUES ('GITHUB_REPO_URL', ?, datetime('now'))`,
+        args: [args.repoUrl.trim()],
+      });
+    }
+
+    // Upsert GITHUB_PAT
+    const existingPat = await tursoClient.execute({
+      sql: `SELECT key FROM "Settings" WHERE key = 'GITHUB_PAT'`,
+      args: [],
+    });
+    if (existingPat.rows.length > 0) {
+      await tursoClient.execute({
+        sql: `UPDATE "Settings" SET value = ?, "updatedAt" = datetime('now') WHERE key = 'GITHUB_PAT'`,
+        args: [encryptedPat],
+      });
+    } else {
+      await tursoClient.execute({
+        sql: `INSERT INTO "Settings" (key, value, "updatedAt") VALUES ('GITHUB_PAT', ?, datetime('now'))`,
+        args: [encryptedPat],
+      });
+    }
+
+    return {
+      toolCallId: "",
+      toolName: "save_github_config",
+      success: true,
+      result: JSON.stringify({ repoUrl: args.repoUrl.trim(), saved: true }),
+      displayMessage: "GitHub credentials saved securely. PAT encrypted and stored.",
+    };
+  } catch (error) {
+    console.error("[saveGithubConfig tool] DB error:", error);
+    return {
+      toolCallId: "",
+      toolName: "save_github_config",
+      success: false,
+      result: "Database error: " + (error instanceof Error ? error.message : "Unknown error"),
+      displayMessage: "Failed to save GitHub configuration.",
+    };
+  }
+}
+
 // ===== Main Executor =====
 
 /**
@@ -565,6 +651,8 @@ export async function executeToolCall(
       return { ...(await addProjectMember(parsedArgs as Parameters<typeof addProjectMember>[0], ctx)), toolCallId: toolCall.id };
     case "web_search":
       return { ...(await webSearch(parsedArgs as { query: string }, ctx)), toolCallId: toolCall.id };
+    case "save_github_config":
+      return { ...(await saveGithubConfig(parsedArgs as { repoUrl: string; pat: string }, ctx)), toolCallId: toolCall.id };
     default:
       return {
         toolCallId: toolCall.id,
@@ -593,6 +681,7 @@ export function getToolLabel(toolName: string): string {
     update_project: "Updating project",
     add_project_member: "Adding team member",
     web_search: "Searching the web",
+    save_github_config: "Saving GitHub config",
   };
   return labels[toolName] || toolName;
 }
@@ -608,6 +697,7 @@ export function getToolIcon(toolName: string): string {
     update_project: "✏️",
     add_project_member: "👤",
     web_search: "🌐",
+    save_github_config: "🚀",
   };
   return icons[toolName] || "🔧";
 }

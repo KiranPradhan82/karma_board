@@ -23,6 +23,10 @@ import {
   XCircle,
   ImagePlus,
   FileDown,
+  Upload,
+  FileUp,
+  Rocket,
+  CheckCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +60,7 @@ import {
 } from "@/components/ui/select";
 import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Project {
   id: string;
@@ -119,6 +124,12 @@ export default function KarmaSpacePage() {
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null); // message ID being exported
   const [isExportingAll, setIsExportingAll] = useState(false);
   const [hasDocuments, setHasDocuments] = useState(false);
+  const [onboardingPhase, setOnboardingPhase] = useState<"idle" | "requirements" | "complete">("idle");
+  const [onboardingTab, setOnboardingTab] = useState<"upload" | "write">("write");
+  const [onboardingText, setOnboardingText] = useState("");
+  const [onboardingFile, setOnboardingFile] = useState<File | null>(null);
+  const [onboardingSubmitting, setOnboardingSubmitting] = useState(false);
+  const onboardingFileInputRef = useRef<HTMLInputElement>(null);
 
   // Agentic tool execution steps (shown during loading)
   const [activeToolSteps, setActiveToolSteps] = useState<ToolExecution[]>([]);
@@ -461,6 +472,72 @@ export default function KarmaSpacePage() {
     setHasDocuments(docCount >= 1);
   }, [messages, selectedProject]);
 
+  // Check if project has ProjectDocument records for onboarding
+  useEffect(() => {
+    if (!selectedProject || onboardingPhase === "complete") return;
+    async function checkDocs() {
+      try {
+        const res = await fetch("/api/ai/onboarding?projectId=" + selectedProject.id);
+        const json = await res.json();
+        if (json.success && json.data.hasDocuments) {
+          setOnboardingPhase("complete");
+        } else if (json.success && !json.data.hasDocuments && onboardingPhase === "idle") {
+          setOnboardingPhase("requirements");
+        }
+      } catch {
+        // silent
+      }
+    }
+    checkDocs();
+  }, [selectedProject, onboardingPhase]);
+
+  // Handle onboarding submission
+  const handleOnboardingSubmit = useCallback(async () => {
+    if (!selectedProject || onboardingSubmitting) return;
+    if (onboardingTab === "write" && !onboardingText.trim()) {
+      setError("Please enter your project requirements or upload a PDF.");
+      return;
+    }
+    if (onboardingTab === "upload" && !onboardingFile) {
+      setError("Please select a PDF file to upload.");
+      return;
+    }
+    setOnboardingSubmitting(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {
+        projectId: selectedProject.id,
+        type: onboardingTab === "upload" ? "pdf" : "text",
+      };
+      if (onboardingTab === "upload" && onboardingFile) {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve) => {
+          reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        });
+        reader.readAsDataURL(onboardingFile);
+        const base64 = await base64Promise;
+        body.fileData = base64;
+      } else {
+        body.content = onboardingText.trim();
+      }
+      const res = await fetch("/api/ai/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setOnboardingPhase("complete");
+      } else {
+        setError(json.error || "Failed to submit requirements.");
+      }
+    } catch {
+      setError("Failed to submit. Please try again.");
+    } finally {
+      setOnboardingSubmitting(false);
+    }
+  }, [selectedProject, onboardingTab, onboardingText, onboardingFile, onboardingSubmitting]);
+
   // Download all documents as one combined PDF
   const handleExportAllDocs = async () => {
     if (!selectedProject || isExportingAll) return;
@@ -723,6 +800,105 @@ export default function KarmaSpacePage() {
                 Select a project from the dropdown above to start chatting with
                 Karma Space AI and generate comprehensive project documentation.
               </p>
+            </div>
+          ) : onboardingPhase === "requirements" ? (
+            /* Onboarding Screen */
+            <div className="flex flex-col items-center justify-center h-full px-4 py-8">
+              <div className="w-full max-w-lg space-y-6">
+                <div className="text-center">
+                  <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 mx-auto">
+                    <Rocket className="h-7 w-7 text-primary" />
+                  </div>
+                  <h2 className="text-xl font-semibold">Welcome to <span className="text-primary">{selectedProject.name}</span></h2>
+                  <p className="text-muted-foreground mt-2">Let's set up your project documentation</p>
+                </div>
+
+                <div className="rounded-xl border bg-card p-6 space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Provide your product requirements to get started. You can either upload an existing PDF document or type/paste your requirements below.
+                  </p>
+
+                  {/* Tab Switcher */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setOnboardingTab("upload")}
+                      className={"flex-1 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors " + (onboardingTab === "upload" ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent")}
+                    >
+                      <FileUp className="h-4 w-4" />
+                      Upload PDF
+                    </button>
+                    <button
+                      onClick={() => setOnboardingTab("write")}
+                      className={"flex-1 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors " + (onboardingTab === "write" ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent")}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Write Requirements
+                    </button>
+                  </div>
+
+                  {/* Upload Tab Content */}
+                  {onboardingTab === "upload" && (
+                    <div className="space-y-3">
+                      <div
+                        onClick={() => onboardingFileInputRef.current?.click()}
+                        className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                      >
+                        <Upload className="h-8 w-8 text-muted-foreground mb-3" />
+                        <p className="text-sm font-medium">Click to upload a PDF</p>
+                        <p className="text-xs text-muted-foreground mt-1">Accepts .pdf files</p>
+                        {onboardingFile && (
+                          <div className="mt-3 flex items-center gap-2 text-sm text-primary">
+                            <FileText className="h-4 w-4" />
+                            <span className="truncate max-w-[200px]">{onboardingFile.name}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setOnboardingFile(null); }}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        type="file"
+                        ref={onboardingFileInputRef}
+                        className="hidden"
+                        accept=".pdf"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            setOnboardingFile(e.target.files[0]);
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Write Tab Content */}
+                  {onboardingTab === "write" && (
+                    <div className="space-y-3">
+                      <Textarea
+                        placeholder="Describe your product requirements here... Include the product vision, target users, key features, and any constraints or preferences you have."
+                        value={onboardingText}
+                        onChange={(e) => setOnboardingText(e.target.value)}
+                        className="min-h-[200px] w-full resize-none"
+                      />
+                    </div>
+                  )}
+
+                  <Button
+                    onClick={handleOnboardingSubmit}
+                    disabled={onboardingSubmitting || (onboardingTab === "write" && !onboardingText.trim()) || (onboardingTab === "upload" && !onboardingFile)}
+                    className="w-full"
+                  >
+                    {onboardingSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                    )}
+                    {onboardingSubmitting ? "Submitting..." : "Submit Requirements"}
+                  </Button>
+                </div>
+              </div>
             </div>
           ) : messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
