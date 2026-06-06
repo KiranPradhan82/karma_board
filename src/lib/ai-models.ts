@@ -242,6 +242,38 @@ const MODEL_REGISTRY: ModelCapability[] = [
     defaultBaseUrl: "https://api.z.ai/api/paas/v4",
   },
   {
+    id: "glm-4v",
+    name: "GLM-4V",
+    description: "GLM-4 with vision — analyzes images, screenshots, and documents",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 4096,
+    supportsTools: false,
+    supportsVision: true,
+    supportsMultimodal: true,
+    category: "Z.ai",
+    provider: "zai",
+    providerEnvKey: "ZAI_API_KEY",
+    providerEnvBaseUrl: "ZAI_API_BASE_URL",
+    defaultBaseUrl: "https://api.z.ai/api/paas/v4",
+  },
+  {
+    id: "glm-4v-plus",
+    name: "GLM-4V Plus",
+    description: "GLM-4V with higher quality vision analysis (paid tier)",
+    contextWindow: "128K",
+    contextWindowTokens: 128000,
+    maxOutputTokens: 4096,
+    supportsTools: false,
+    supportsVision: true,
+    supportsMultimodal: true,
+    category: "Z.ai",
+    provider: "zai",
+    providerEnvKey: "ZAI_API_KEY",
+    providerEnvBaseUrl: "ZAI_API_BASE_URL",
+    defaultBaseUrl: "https://api.z.ai/api/paas/v4",
+  },
+  {
     id: "glm-4-flash",
     name: "GLM-4 Flash",
     description: "FREE permanently, 128K context, 16K output, great for docs and chat",
@@ -413,22 +445,38 @@ export function supportsMultimodal(modelId?: string): boolean {
 
 /**
  * Get the vision model to use.
- * Falls back to AI_VISION_MODEL env var, then checks if the current model
- * supports vision, and finally defaults to the first configured vision-capable model.
+ * Priority:
+ *   1. AI_VISION_MODEL env var (explicit override)
+ *   2. Same-provider vision model (avoids cross-provider quota issues)
+ *   3. First configured vision-capable model
+ *   4. Fallback to gpt-4o-mini
  */
 export function getVisionModel(preferredModel?: string): string {
   // 1. If AI_VISION_MODEL is set, use it
   if (process.env.AI_VISION_MODEL) return process.env.AI_VISION_MODEL;
-  // 2. If preferred model supports multimodal, use it
+  // 2. If preferred model supports multimodal, use it directly
   if (preferredModel && supportsMultimodal(preferredModel)) return preferredModel;
-  // 3. Find a vision-capable model that has its provider configured
+  // 3. Try to find a vision model from the SAME provider as the preferred model
+  //    This avoids cross-provider issues (e.g., GLM user hitting Gemini quota)
+  if (preferredModel) {
+    const preferredCap = MODEL_MAP[preferredModel];
+    if (preferredCap) {
+      for (const m of MODEL_REGISTRY) {
+        if (m.provider === preferredCap.provider && m.supportsMultimodal) {
+          const config = getProviderConfig(m.id);
+          if (config.apiKey) return m.id;
+        }
+      }
+    }
+  }
+  // 4. Find any vision-capable model that has its provider configured
   for (const m of MODEL_REGISTRY) {
     if (m.supportsMultimodal) {
       const config = getProviderConfig(m.id);
       if (config.apiKey) return m.id;
     }
   }
-  // 4. Default to gpt-4o-mini (best cost/vision quality)
+  // 5. Default to gpt-4o-mini (best cost/vision quality)
   return "gpt-4o-mini";
 }
 
