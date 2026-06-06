@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, getTursoClient, logActivity, getClientIp } from "@/lib/api-auth";
 import { verifyPassword } from "@/lib/auth-utils";
+import { sendChatDeleteRequestEmail } from "@/lib/email";
 
 export const maxDuration = 30;
 
@@ -84,6 +85,27 @@ export async function POST(request: NextRequest) {
       ipAddress: ip,
       tursoClient: client,
     });
+
+    // Notify all SUPERADMIN users via email (fire-and-forget)
+    try {
+      const dashboardUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || "";
+      const adminsResult = await client.execute({
+        sql: `SELECT name, email FROM "User" WHERE role = 'SUPERADMIN' AND "isActive" = 1 AND "deletedAt" IS NULL`,
+        args: [],
+      });
+      for (const admin of adminsResult.rows) {
+        sendChatDeleteRequestEmail({
+          to: admin.email as string,
+          adminName: admin.name as string,
+          requestorName: user.name || user.email,
+          requestorEmail: user.email,
+          projectName,
+          dashboardUrl,
+        }).catch((err) => console.warn("[delete-request] Failed to send admin notification:", err));
+      }
+    } catch (err) {
+      console.warn("[delete-request] Failed to fetch admins for notification:", err);
+    }
 
     return NextResponse.json({
       success: true,

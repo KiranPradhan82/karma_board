@@ -31,6 +31,7 @@ import {
   KeyRound,
   ShieldCheck,
   ShieldX,
+  ShieldAlert,
   Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -170,6 +171,7 @@ export default function KarmaSpacePage() {
     id: string; projectId: string; projectName: string; userId: string; userName: string; userEmail: string; status: string; createdAt: string;
   }[]>([]);
   const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
+  const [deleteReviewDialogOpen, setDeleteReviewDialogOpen] = useState(false);
 
   // Fetch pending delete requests (SUPERADMIN)
   useEffect(() => {
@@ -547,6 +549,59 @@ export default function KarmaSpacePage() {
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    const items = clipboardData.items;
+    const imageItems: File[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file) imageItems.push(file);
+      }
+    }
+
+    // No images in clipboard — let normal text paste happen
+    if (imageItems.length === 0) return;
+
+    // Prevent the default paste only when images are present
+    // (some browsers insert the image as a blank text otherwise)
+    e.preventDefault();
+
+    const MAX_FILES = 5;
+    const MAX_SIZE_MB = 10;
+
+    for (let i = 0; i < Math.min(imageItems.length, MAX_FILES - attachedFiles.length); i++) {
+      const file = imageItems[i];
+
+      if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+        setError(`"Pasted image" (${(file.size / (1024 * 1024)).toFixed(1)}MB) is too large. Max ${MAX_SIZE_MB}MB.`);
+        continue;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        const mimeType = file.type || "image/png";
+        // Generate a name based on timestamp for pasted images
+        const name = `pasted-${Date.now()}-${i}.${mimeType.split("/")[1] || "png"}`;
+        setAttachedFiles((prev) => [
+          ...prev,
+          { data: base64, name, type: mimeType },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // If clipboard also has text alongside images, append it to input
+    const textData = clipboardData.getData("text/plain");
+    if (textData) {
+      setInputValue((prev) => prev + textData);
     }
   };
 
@@ -955,8 +1010,7 @@ export default function KarmaSpacePage() {
                     variant="outline"
                     size="sm"
                     className="gap-1.5 text-amber-600 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:border-amber-700 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
-                    onClick={() => {}}
-                    disabled
+                    onClick={() => setDeleteReviewDialogOpen(true)}
                   >
                     <Bell className="h-4 w-4" />
                     <span className="hidden sm:inline">{deleteRequests.length} Pending</span>
@@ -1410,10 +1464,18 @@ export default function KarmaSpacePage() {
               {attachedFiles.map((file, idx) => (
                 <div
                   key={idx}
-                  className="relative group flex items-center gap-1.5 bg-background rounded-lg border px-2.5 py-1.5 shrink-0"
+                  className="relative group flex items-center gap-1.5 bg-background rounded-lg border px-1.5 py-1.5 shrink-0 overflow-hidden"
                 >
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-xs truncate max-w-[120px]">{file.name}</span>
+                  {file.type.startsWith("image/") ? (
+                    <img
+                      src={`data:${file.type};base64,${file.data}`}
+                      alt={file.name}
+                      className="h-10 w-10 object-cover rounded shrink-0"
+                    />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  )}
+                  <span className="text-xs truncate max-w-[100px]">{file.name}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1467,7 +1529,7 @@ export default function KarmaSpacePage() {
                     <Paperclip className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Attach images (up to 5)</TooltipContent>
+                <TooltipContent>Attach images (up to 5) or paste from clipboard</TooltipContent>
               </Tooltip>
 
               {/* Text Input */}
@@ -1477,9 +1539,10 @@ export default function KarmaSpacePage() {
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   placeholder={
                     selectedProject
-                      ? "Type a message or use a command..."
+                      ? "Type a message, use a command, or paste an image..."
                       : "Select a project to start..."
                   }
                   disabled={!selectedProject || isLoading}
@@ -1603,8 +1666,75 @@ export default function KarmaSpacePage() {
         )}
 
         {/* ===== Super Admin: Pending Delete Requests Dialog ===== */}
-        <Dialog open={isSuperAdmin && deleteRequests.length > 0 && false} onOpenChange={() => {}}>
-          {/* Auto-opened via polling badge in top bar, shown as section in messages area instead */}
+        <Dialog open={deleteReviewDialogOpen} onOpenChange={setDeleteReviewDialogOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-amber-500" />
+                Chat Delete Requests
+                {deleteRequests.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">{deleteRequests.length} pending</Badge>
+                )}
+              </DialogTitle>
+              <DialogDescription>
+                Review and approve or decline chat deletion requests from team members.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[400px] overflow-y-auto space-y-3 pr-1">
+              {deleteRequests.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <CheckCircle className="h-8 w-8 mb-2 text-green-500" />
+                  <p className="text-sm">No pending requests</p>
+                </div>
+              ) : (
+                deleteRequests.map((req) => (
+                  <div key={req.id} className="rounded-xl border bg-muted/30 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{req.projectName}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Requested by <strong>{req.userName}</strong> ({req.userEmail})
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(req.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="text-xs shrink-0 border-amber-300 text-amber-600">Pending</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="gap-1.5 text-xs h-8"
+                        disabled={reviewingRequestId === req.id}
+                        onClick={() => handleReviewDeleteRequest(req.id, "approve")}
+                      >
+                        {reviewingRequestId === req.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                        Approve & Delete
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-xs h-8"
+                        disabled={reviewingRequestId === req.id}
+                        onClick={() => handleReviewDeleteRequest(req.id, "decline")}
+                      >
+                        <XCircle className="h-3 w-3" />
+                        Decline
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteReviewDialogOpen(false)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
         </Dialog>
     </TooltipProvider>
   );

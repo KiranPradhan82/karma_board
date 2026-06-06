@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from "@/lib/api-auth";
+import { sendChatDeleteResultEmail } from "@/lib/email";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     // Fetch the delete request
     const requestResult = await client.execute({
-      sql: `SELECT r.*, p.name as projectName, u.name as userName
+      sql: `SELECT r.*, p.name as projectName, u.name as userName, u.email as userEmail
             FROM "ChatDeleteRequest" r
             JOIN "Project" p ON r."projectId" = p.id
             JOIN "User" u ON r."userId" = u.id
@@ -106,6 +107,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
         tursoClient: client,
       });
 
+      // Notify requestor via email (fire-and-forget)
+      const requestorEmail = req.userEmail as string;
+      if (requestorEmail) {
+        const dashboardUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || "";
+        sendChatDeleteResultEmail({
+          to: requestorEmail,
+          name: requestorName,
+          projectName,
+          action: "approved",
+          dashboardUrl,
+        }).catch((err) => console.warn("[delete-request] Failed to send approval notification:", err));
+      }
+
       return NextResponse.json({
         success: true,
         data: {
@@ -131,6 +145,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
         ipAddress: ip,
         tursoClient: client,
       });
+
+      // Notify requestor via email (fire-and-forget)
+      const requestorEmail = req.userEmail as string;
+      if (requestorEmail) {
+        const dashboardUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || "";
+        sendChatDeleteResultEmail({
+          to: requestorEmail,
+          name: requestorName,
+          projectName,
+          action: "declined",
+          dashboardUrl,
+        }).catch((err) => console.warn("[delete-request] Failed to send decline notification:", err));
+      }
 
       return NextResponse.json({
         success: true,

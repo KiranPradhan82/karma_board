@@ -548,3 +548,160 @@ export async function sendTokenExpiryEmail(params: {
 
   return expiryResult;
 }
+
+/**
+ * Send email notification to super admins when a chat delete request is submitted.
+ */
+export async function sendChatDeleteRequestEmail(params: {
+  to: string;
+  adminName: string;
+  requestorName: string;
+  requestorEmail: string;
+  projectName: string;
+  dashboardUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { to, adminName, requestorName, requestorEmail, projectName, dashboardUrl } = params;
+
+  const config = await getEmailConfig();
+
+  console.log(`[email] Sending chat delete request notification to admin ${to} via ${config.provider}`);
+
+  const subject = `Chat Delete Request: "${projectName}" by ${requestorName}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background: #ffffff;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 12px; background: #f59e0b; margin-bottom: 16px;">
+          <span style="color: #ffffff; font-size: 24px; font-weight: 700;">!</span>
+        </div>
+        <h1 style="margin: 0; font-size: 22px; font-weight: 700; color: #111827;">Chat Delete Request</h1>
+      </div>
+
+      <p style="font-size: 16px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        Hi <strong>${adminName}</strong>,
+      </p>
+
+      <p style="font-size: 15px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        A team member has requested to delete all chat messages for a project. This requires your approval before the deletion can proceed.
+      </p>
+
+      <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 12px; color: #6b7280; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Project</p>
+        <p style="font-size: 18px; font-weight: 600; color: #111827; margin: 0 0 12px 0;">${projectName}</p>
+        <p style="font-size: 14px; color: #374151; margin: 0;">
+          Requested by <strong>${requestorName}</strong> (${requestorEmail})
+        </p>
+      </div>
+
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 12px 0;">What you need to do:</p>
+        <ol style="font-size: 14px; color: #374151; line-height: 1.8; margin: 0; padding-left: 20px;">
+          <li>Log in to KarmaBoard</li>
+          <li>Go to the AI Assistant page</li>
+          <li>Click the <strong>"Pending"</strong> notification badge</li>
+          <li>Review the request and <strong>Approve</strong> or <strong>Decline</strong></li>
+        </ol>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 32px;">
+        <a href="${dashboardUrl}/dashboard/ai-assistant" target="_blank" style="display: inline-block; background: #f59e0b; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 32px; border-radius: 8px;">
+          Review Request
+        </a>
+      </div>
+
+      <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; text-align: center;">
+        <p style="font-size: 13px; color: #9ca3af; margin: 0 0 4px 0;">
+          This is an automated notification from KarmaBoard.
+        </p>
+        <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+          KarmaBoard — Project Management Made Simple
+        </p>
+      </div>
+    </div>
+  `;
+
+  if (config.provider === "resend") {
+    return sendViaResend(config, to, subject, html);
+  }
+
+  const result = await sendViaGmailSmtp(config, to, subject, html);
+
+  if (!result.success) {
+    console.warn(`[email] Gmail SMTP failed for delete request notification: ${result.error}`);
+  }
+
+  return result;
+}
+
+/**
+ * Send email notification to the requestor when their chat delete request is approved or declined.
+ */
+export async function sendChatDeleteResultEmail(params: {
+  to: string;
+  name: string;
+  projectName: string;
+  action: "approved" | "declined";
+  dashboardUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { to, name, projectName, action, dashboardUrl } = params;
+
+  const config = await getEmailConfig();
+
+  const isApproved = action === "approved";
+  const iconColor = isApproved ? "#059669" : "#dc2626";
+  const iconSymbol = isApproved ? "&#10003;" : "&#10007;";
+  const title = isApproved ? "Chat Deletion Approved" : "Chat Deletion Declined";
+  const description = isApproved
+    ? `Your request to delete all chat messages for <strong>${projectName}</strong> has been approved and executed. The chat history, generated documents, and project protocols have been permanently removed.`
+    : `Your request to delete all chat messages for <strong>${projectName}</strong> has been declined. The chat data remains intact. If you believe this was an error, please contact your super admin.`;
+
+  console.log(`[email] Sending chat delete ${action} notification to ${to} via ${config.provider}`);
+
+  const subject = isApproved
+    ? `Approved: Chat deleted for "${projectName}"`
+    : `Declined: Chat delete request for "${projectName}"`;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; background: #ffffff;">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <div style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 12px; background: ${iconColor}; margin-bottom: 16px;">
+          <span style="color: #ffffff; font-size: 24px; font-weight: 700;">${iconSymbol}</span>
+        </div>
+        <h1 style="margin: 0; font-size: 22px; font-weight: 700; color: #111827;">${title}</h1>
+      </div>
+
+      <p style="font-size: 16px; color: #374151; line-height: 1.6; margin-bottom: 24px;">
+        Hi <strong>${name}</strong>,
+      </p>
+
+      <div style="background: ${isApproved ? "#f0fdf4" : "#fef2f2"}; border: 1px solid ${isApproved ? "#bbf7d0" : "#fecaca"}; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+        <p style="font-size: 12px; color: #6b7280; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 0.05em;">Project</p>
+        <p style="font-size: 18px; font-weight: 600; color: #111827; margin: 0 0 8px 0;">${projectName}</p>
+        <p style="font-size: 14px; color: #374151; margin: 0; line-height: 1.5;">${description}</p>
+      </div>
+
+      <div style="text-align: center; margin-bottom: 32px;">
+        <a href="${dashboardUrl}/dashboard/ai-assistant" target="_blank" style="display: inline-block; background: #6366f1; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 600; padding: 14px 32px; border-radius: 8px;">
+          Go to KarmaBoard
+        </a>
+      </div>
+
+      <div style="border-top: 1px solid #e5e7eb; padding-top: 24px; text-align: center;">
+        <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+          KarmaBoard — Project Management Made Simple
+        </p>
+      </div>
+    </div>
+  `;
+
+  if (config.provider === "resend") {
+    return sendViaResend(config, to, subject, html);
+  }
+
+  const result = await sendViaGmailSmtp(config, to, subject, html);
+
+  if (!result.success) {
+    console.warn(`[email] Gmail SMTP failed for delete ${action} notification: ${result.error}`);
+  }
+
+  return result;
+}
