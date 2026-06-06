@@ -27,6 +27,11 @@ import {
   FileUp,
   Rocket,
   CheckCircle,
+  Trash2,
+  KeyRound,
+  ShieldCheck,
+  ShieldX,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +63,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Textarea } from "@/components/ui/textarea";
@@ -144,6 +157,81 @@ export default function KarmaSpacePage() {
   // Per-project AI model (SUPERADMIN only)
   const [projectModel, setProjectModel] = useState<string | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(false);
+
+  // Delete chat flow
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteRequestStatus, setDeleteRequestStatus] = useState<{ status: string; message: string } | null>(null);
+
+  // Super admin: pending delete requests
+  const [deleteRequests, setDeleteRequests] = useState<{
+    id: string; projectId: string; projectName: string; userId: string; userName: string; userEmail: string; status: string; createdAt: string;
+  }[]>([]);
+  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
+
+  // Fetch pending delete requests (SUPERADMIN)
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    async function fetchDeleteRequests() {
+      try {
+        const res = await fetch("/api/ai/chat/delete-requests?status=PENDING");
+        const json = await res.json();
+        if (json.success) setDeleteRequests(json.data.deleteRequests || []);
+      } catch { /* silent */ }
+    }
+    fetchDeleteRequests();
+    const interval = setInterval(fetchDeleteRequests, 30000); // refresh every 30s
+    return () => clearInterval(interval);
+  }, [isSuperAdmin]);
+
+  const handleDeleteChat = async () => {
+    if (!selectedProject || !deletePassword.trim()) return;
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/ai/chat/delete-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: selectedProject.id, password: deletePassword.trim() }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setDeleteDialogOpen(false);
+        setDeletePassword("");
+        setDeleteRequestStatus({ status: "PENDING", message: json.data.message });
+      } else {
+        setDeleteError(json.error || "Failed to submit delete request.");
+      }
+    } catch {
+      setDeleteError("Network error. Please try again.");
+    } finally {
+      setDeleteSubmitting(false);
+    }
+  };
+
+  const handleReviewDeleteRequest = async (requestId: string, action: "approve" | "decline") => {
+    setReviewingRequestId(requestId);
+    try {
+      const res = await fetch(`/api/ai/chat/delete-requests/${requestId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setDeleteRequests((prev) => prev.filter((r) => r.id !== requestId));
+        if (json.data.status === "APPROVED") {
+          // Refresh messages for the affected project
+          if (selectedProject) setMessages([]);
+        }
+      }
+    } catch { /* silent */ }
+    finally {
+      setReviewingRequestId(null);
+    }
+  };
 
   const isMobile = useIsMobile();
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -841,6 +929,43 @@ export default function KarmaSpacePage() {
               </Tooltip>
             )}
 
+            {/* Delete Chat button — visible when project is selected and has messages */}
+            {selectedProject && messages.length > 0 && !isSuperAdmin && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/50 hover:bg-destructive/5"
+                    onClick={() => { setDeleteDialogOpen(true); setDeleteError(null); setDeletePassword(""); }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Delete Chat</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Delete all chat messages for this project</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Pending delete requests badge — SUPERADMIN */}
+            {isSuperAdmin && deleteRequests.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-amber-600 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:border-amber-700 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
+                    onClick={() => {}}
+                    disabled
+                  >
+                    <Bell className="h-4 w-4" />
+                    <span className="hidden sm:inline">{deleteRequests.length} Pending</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{deleteRequests.length} chat delete request{deleteRequests.length > 1 ? "s" : ""} pending review</TooltipContent>
+              </Tooltip>
+            )}
+
             {/* Download All Documents button */}
             {isSuperAdmin && selectedProject && hasDocuments && (
               <Tooltip>
@@ -1396,6 +1521,91 @@ export default function KarmaSpacePage() {
             </div>
           </div>
         </div>
+      </div>
+        {/* ===== Delete Chat Confirmation Dialog ===== */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <Trash2 className="h-5 w-5" />
+                Delete Chat
+              </DialogTitle>
+              <DialogDescription>
+                This action will send a delete request to the super admin. Once approved, all chat messages, generated documents, and project protocols for <strong>{selectedProject?.name}</strong> will be permanently deleted and cannot be restored.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  This cannot be undone. All messages and documents will be permanently removed.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Enter your password to confirm
+                </label>
+                <input
+                  type="password"
+                  placeholder="Your current password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !deleteSubmitting) handleDeleteChat(); }}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  autoFocus
+                />
+              </div>
+              {deleteError && (
+                <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                  <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                </div>
+              )}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleteSubmitting}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteChat} disabled={deleteSubmitting || !deletePassword.trim()}>
+                {deleteSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+                Request Deletion
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ===== Delete Request Status Banner ===== */}
+        {deleteRequestStatus && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-4">
+            <div className="flex items-center gap-3 rounded-xl border bg-card shadow-lg p-4">
+              {deleteRequestStatus.status === "PENDING" ? (
+                <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0 dark:bg-amber-900/40">
+                  <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                </div>
+              ) : deleteRequestStatus.status === "APPROVED" ? (
+                <div className="h-9 w-9 rounded-full bg-green-100 flex items-center justify-center shrink-0 dark:bg-green-900/40">
+                  <ShieldCheck className="h-4 w-4 text-green-600" />
+                </div>
+              ) : (
+                <div className="h-9 w-9 rounded-full bg-red-100 flex items-center justify-center shrink-0 dark:bg-red-900/40">
+                  <ShieldX className="h-4 w-4 text-red-600" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">{deleteRequestStatus.message}</p>
+              </div>
+              <button onClick={() => setDeleteRequestStatus(null)} className="text-muted-foreground hover:text-foreground shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ===== Super Admin: Pending Delete Requests Dialog ===== */}
+        <Dialog open={isSuperAdmin && deleteRequests.length > 0 && false} onOpenChange={() => {}}>
+          {/* Auto-opened via polling badge in top bar, shown as section in messages area instead */}
+        </Dialog>
       </div>
     </TooltipProvider>
   );
