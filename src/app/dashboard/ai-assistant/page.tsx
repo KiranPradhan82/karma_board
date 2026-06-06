@@ -86,6 +86,12 @@ interface ChatMessage {
   userName?: string;
   toolExecutions?: ToolExecution[];
   modelRouteReason?: string;
+  documentInfo?: {
+    id: string;
+    docType: string;
+    title: string;
+    version: number;
+  };
 }
 
 const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
@@ -122,6 +128,7 @@ export default function KarmaSpacePage() {
   }[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null); // message ID being exported
+  const [downloadingDocPdf, setDownloadingDocPdf] = useState<string | null>(null); // document ID being downloaded
   const [isExportingAll, setIsExportingAll] = useState(false);
   const [hasDocuments, setHasDocuments] = useState(false);
   const [onboardingPhase, setOnboardingPhase] = useState<"idle" | "requirements" | "complete">("idle");
@@ -296,6 +303,7 @@ export default function KarmaSpacePage() {
               userName: "Karma Space AI",
               toolExecutions: json.data.toolExecutions || undefined,
               modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
+              documentInfo: json.data.documentInfo || undefined,
             },
           ];
         });
@@ -367,6 +375,7 @@ export default function KarmaSpacePage() {
                   userName: "Karma Space AI",
                   toolExecutions: json.data.toolExecutions || undefined,
                   modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
+                  documentInfo: json.data.documentInfo || undefined,
                 },
               ];
             });
@@ -457,18 +466,64 @@ export default function KarmaSpacePage() {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Check if project has document messages (for "Download All" button)
+  // Download stored document PDF by document ID
+  const handleDownloadDocumentPdf = async (docId: string, docTitle: string) => {
+    if (!docId || downloadingDocPdf) return;
+    setDownloadingDocPdf(docId);
+    try {
+      const res = await fetch("/api/ai/documents/" + docId + "?download=true");
+      if (!res.ok) {
+        let errorMsg = "Failed to download PDF";
+        try {
+          const errJson = await res.json();
+          if (errJson.error) errorMsg = errJson.error;
+        } catch { /* response wasn't JSON */ }
+        throw new Error(errorMsg);
+      }
+      const blob = await res.blob();
+      if (blob.size < 100) throw new Error("PDF is empty or corrupted");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (docTitle.replace(/\s+/g, "_") || "Document") + ".pdf";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("[handleDownloadDocumentPdf] Error:", err);
+      setError(err instanceof Error ? err.message : "Failed to download document PDF");
+    } finally {
+      setDownloadingDocPdf(null);
+    }
+  };
+
+  // Check if project has generated documents (for "Download All" button)
+  // Uses the same keyword-signature detection as the backend export-all-docs endpoint
   useEffect(() => {
     if (!selectedProject || messages.length === 0) {
       setHasDocuments(false);
       return;
     }
-    // Detect documents: long assistant messages with 3+ headings
-    const docCount = messages.filter(m => {
-      if (m.role !== "assistant" || m.content.length < 1500) return false;
-      const headings = m.content.split("\n").filter(l => /^#{1,4}\s+/.test(l.trim()));
-      return headings.length >= 3;
-    }).length;
+
+    const DOC_SIGNATURES = [
+      ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements"],
+      ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements"],
+      ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns"],
+      ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Accessibility"],
+      ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data"],
+      ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Risk Register", "Quality Gates"],
+    ];
+
+    const isDocument = (content: string): boolean => {
+      if (content.length < 1500) return false;
+      const lower = content.toLowerCase();
+      return DOC_SIGNATURES.some(keywords =>
+        keywords.filter(kw => lower.includes(kw.toLowerCase())).length >= 3
+      );
+    };
+
+    const docCount = messages.filter(m => m.role === "assistant" && isDocument(m.content)).length;
     setHasDocuments(docCount >= 1);
   }, [messages, selectedProject]);
 
@@ -592,6 +647,29 @@ export default function KarmaSpacePage() {
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const toggleDocExpand = (id: string) => {
+    setExpandedDocs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Color mapping for doc types
+  const DOC_TYPE_COLORS: Record<string, { bg: string; text: string; badge: string }> = {
+    prd:    { bg: "bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300" },
+    trd:    { bg: "bg-purple-500/10", text: "text-purple-600 dark:text-purple-400", badge: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300" },
+    flow:   { bg: "bg-green-500/10", text: "text-green-600 dark:text-green-400", badge: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300" },
+    ux:     { bg: "bg-rose-500/10", text: "text-rose-600 dark:text-rose-400", badge: "bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300" },
+    schema: { bg: "bg-amber-500/10", text: "text-amber-600 dark:text-amber-400", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300" },
+    plan:   { bg: "bg-teal-500/10", text: "text-teal-600 dark:text-teal-400", badge: "bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300" },
+  };
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    prd: "PRD", trd: "TRD", flow: "FLOW", ux: "UX", schema: "SCHEMA", plan: "PLAN",
   };
 
   const filteredProjects = projects.filter(
@@ -993,31 +1071,119 @@ export default function KarmaSpacePage() {
                         )}
 
                         {/* Message Content */}
-                        <div
-                          className={`rounded-2xl px-3.5 py-2.5 ${
-                            message.role === "user"
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground"
-                          }`}
-                          style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
-                        >
-                          {message.role === "assistant" ? (
-                            <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
-                              [&_a]:text-primary [&_a]:underline [&_a:hover]:text-primary/80
-                              [&_code]:text-xs [&_code]:bg-background/20 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
-                              [&_pre]:bg-background/30 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:overflow-x-auto
-                              [&_table]:text-xs [&_th]:p-1 [&_td]:p-1 [&_th]:border [&_td]:border"
-                            >
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {message.role === "assistant" && message.documentInfo ? (
+                          /* ===== Document Card ===== */
+                          (() => {
+                            const doc = message.documentInfo;
+                            const colors = DOC_TYPE_COLORS[doc.docType] || DOC_TYPE_COLORS.prd;
+                            const label = DOC_TYPE_LABELS[doc.docType] || doc.docType.toUpperCase();
+                            const isExpanded = expandedDocs.has(message.id);
+                            return (
+                              <div className="w-full rounded-xl border overflow-hidden">
+                                {/* Document Card Header */}
+                                <div className={`flex items-center gap-3 px-4 py-3 ${colors.bg}`}>
+                                  <Badge className={`${colors.badge} text-[11px] font-bold px-2 py-0.5 border-0`}>
+                                    {label}
+                                  </Badge>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">{doc.title}</p>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className={`text-[11px] font-medium ${colors.text}`}>
+                                        v{doc.version}
+                                      </span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        Auto-saved
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Button
+                                      variant="default"
+                                      size="sm"
+                                      className="gap-1.5 h-8 text-xs bg-primary text-primary-foreground"
+                                      onClick={() => handleDownloadDocumentPdf(doc.id, doc.title)}
+                                      disabled={downloadingDocPdf === doc.id}
+                                    >
+                                      {downloadingDocPdf === doc.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <FileDown className="h-3.5 w-3.5" />
+                                      )}
+                                      <span className="hidden sm:inline">Download PDF</span>
+                                      <span className="sm:hidden">PDF</span>
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      onClick={() => toggleDocExpand(message.id)}
+                                    >
+                                      <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                {/* Expandable Content */}
+                                {isExpanded && (
+                                  <div className="border-t px-4 py-3 max-h-96 overflow-y-auto">
+                                    <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
+                                      [&_a]:text-primary [&_a]:underline [&_a:hover]:text-primary/80
+                                      [&_code]:text-xs [&_code]:bg-background/20 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
+                                      [&_pre]:bg-background/30 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:overflow-x-auto
+                                      [&_table]:text-xs [&_th]:p-1 [&_td]:p-1 [&_th]:border [&_td]:border"
+                                    >
+                                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        {message.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Collapsed preview line */}
+                                {!isExpanded && (
+                                  <div className="border-t px-4 py-2 bg-muted/30">
+                                    <button
+                                      onClick={() => toggleDocExpand(message.id)}
+                                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                                    >
+                                      <ChevronDown className="h-3 w-3" />
+                                      <span>Click to preview content</span>
+                                      <span className="text-muted-foreground/60 ml-1">
+                                        ({message.content.split("\n").length} lines)
+                                      </span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div
+                            className={`rounded-2xl px-3.5 py-2.5 ${
+                              message.role === "user"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted text-foreground"
+                            }`}
+                            style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
+                          >
+                            {message.role === "assistant" ? (
+                              <div className="prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0
+                                [&_a]:text-primary [&_a]:underline [&_a:hover]:text-primary/80
+                                [&_code]:text-xs [&_code]:bg-background/20 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded
+                                [&_pre]:bg-background/30 [&_pre]:rounded-lg [&_pre]:p-2 [&_pre]:overflow-x-auto
+                                [&_table]:text-xs [&_th]:p-1 [&_td]:p-1 [&_th]:border [&_td]:border"
+                              >
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  {message.content}
+                                </ReactMarkdown>
+                              </div>
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap m-0">
                                 {message.content}
-                              </ReactMarkdown>
-                            </div>
-                          ) : (
-                            <p className="text-sm whitespace-pre-wrap m-0">
-                              {message.content}
-                            </p>
-                          )}
-                        </div>
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         {/* Model Auto-Route Notice */}
                         {message.modelRouteReason && (
@@ -1027,8 +1193,8 @@ export default function KarmaSpacePage() {
                           </div>
                         )}
 
-                        {/* PDF Download button on AI messages with substantial content */}
-                        {message.role === "assistant" && message.content.length > 500 && (
+                        {/* PDF Download button on AI messages with substantial content (no documentInfo) */}
+                        {message.role === "assistant" && !message.documentInfo && message.content.length > 500 && (
                           <button
                             onClick={() => handleDownloadPdf(message)}
                             disabled={downloadingPdf === message.id}

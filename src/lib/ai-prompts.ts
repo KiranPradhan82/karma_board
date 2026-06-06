@@ -68,12 +68,7 @@ const COMMAND_PROMPTS: Record<string, string> = {
 - Prioritized action items
 - Unresolved questions requiring stakeholder input
 
-Use professional Markdown. Use tables for structured data. Bold key terms. Be specific and actionable.
-
----
-**Document complete. Would you like to make any changes?**
-Reply: **Yes** (describe what to change) | **No** (move to next)
-Click **Download PDF** to get the styled document.`,
+Use professional Markdown. Use tables for structured data. Bold key terms. Be specific and actionable.`,
 
   "/trd": `Generate a comprehensive **Technical Requirements Document (TRD)** for this project.
 
@@ -158,12 +153,7 @@ Click **Download PDF** to get the styled document.`,
 - Prioritized technical action items
 - Open technical decisions
 
-Use professional Markdown. Use tables for structured data. Include code examples where helpful.
-
----
-**Document complete. Would you like to make any changes?**
-Reply: **Yes** (describe what to change) | **No** (move to next)
-Click **Download PDF** to get the styled document.`,
+Use professional Markdown. Use tables for structured data. Include code examples where helpful.`,
 
   "/flow": `Generate a comprehensive **Application Flow Document** for this project.
 
@@ -247,12 +237,7 @@ For each major section:
 - Missing flows to design
 - Edge cases requiring decisions
 
-Use professional Markdown. Use tables for structured data. Describe flows step-by-step.
-
----
-**Document complete. Would you like to make any changes?**
-Reply: **Yes** (describe what to change) | **No** (move to next)
-Click **Download PDF** to get the styled document.`,
+Use professional Markdown. Use tables for structured data. Describe flows step-by-step.`,
 
   "/ux": `Generate a comprehensive **UI/UX Design Brief** for this project.
 
@@ -336,12 +321,7 @@ For each major screen:
 - Component priorities
 - Accessibility audit checklist
 
-Use professional Markdown. Use tables for structured data. Be specific with pixel/spacing values.
-
----
-**Document complete. Would you like to make any changes?**
-Reply: **Yes** (describe what to change) | **No** (move to next)
-Click **Download PDF** to get the styled document.`,
+Use professional Markdown. Use tables for structured data. Be specific with pixel/spacing values.`,
 
   "/schema": `Generate a comprehensive **Backend Schema Document** for this project.
 
@@ -420,12 +400,7 @@ For each enum:
 - Migration priorities
 - Performance testing needs
 
-Use professional Markdown. Use tables for all schema definitions. Include Prisma/SQL notation.
-
----
-**Document complete. Would you like to make any changes?**
-Reply: **Yes** (describe what to change) | **No** (move to next)
-Click **Download PDF** to get the styled document.`,
+Use professional Markdown. Use tables for all schema definitions. Include Prisma/SQL notation.`,
 
   "/plan": `Generate a comprehensive **Implementation Plan** for this project.
 
@@ -519,12 +494,7 @@ Group by category:
 - Open decisions requiring input
 - Stakeholder sign-offs needed
 
-Use professional Markdown. Use tables for all structured data. Be specific with estimates.
-
----
-**Document complete. Would you like to make any changes?**
-Reply: **Yes** (describe what to change) | **No** (move to next)
-Click **Download PDF** to get the styled document.`,
+Use professional Markdown. Use tables for all structured data. Be specific with estimates.`,
 
   "/help": "SHOW_HELP",
 
@@ -623,17 +593,6 @@ ${firstName}, please review the **${currentDocLabel}** above.
 - Do NOT skip ahead to later documents. Each document must be confirmed before moving on.
 - Do NOT suggest or mention project initialization (\`/init\`), project setup, scaffolding, or infrastructure until ALL 6 documents are confirmed. This is strictly enforced.
 - Focus ONLY on reviewing and refining the current document.
-
----
-
-**Document saved and version tracked.** Would you like to make any changes?
-
-Reply with:
-- **Yes** — Tell me what to change (colors, sections, details, etc.)
-- **No** — Continue to the next document
-- **Specific section** — e.g., "Change the color palette section"
-
-**Download:** Click the "Download PDF" button below to get the styled PDF.
 
 ${nextStepSection}`;
 }
@@ -823,17 +782,7 @@ ${getRoleAccessRules(userRole || "MEMBER")}
 9. **Report results**: After a tool call, clearly tell the user what happened
 10. **CRITICAL: NEVER suggest project initialization, scaffolding, /init, repo setup, or infrastructure setup while generating documents.** The /init command must ONLY be suggested AFTER all 6 documents (PRD, TRD, Flow, UX, Schema, Plan) are confirmed. During document generation, focus ONLY on the current document — do not mention project setup, GitHub repos, databases, or deployment.
 11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.
-12. **MANDATORY: Test, Debug, and Verify Before Every GitHub Push.** Before pushing ANY code to GitHub, you MUST follow this strict cycle: (1) Run the build command to check for compilation/type errors. (2) If there are errors, fix them immediately. (3) Re-run the build. (4) Repeat steps 1-3 until the build passes with ZERO errors. (5) Only then commit and push to GitHub. NEVER push code with known build failures, type errors, lint errors, or broken functionality. This rule applies EVERY time — there are NO exceptions, not even for "quick fixes" or "minor changes." A broken build pushed to main is unacceptable.
-13. **CUSTOMIZATION FLOW**: When user requests changes to a generated document: (a) Ask clarifying questions if vague. (b) For color changes, accept color names or hex codes. (c) Regenerate the FULL document with changes. (d) The system auto-saves the updated version. Never just show a diff.
-
-## Document Customization Handling
-When the user requests changes to a generated document (says "yes", "change", "modify", "update", "revise", etc.):
-1. **Ask clarifying questions** if the request is vague — e.g., "Which section would you like to modify? What specifically should change?"
-2. **For color changes** — accept both color names (blue, red, emerald) and hex codes (#1E40AF). Convert color names to appropriate hex values.
-3. **For section changes** — identify the specific section, understand the desired change, and regenerate the FULL document with the changes incorporated.
-4. **REGENERATE THE FULL DOCUMENT** — do NOT just show the diff or a partial update. Output the complete updated document from start to finish.
-5. **The system will auto-save** the updated version. After regeneration, re-append the Document Review footer.
-6. **Preserve document structure** — maintain the same heading hierarchy, table formats, and section ordering unless the user explicitly requests restructuring.`;
+12. **MANDATORY: Test, Debug, and Verify Before Every GitHub Push.** Before pushing ANY code to GitHub, you MUST follow this strict cycle: (1) Run the build command to check for compilation/type errors. (2) If there are errors, fix them immediately. (3) Re-run the build. (4) Repeat steps 1-3 until the build passes with ZERO errors. (5) Only then commit and push to GitHub. NEVER push code with known build failures, type errors, lint errors, or broken functionality. This rule applies EVERY time — there are NO exceptions, not even for "quick fixes" or "minor changes." A broken build pushed to main is unacceptable.`;
 
   // ---- Project context ----
   const contextLines: string[] = [];
@@ -1056,9 +1005,7 @@ ${firstName}, all 6 pre-coding documents are complete! Now let's set up the proj
 
 ### IMPORTANT: Follow this exact flow — NO EXCEPTIONS
 
-This is a **GitHub-first** initialization flow. You must follow each step in order, collecting information one step at a time. Do NOT skip steps, do NOT ask multiple steps at once.
-
-**IMPORTANT**: You have access to the **save_github_config** tool. After collecting BOTH the repo URL and PAT from the user, use this tool to save them immediately. This ensures the credentials are stored securely (PAT is encrypted).
+This is a **GitHub-first** initialization flow. You must follow each step in order, collecting information one step at a time. Do NOT skip steps, do NOT ask multiple steps at once, and do NOT call any tools.
 
 ---
 

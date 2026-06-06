@@ -34,15 +34,55 @@ function sanitizeForPdf(text: string): string {
   return text.replace(/[\u{10000}-\u{10FFFF}]/gu, "").replace(/[^\x20-\x7E\xA1-\xFF]/g, "").trim();
 }
 
-// ===== Detect document messages from chat history =====
+// ===== Document type keyword signatures =====
+// Each document type has a set of unique section headings that identify it.
+// A message must match at least 3 keywords from ONE signature to be classified as a document.
+const DOC_SIGNATURES = [
+  {
+    label: "Project Overview & PRD",
+    keywords: ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements", "Scope & Constraints", "Risks & Mitigations"],
+  },
+  {
+    label: "Technical Requirements Document",
+    keywords: ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements", "Deployment & Infrastructure", "Testing Strategy"],
+  },
+  {
+    label: "Application Flow Document",
+    keywords: ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns", "Data Flow", "Error Handling & Edge Cases"],
+  },
+  {
+    label: "UI/UX Design Brief",
+    keywords: ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Motion & Animation", "Accessibility", "Dark Mode Strategy"],
+  },
+  {
+    label: "Backend Schema Document",
+    keywords: ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data", "Migration Strategy", "API-Database Mapping"],
+  },
+  {
+    label: "Implementation Plan",
+    keywords: ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Dependency Map", "Risk Register", "Quality Gates", "Deployment Plan", "Success Metrics"],
+  },
+];
+
+// Count how many keywords from a signature appear in the content (case-insensitive)
+function countKeywordMatches(content: string, keywords: string[]): number {
+  const lower = content.toLowerCase();
+  return keywords.filter(kw => lower.includes(kw.toLowerCase())).length;
+}
+
+// ===== Detect the 6 generated document messages from chat history =====
+// This ONLY matches the structured documents (PRD, TRD, Flow, UX, Schema, Plan),
+// NOT general chat responses that happen to be long.
 function detectDocumentMessages(messages: { id: string; role: string; content: string; timestamp: string }[]) {
+  const MIN_CONTENT_LENGTH = 1500;
+  const MIN_KEYWORD_MATCHES = 3; // Must match at least 3 section headings from one signature
+
   const docMessages = messages.filter((msg) => {
     if (msg.role !== "assistant") return false;
-    const content = msg.content;
-    if (content.length < 1500) return false;
-    const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
-    const headingCount = lines.filter(l => /^#{1,4}\s+/.test(l)).length;
-    return headingCount >= 3;
+    if (msg.content.length < MIN_CONTENT_LENGTH) return false;
+
+    // Check if this message matches any known document signature
+    return DOC_SIGNATURES.some(sig => countKeywordMatches(msg.content, sig.keywords) >= MIN_KEYWORD_MATCHES);
   });
 
   // Limit to last 6 documents (most recent)
@@ -282,36 +322,9 @@ export async function GET(request: NextRequest) {
     const client = getTursoClient();
     const ip = getClientIp(request);
 
-    // Fetch chat history
-    const chatResult = await client.execute({
-      sql: `SELECT id, role, content, timestamp FROM "AiChat"
-            WHERE "projectId" = ? AND role = 'assistant'
-            ORDER BY "timestamp" ASC`,
-      args: [projectId],
-    });
-
-    if (chatResult.rows.length === 0) {
-      return NextResponse.json({ success: false, error: "No messages found for this project" }, { status: 404 });
-    }
-
-    // Detect document messages
-    const allMessages = chatResult.rows.map(row => ({
-      id: row.id as string,
-      role: row.role as string,
-      content: row.content as string,
-      timestamp: row.timestamp as string,
-    }));
-    const docMessages = detectDocumentMessages(allMessages);
-
-    if (docMessages.length === 0) {
-      return NextResponse.json({ success: false, error: "No document messages found. Generate documents first using /docs, /prd, /trd, etc." }, { status: 404 });
-    }
-
-    console.log(`[GET /api/ai/export-all-docs] Found ${docMessages.length} document messages`);
-
     // Fetch project name
     const projectResult = await client.execute({
-      sql: `SELECT name FROM "Project" WHERE id = ?`,
+      sql: 'SELECT name FROM "Project" WHERE id = ?',
       args: [projectId],
     });
     const projectName = projectResult.rows.length > 0
@@ -322,8 +335,8 @@ export async function GET(request: NextRequest) {
     let theme = { ...DEFAULT_THEME };
     try {
       const themeResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'PDF_THEME'`,
-        args: [],
+        sql: 'SELECT value FROM "Settings" WHERE key = ?',
+        args: ["PDF_THEME"],
       });
       if (themeResult.rows.length > 0) {
         theme = { ...DEFAULT_THEME, ...JSON.parse(themeResult.rows[0].value as string) };
@@ -334,25 +347,71 @@ export async function GET(request: NextRequest) {
     let superAdminName = "";
     try {
       const adminResult = await client.execute({
-        sql: `SELECT name FROM "User" WHERE role = 'SUPERADMIN' LIMIT 1`,
-        args: [],
+        sql: 'SELECT name FROM "User" WHERE role = ? LIMIT 1',
+        args: ["SUPERADMIN"],
       });
       if (adminResult.rows.length > 0) {
         superAdminName = sanitizeForPdf(adminResult.rows[0].name as string);
       }
     } catch { /* ignore */ }
 
-    // Build document list with titles
-    const documents = docMessages.map(msg => {
-      const firstLine = msg.content.split("\n").find(l => {
-        const trimmed = l.trim();
-        return trimmed.startsWith("#") && trimmed.length > 2;
+    // ===== Try fetching from ProjectDocument table first =====
+    let documents: { title: string; content: string; timestamp: string }[] = [];
+
+    try {
+      const storedDocs = await client.execute({
+        sql: 'SELECT "docType", title, content, "updatedAt" FROM "ProjectDocument" WHERE "projectId" = ? ORDER BY "docType" ASC',
+        args: [projectId],
       });
-      const title = firstLine
-        ? firstLine.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim().slice(0, 80)
-        : msg.content.split("\n")[0]?.slice(0, 80) || "Untitled Document";
-      return { title, content: msg.content, timestamp: msg.timestamp };
-    });
+
+      if (storedDocs.rows.length > 0) {
+        console.log("[GET /api/ai/export-all-docs] Using " + storedDocs.rows.length + " stored ProjectDocuments");
+        documents = storedDocs.rows.map(row => ({
+          title: (row.title as string) || (row.docType as string).toUpperCase() + " Document",
+          content: (row.content as string),
+          timestamp: (row.updatedAt as string),
+        }));
+      }
+    } catch (storedErr) {
+      console.error("[GET /api/ai/export-all-docs] Error fetching stored documents (falling back):", storedErr);
+    }
+
+    // ===== Fallback: detect from chat messages if no stored docs =====
+    if (documents.length === 0) {
+      const chatResult = await client.execute({
+        sql: 'SELECT id, role, content, timestamp FROM "AiChat" WHERE "projectId" = ? AND role = ? ORDER BY "timestamp" ASC',
+        args: [projectId, "assistant"],
+      });
+
+      if (chatResult.rows.length === 0) {
+        return NextResponse.json({ success: false, error: "No messages found for this project" }, { status: 404 });
+      }
+
+      const allMessages = chatResult.rows.map(row => ({
+        id: row.id as string,
+        role: row.role as string,
+        content: row.content as string,
+        timestamp: row.timestamp as string,
+      }));
+      const docMessages = detectDocumentMessages(allMessages);
+
+      if (docMessages.length === 0) {
+        return NextResponse.json({ success: false, error: "No document messages found. Generate documents first using /docs, /prd, /trd, etc." }, { status: 404 });
+      }
+
+      console.log("[GET /api/ai/export-all-docs] Using " + docMessages.length + " detected document messages (fallback)");
+
+      documents = docMessages.map(msg => {
+        const firstLine = msg.content.split("\n").find(l => {
+          const trimmed = l.trim();
+          return trimmed.startsWith("#") && trimmed.length > 2;
+        });
+        const title = firstLine
+          ? firstLine.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim().slice(0, 80)
+          : msg.content.split("\n")[0]?.slice(0, 80) || "Untitled Document";
+        return { title, content: msg.content, timestamp: msg.timestamp };
+      });
+    }
 
     // Generate combined PDF
     const pdfBuffer = await generateCombinedPdf(documents, projectName, theme, superAdminName);
