@@ -7,227 +7,134 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  SUPERADMIN
-  ADMIN
-  MEMBER
-}
-
-enum NotificationType {
-  STARTED
-  UPDATE
-  COMPLETED
-}
-
-enum ProjectRole {
-  LEAD
-  DEVELOPER
-  MARKETER
-  VIEWER
-  MEMBER
-}
-
-enum ProjectStatus {
-  ACTIVE
-  COMPLETED
-  ON_HOLD
-  ARCHIVED
-}
-
-model User {
-  id           String    @id @default(cuid())
-  name         String
-  email        String    @unique
-  password     String
-  role         Role      @default(MEMBER)
-  avatar       String?
-  isActive     Boolean   @default(true)
-  jobTitle     String?
-  phone        String?
-  skills       String?
-  status       String    @default("ACTIVE")
-  mustChangePassword Boolean @default(false)
-  deletedAt    DateTime?
-  joinDate     DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  projectMembers ProjectMember[]
-  timeLogs     TimeLog[]
-  activityLogs ActivityLog[]
-  aiChats      AiChat[]
-  chatDeleteRequests ChatDeleteRequest[]
-}
-
-model Client {
-  id                 String   @id @default(cuid())
-  name               String
-  email              String   @unique
-  password           String
-  company            String?
-  address            String?
-  phone              String?
-  notes              String?
-  status             String   @default("ACTIVE")
-  mustChangePassword Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  projects      Project[]
-  notifications ClientNotification[]
-}
-
-model ClientNotification {
-  id        String           @id @default(cuid())
-  clientId  String
-  projectId String
-  type      NotificationType
-  message   String?
-  sentBy    String
-  createdAt DateTime         @default(now())
-
-  client  Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-}
-
-model Project {
-  id          String        @id @default(cuid())
-  name        String
-  description String?
-  status      ProjectStatus @default(ACTIVE)
-  priority    String        @default("MEDIUM")
-  clientName  String?
-  clientId    String?
-  color       String?
-  deadline    DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  members       ProjectMember[]
-  timeLogs      TimeLog[]
-  aiChats       AiChat[]
-  invitations   Invitation[]
-  protocols     AiProtocol[]
-  documents    ProjectDocument[]
-  chatDeleteRequests ChatDeleteRequest[]
-  client        Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  clientNotifications ClientNotification[]
-}
-
-model ProjectMember {
-  id         String      @id @default(cuid())
-  projectId  String
-  userId     String
-  role       ProjectRole @default(MEMBER)
-  joinedAt   DateTime    @default(now())
-  assignedBy String?
-  removedAt  DateTime?
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([projectId, userId])
-}
-
-model TimeLog {
-  id        String    @id @default(cuid())
-  userId    String
-  projectId String
-  clockIn   DateTime  @default(now())
-  clockOut  DateTime?
-  duration  Int?
-  notes     String?
-  createdAt DateTime  @default(now())
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-}
-
 model ActivityLog {
-  id        String   @id @default(cuid())
+  id        String   @id
   userId    String
   action    String
   details   String?
+  timestamp DateTime @default(now())
   entity    String?
   entityId  String?
   ipAddress String?
-  timestamp DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model Invitation {
-  id        String      @id @default(cuid())
-  email     String
-  projectId String?
-  role      Role        @default(MEMBER)
-  token     String      @unique
-  expiresAt DateTime
-  accepted  Boolean     @default(false)
-  createdAt DateTime    @default(now())
-
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AiChat {
-  id        String   @id @default(cuid())
+  id        String   @id
   userId    String
   projectId String?
   role      String
   content   String
   timestamp DateTime @default(now())
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  Project   Project? @relation(fields: [projectId], references: [id])
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AiProtocol {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  isGlobal    Boolean  @default(false)
-  projectId   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  steps   AiProtocolStep[]
-  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id             String           @id
+  name           String
+  description    String?
+  isGlobal       Boolean          @default(false)
+  projectId      String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime
+  Project        Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  AiProtocolStep AiProtocolStep[]
 }
 
 model AiProtocolStep {
-  id         String  @id @default(cuid())
-  protocolId String
-  title      String
+  id          String     @id
+  protocolId  String
+  title       String
   description String?
   commandTag  String?
-  stepOrder  Int
-  createdAt  DateTime @default(now())
-  protocol AiProtocol @relation(fields: [protocolId], references: [id], onDelete: Cascade)
+  stepOrder   Int
+  createdAt   DateTime   @default(now())
+  AiProtocol  AiProtocol @relation(fields: [protocolId], references: [id], onDelete: Cascade)
+
   @@index([protocolId])
 }
 
-model Settings {
-  key       String @id
-  value     String
-  updatedAt DateTime @updatedAt
-}
-
 model ChatDeleteRequest {
-  id        String   @id @default(cuid())
-  projectId String
-  userId    String
-  status    String   @default("PENDING") // PENDING, APPROVED, DECLINED
-  reason    String?
+  id         String    @id
+  projectId  String
+  userId     String
+  status     String    @default("PENDING")
+  reason     String?
   reviewedBy String?
   reviewedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime
+  User       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Client {
+  id                 String               @id
+  name               String
+  email              String               @unique
+  password           String
+  company            String?
+  address            String?
+  phone              String?
+  notes              String?
+  status             String               @default("ACTIVE")
+  mustChangePassword Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime
+  ClientNotification ClientNotification[]
+  Project            Project[]
+}
+
+model ClientNotification {
+  id        String   @id
+  clientId  String
+  projectId String
+  type      String
+  message   String?
+  sentBy    String
+  createdAt DateTime @default(now())
+  Project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  Client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Invitation {
+  id        String   @id
+  email     String
+  projectId String?
+  role      String   @default("MEMBER")
+  token     String   @unique
+  expiresAt DateTime
+  accepted  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  Project   Project? @relation(fields: [projectId], references: [id])
+}
+
+model Project {
+  id                 String               @id
+  name               String
+  description        String?
+  status             String               @default("ACTIVE")
+  priority           String               @default("MEDIUM")
+  clientName         String?
+  clientId           String?
+  color              String?
+  deadline           DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime
+  AiChat             AiChat[]
+  AiProtocol         AiProtocol[]
+  ChatDeleteRequest  ChatDeleteRequest[]
+  ClientNotification ClientNotification[]
+  Invitation         Invitation[]
+  Client             Client?              @relation(fields: [clientId], references: [id])
+  ProjectDocument    ProjectDocument[]
+  ProjectMember      ProjectMember[]
+  TimeLog            TimeLog[]
 }
 
 model ProjectDocument {
-  id        String   @id @default(cuid())
+  id        String   @id
   projectId String
   docType   String
   title     String
@@ -235,9 +142,65 @@ model ProjectDocument {
   pdfData   String
   version   Int      @default(1)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updatedAt DateTime
+  Project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, docType])
+}
+
+model ProjectMember {
+  id         String    @id
+  projectId  String
+  userId     String
+  role       String    @default("MEMBER")
+  joinedAt   DateTime  @default(now())
+  assignedBy String?
+  removedAt  DateTime?
+  User       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Settings {
+  key       String   @id
+  value     String
+  updatedAt DateTime
+}
+
+model TimeLog {
+  id        String    @id
+  userId    String
+  projectId String
+  clockIn   DateTime  @default(now())
+  clockOut  DateTime?
+  duration  Int?
+  notes     String?
+  createdAt DateTime  @default(now())
+  Project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id                 String              @id
+  name               String
+  email              String              @unique
+  password           String
+  role               String              @default("MEMBER")
+  avatar             String?
+  isActive           Boolean             @default(true)
+  jobTitle           String?
+  phone              String?
+  skills             String?
+  status             String              @default("ACTIVE")
+  mustChangePassword Boolean             @default(false)
+  deletedAt          DateTime?
+  joinDate           DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime
+  ActivityLog        ActivityLog[]
+  AiChat             AiChat[]
+  ChatDeleteRequest  ChatDeleteRequest[]
+  ProjectMember      ProjectMember[]
+  TimeLog            TimeLog[]
 }

@@ -70,10 +70,10 @@ export function getTursoClient() {
     });
   }
 
-  // Fallback to local SQLite via libsql file URL
-  return createClient({
-    url: 'file:/home/z/my-project/db/custom.db',
-  });
+  // Fallback to local SQLite via libsql file URL (only works in local dev)
+  const localPath = `file:${process.cwd()}/db/custom.db`;
+  console.warn(`[getTursoClient] No TURSO_DATABASE_URL/TURSO_AUTH_TOKEN set, falling back to: ${localPath}`);
+  return createClient({ url: localPath });
 }
 
 /**
