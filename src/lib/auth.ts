@@ -120,7 +120,13 @@ export const authOptions: NextAuthOptions = {
           console.log("[Auth] Looking up user:", credentials.email);
 
           // First try User table
-          let user = await findUserByEmail(credentials.email);
+          let user;
+          try {
+            user = await findUserByEmail(credentials.email);
+          } catch (dbError) {
+            console.error("[Auth] Database lookup failed:", dbError instanceof Error ? dbError.message : dbError);
+            throw new Error("Database connection failed. Please try again.");
+          }
 
           if (user) {
             // Team member login
@@ -147,7 +153,13 @@ export const authOptions: NextAuthOptions = {
           }
 
           // If not found in User, try Client table
-          const client = await findClientByEmail(credentials.email);
+          let client;
+          try {
+            client = await findClientByEmail(credentials.email);
+          } catch (dbError) {
+            console.error("[Auth] Client database lookup failed:", dbError instanceof Error ? dbError.message : dbError);
+            throw new Error("Database connection failed. Please try again.");
+          }
 
           if (client) {
             const isValid = await verifyPassword(credentials.password, client.password);
@@ -170,9 +182,15 @@ export const authOptions: NextAuthOptions = {
           console.log("[Auth] User not found:", credentials.email);
           return null;
         } catch (error) {
-          console.error("[Auth] Error during authorization:", error);
-          // Return null instead of throwing — prevents "fetch failed" on client.
-          // NextAuth will show "Invalid email or password" which is safer than exposing errors.
+          const errMsg = error instanceof Error ? error.message : String(error);
+          console.error("[Auth] Error during authorization:", errMsg);
+          // If the error is a connection/infrastructure issue, re-throw with a clear message
+          // so the client sees "fetch failed" rather than silently showing "wrong password"
+          const isConnectionError = /connect|fetch|network|timeout|turso|libsql|ENOTFOUND|ECONNREFUSED|database|TURSO/i.test(errMsg);
+          if (isConnectionError) {
+            throw new Error("Database connection failed. Please try again.");
+          }
+          // For other errors, return null (shows "wrong password")
           return null;
         }
       },
