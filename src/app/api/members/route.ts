@@ -109,7 +109,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('[GET /api/members] Error:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
+    const msg = error instanceof Error ? error.message : String(error);
+    const isConnectionError = /connect|fetch|network|timeout|turso|libsql|ENOTFOUND|ECONNREFUSED|database|TURSO/i.test(msg);
+    return NextResponse.json({ success: false, error: isConnectionError ? 'Database connection failed. Please check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on Vercel.' : `Internal server error: ${msg}` }, { status: 500 });
   }
 }
 
@@ -241,7 +243,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[POST /api/members] Error:', error);
     const msg = error instanceof Error ? error.message : String(error);
-    const stack = error instanceof Error ? error.stack : '';
-    return NextResponse.json({ success: false, error: `Internal server error: ${msg}`, debug_stack: stack }, { status: 500 });
+    const isConnectionError = /connect|fetch|network|timeout|turso|libsql|ENOTFOUND|ECONNREFUSED|database|TURSO/i.test(msg);
+    return NextResponse.json({ success: false, error: isConnectionError ? 'Database connection failed. Please check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on Vercel.' : `Internal server error: ${msg}` }, { status: 500 });
   }
 }
