@@ -741,6 +741,31 @@ export async function POST(request: NextRequest) {
       aiError = true;
     }
 
+    // ===== Anti-Hallucination Filter =====
+    // Detects and removes fake action claims from AI responses when no corresponding tool was executed
+    if (!aiError && aiText) {
+      const toolNames = new Set(toolExecutions.map(t => t.toolName));
+      const fakeActionPatterns = [
+        { pattern: /(?:I[''](ve| have| will| am| just))?\s*(?:pushed|pushing|committed|deployed|deploying|created|creating|built|building|cloned|cloning|merged|merging)\s+(?:the\s+)?(?:code|changes|files|project|application|app|repo|repository|to\s+GitHub|to\s+the\s+repo)/gi,
+          replacement: "[Note: This action was not actually performed. Use the tools to execute real actions.]" },
+        { pattern: /(?:stand\s*by|please\s+wait|give\s+me\s+a\s+moment|I[''](ll| will)\s+notify\s+you|I[''](ll| will)\s+let\s+you\s+know)/gi,
+          replacement: "" },
+        { pattern: /(?:Build\s+passed|Deployment\s+successful|Successfully\s+deployed|CI\/CD\s+passed)/gi,
+          replacement: "[Note: This was not actually executed.]" },
+      ];
+
+      // Only apply filter if NO github/file tools were used
+      const usedGitTools = toolNames.has("github_pull") || toolNames.has("github_push_code") || toolNames.has("create_or_update_file");
+      if (!usedGitTools) {
+        for (const { pattern, replacement } of fakeActionPatterns) {
+          aiText = aiText.replace(pattern, replacement);
+        }
+        // Remove references to other projects/applications
+        const otherProjectPattern = /(?:(?:the|a|an)\s+)?(?:Share\s+Sathi|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+application)(?!\s+(?:project|in\s+KarmaBoard))/g;
+        aiText = aiText.replace(otherProjectPattern, "[irrelevant project reference removed]");
+      }
+    }
+
     // Save AI response
     const aiMsgId = crypto.randomUUID();
     await client.execute({

@@ -246,6 +246,70 @@ export const AI_TOOLS: AiToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "github_pull",
+      description:
+        "Pull the latest contents of files from the project's GitHub repository. Use this to see what code currently exists in the repo before making changes. Returns file paths and their contents.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Specific file path to pull (e.g., 'src/app/page.tsx'). Omit to list the repo tree.",
+          },
+          branch: {
+            type: "string",
+            description: "Branch name (default: 'main')",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_or_update_file",
+      description:
+        "Create or update a code file in the project. The file is stored in the project's file registry. After creating files, use github_push_code to push them to GitHub.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "File path relative to project root (e.g., 'src/app/page.tsx')",
+          },
+          content: {
+            type: "string",
+            description: "Full file content",
+          },
+          message: {
+            type: "string",
+            description: "Commit message describing the change",
+          },
+        },
+        required: ["path", "content", "message"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "github_push_code",
+      description:
+        "Push the staged files to the project's GitHub repository. Files must first be created with create_or_update_file before pushing. This creates a real git commit on GitHub.",
+      parameters: {
+        type: "object",
+        properties: {
+          branch: {
+            type: "string",
+            description: "Target branch (default: 'main')",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "save_database_config",
       description:
         "Save database connection details including auth token and token expiry date to settings. Use this during the /init flow after collecting the database URL, auth token, database type, and token expiry from the user. The auth token is encrypted before storage. The expiry date is used to send email reminders before the token expires.",
@@ -285,7 +349,7 @@ export function getToolsForRole(role: string): AiToolDefinition[] {
     case "ADMIN":
       return AI_TOOLS; // Full access
     case "MEMBER":
-      // Members can view projects, get info, and search web, but cannot create/update/add members
+      // Members can view projects, get info, and search web, but cannot create/update/add members or use GitHub/file tools
       return AI_TOOLS.filter((tool) =>
         ["list_projects", "get_project_info", "web_search"].includes(tool.function.name)
       );
@@ -300,7 +364,7 @@ export function getToolsForRole(role: string): AiToolDefinition[] {
  * Check if a tool requires elevated permissions.
  */
 export function isToolAllowedForRole(toolName: string, role: string): boolean {
-  const restrictedTools = ["create_project", "update_project", "add_project_member"];
+  const restrictedTools = ["create_project", "update_project", "add_project_member", "github_pull", "create_or_update_file", "github_push_code"];
   if (role === "SUPERADMIN" || role === "ADMIN") return true;
   return !restrictedTools.includes(toolName);
 }

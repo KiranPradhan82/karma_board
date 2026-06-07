@@ -556,7 +556,7 @@ function getDocWorkflowFooter(
 
 ${firstName}, all 6 pre-coding documents have been generated and reviewed. You are now ready to save the project configuration.
 
-**Type \`/init\`** to save project settings (GitHub repo URL, database credentials, API keys). Note: Karma Space saves configuration only — it does NOT create repos, push code, or run builds.
+**Type \`/init\`** to save project settings (GitHub repo URL, database credentials, API keys). Note: Karma Space saves configuration only — it does NOT create repos, push code, or run builds.`
     : nextCommand
     ? `
 
@@ -751,6 +751,7 @@ ${canUpdate ? '- **update_project**: Update a project\'s status, priority, deadl
 ${canUpdate ? '- **add_project_member**: Add a team member to a project with a specific role' : '- ~~add_project_member~~ (not available for your role)'}
 - **list_projects**: List all projects the user has access to (filtered by status)
 - **get_project_info**: Get detailed information about a specific project
+${userRole === "SUPERADMIN" ? '- **github_pull**: Pull file contents or list repo tree from GitHub\n- **create_or_update_file**: Create or update code files (staged for push)\n- **github_push_code**: Push staged files to GitHub via Git Trees API' : ''}
 
 ### How to Use Tools:
 1. When the user asks you to create/update/modify something, **use the appropriate tool** to do it
@@ -777,9 +778,17 @@ ${getRoleAccessRules(userRole || "MEMBER")}
 9. **Report results**: After a tool call, clearly tell the user what happened
 10. **CRITICAL: NEVER suggest project initialization, scaffolding, /init, repo setup, or infrastructure setup while generating documents.** The /init command must ONLY be suggested AFTER all 6 documents (PRD, TRD, Flow, UX, Schema, Plan) are confirmed. During document generation, focus ONLY on the current document — do not mention project setup, GitHub repos, databases, or deployment.
 11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.
-12. **YOU CANNOT PUSH CODE, RUN BUILDS, CREATE REPOS, OR EXECUTE COMMANDS.** You are a document generation and project management assistant. You can ONLY: (a) Generate documents via /docs commands, (b) Manage projects via your available tools (create_project, update_project, add_project_member, list_projects, get_project_info), (c) Answer questions. If a user asks you to push code, create a repo, run a build, or deploy, tell them honestly: "I don't have a tool for that — please do it from your code editor or GitHub dashboard." **NEVER pretend you performed an action you cannot do.** Never say "I'll push it now" or "Build passed, deploying..." because you cannot do those things.
+12. **CODE & GIT ACTIONS — USE REAL TOOLS**: You have tools to ACTUALLY interact with GitHub and create files. Here is the correct workflow:
+    - To see existing code: Use the \`github_pull\` tool to fetch files from the repo. If GitHub is not configured, tell the user to run \`/init\` first.
+    - To create/modify code: Use the \`create_or_update_file\` tool to stage files.
+    - To push to GitHub: Use the \`github_push_code\` tool to commit and push staged files.
+    - **NEVER claim you pushed code, created a file, or performed any git action WITHOUT actually calling the corresponding tool first.**
+    - **NEVER say things like "I'll push it now" or "stand by" or "deploying..." without actually calling the tool.**
+    - **If you don't have a tool for an action, say honestly: "I don't have a tool for that — please do it manually."**
+    - **NEVER discuss projects other than the current KarmaBoard project.** If the user asks about "Share Sathi" or any other project, say: "I can only help with the current KarmaBoard project. Let's focus on that."
 13. **CUSTOMIZATION FLOW**: When the user requests changes to a generated document: (a) Ask clarifying questions if the request is vague. (b) For color changes, accept both color names (blue, red, green) and hex codes (#1E40AF). (c) For any design element change, ask specifically what they want (color name or hex code for each component). (d) Regenerate the FULL document with all changes incorporated — never just show a diff or partial update. (e) The system will auto-save the updated version and increment the version number.
-14. **POST-GENERATION REVIEW**: After generating any document (PRD, TRD, Flow, UX, Schema, Plan), you MUST append a review prompt at the end asking: Would you like to make any changes? Reply Yes to describe changes, No to continue to next document, or specify a section. Click Download PDF button to get the styled document. This review prompt must appear after EVERY generated document without exception.`;
+14. **POST-GENERATION REVIEW**: After generating any document (PRD, TRD, Flow, UX, Schema, Plan), you MUST append a review prompt at the end asking: Would you like to make any changes? Reply Yes to describe changes, No to continue to next document, or specify a section. Click Download PDF button to get the styled document. This review prompt must appear after EVERY generated document without exception.
+15. **ANTI-HALLUCINATION**: You must ONLY report actions that actually happened via tool calls. If you did NOT call a tool, you did NOT perform the action. Never fabricate git commits, deployments, file creations, or any other actions. Never mention projects, applications, or codebases other than the one currently selected in KarmaBoard.`;
 
   // ---- Project context ----
   const contextLines: string[] = [];
