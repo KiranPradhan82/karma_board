@@ -33,6 +33,9 @@ import {
   ShieldX,
   ShieldAlert,
   Bell,
+  FolderTree,
+  TerminalSquare,
+  PanelLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +78,11 @@ import {
 import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Textarea } from "@/components/ui/textarea";
+import { IdeLayout } from "@/components/karma-space/ide-layout";
+import { FileExplorer, buildFileTree } from "@/components/karma-space/file-explorer";
+import { TerminalPanel } from "@/components/karma-space/terminal-panel";
+import type { FileTreeItem } from "@/components/karma-space/file-explorer";
+import type { TerminalEntry } from "@/components/karma-space/terminal-panel";
 
 interface Project {
   id: string;
@@ -172,6 +180,12 @@ export default function KarmaSpacePage() {
   }[]>([]);
   const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
   const [deleteReviewDialogOpen, setDeleteReviewDialogOpen] = useState(false);
+
+  // IDE panel state
+  const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
+  const [terminalOutput, setTerminalOutput] = useState<TerminalEntry[]>([]);
+  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
 
   // Fetch pending delete requests (SUPERADMIN)
   useEffect(() => {
@@ -689,6 +703,57 @@ export default function KarmaSpacePage() {
     checkDocs();
   }, [selectedProject, onboardingPhase]);
 
+  // Parse tool execution results to populate file tree and terminal output
+  useEffect(() => {
+    const allDirItems: Array<{ name: string; path: string; type: string; size?: number }> = [];
+    const allTerminalEntries: TerminalEntry[] = [];
+
+    for (const msg of messages) {
+      if (!msg.toolExecutions) continue;
+      for (const tool of msg.toolExecutions) {
+        // Parse fs_list_dir results → file tree
+        if (tool.toolName === "fs_list_dir" && tool.status === "success") {
+          try {
+            const data = JSON.parse(tool.displayMessage);
+            if (Array.isArray(data.items)) {
+              allDirItems.push(...data.items);
+            } else if (Array.isArray(data)) {
+              allDirItems.push(...data);
+            }
+          } catch {
+            // Not valid JSON — skip
+          }
+        }
+        // Parse exec_command results → terminal entries
+        if (tool.toolName === "exec_command" && (tool.status === "success" || tool.status === "error")) {
+          try {
+            const data = JSON.parse(tool.displayMessage);
+            if (data.command) {
+              allTerminalEntries.push({
+                id: `term-${msg.id}-${allTerminalEntries.length}`,
+                command: data.command,
+                status: data.status || (tool.status === "error" ? "error" : "success"),
+                output: data.output || "",
+                conclusion: data.conclusion,
+                runUrl: data.runUrl,
+                timestamp: new Date(msg.timestamp),
+              });
+            }
+          } catch {
+            // Not valid JSON — skip
+          }
+        }
+      }
+    }
+
+    if (allDirItems.length > 0) {
+      setFileTree(buildFileTree(allDirItems));
+    }
+    if (allTerminalEntries.length > 0) {
+      setTerminalOutput(allTerminalEntries);
+    }
+  }, [messages]);
+
   // Handle onboarding submission
   const handleOnboardingSubmit = useCallback(async () => {
     if (!selectedProject || onboardingSubmitting) return;
@@ -914,6 +979,36 @@ export default function KarmaSpacePage() {
             </Popover>
           </div>
 
+          {/* IDE Panel Toggles */}
+          <div className="flex items-center gap-0.5 border-l pl-2 ml-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 shrink-0 ${fileExplorerOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+                  onClick={() => setFileExplorerOpen((prev) => !prev)}
+                >
+                  <FolderTree className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{fileExplorerOpen ? "Hide Files" : "Show Files"}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-8 w-8 shrink-0 ${terminalOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+                  onClick={() => setTerminalOpen((prev) => !prev)}
+                >
+                  <TerminalSquare className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{terminalOpen ? "Hide Terminal" : "Show Terminal"}</TooltipContent>
+            </Tooltip>
+          </div>
+
           {/* Right side: Model selector + Export PDF */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             {isSuperAdmin && selectedProject && (
@@ -1045,8 +1140,36 @@ export default function KarmaSpacePage() {
           </div>
         </div>
 
-        {/* Messages Area — fills remaining space, scrolls independently */}
+        {/* Main Content Area — split into IDE layout */}
         <div className="flex-1 overflow-hidden">
+          <IdeLayout
+            fileExplorerOpen={fileExplorerOpen}
+            terminalOpen={terminalOpen}
+            onFileExplorerOpenChange={setFileExplorerOpen}
+            onTerminalOpenChange={setTerminalOpen}
+            isMobile={isMobile}
+            fileExplorerContent={
+              <FileExplorer
+                files={fileTree}
+                onToggle={() => setFileExplorerOpen(false)}
+                onSelectFile={(path) => {
+                  setInputValue("Show me the contents of " + path);
+                  inputRef.current?.focus();
+                }}
+              />
+            }
+            terminalContent={
+              <TerminalPanel
+                entries={terminalOutput}
+                onToggle={() => setTerminalOpen((prev) => !prev)}
+                isMinimized={!terminalOpen}
+                onClear={() => setTerminalOutput([])}
+              />
+            }
+          >
+            <div className="flex flex-col h-full">
+              {/* Messages Area — fills remaining space, scrolls independently */}
+              <div className="flex-1 overflow-hidden">
           {!selectedProject ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
@@ -1583,6 +1706,9 @@ export default function KarmaSpacePage() {
               </Tooltip>
             </div>
           </div>
+        </div>
+            </div>
+          </IdeLayout>
         </div>
       </div>
         {/* ===== Delete Chat Confirmation Dialog ===== */}
