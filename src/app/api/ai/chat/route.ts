@@ -429,7 +429,7 @@ export async function POST(request: NextRequest) {
 
     // Get tools for this user's role
     // For doc commands: ONLY pass list_projects and get_project_info (read-only data tools)
-    // web_search is REMOVED — it's a knowledge-based stub that wastes agentic loop rounds
+    // knowledge_research is REMOVED from doc commands — it wastes agentic loop rounds
     // create/update/add_member are irrelevant for doc generation
     // For /init: add save_github_config tool so AI can save credentials
     let availableTools = getToolsForRole(user.role);

@@ -196,9 +196,9 @@ export const AI_TOOLS: AiToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "web_search",
+      name: "knowledge_research",
       description:
-        "Perform knowledge-based research on a topic. Use this for competitive analysis, market research, technology trends, UX patterns, and security best practices during documentation generation. Returns structured research insights based on extensive training data.",
+        "Perform knowledge-based research on a topic using training data. This is NOT a live web search — it returns structured research guidance based on your training knowledge. Use for competitive analysis, market research, technology trends, UX patterns, and security best practices during documentation generation. Do NOT claim you searched the web — say 'Based on my knowledge' instead.",
       parameters: {
         type: "object",
         properties: {

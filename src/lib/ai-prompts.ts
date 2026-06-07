@@ -554,14 +554,9 @@ function getDocWorkflowFooter(
 
 ### All 6 Documents Complete!
 
-${firstName}, all 6 pre-coding documents have been generated and reviewed. You are now ready to initialize the project.
+${firstName}, all 6 pre-coding documents have been generated and reviewed. You are now ready to save the project configuration.
 
-**Type \`/init\`** to start the project initialization flow. Karma Space will guide you through:
-1. **GitHub Repository** — Repo URL and Personal Access Token
-2. **Database Configuration** — Connection URL and auth token
-3. **API Keys** — Email, AI, payment, and any other third-party services
-
-Only proceed to \`/init\` when all documents are confirmed.`
+**Type \`/init\`** to save project settings (GitHub repo URL, database credentials, API keys). Note: Karma Space saves configuration only — it does NOT create repos, push code, or run builds.
     : nextCommand
     ? `
 
@@ -782,7 +777,7 @@ ${getRoleAccessRules(userRole || "MEMBER")}
 9. **Report results**: After a tool call, clearly tell the user what happened
 10. **CRITICAL: NEVER suggest project initialization, scaffolding, /init, repo setup, or infrastructure setup while generating documents.** The /init command must ONLY be suggested AFTER all 6 documents (PRD, TRD, Flow, UX, Schema, Plan) are confirmed. During document generation, focus ONLY on the current document — do not mention project setup, GitHub repos, databases, or deployment.
 11. **CRITICAL: During document generation, NEVER ask about GitHub, database URLs, API keys, deployment, hosting, or any infrastructure topics.** These are ONLY discussed during the /init flow after all 6 documents are complete.
-12. **MANDATORY: Test, Debug, and Verify Before Every GitHub Push.** Before pushing ANY code to GitHub, you MUST follow this strict cycle: (1) Run the build command to check for compilation/type errors. (2) If there are errors, fix them immediately. (3) Re-run the build. (4) Repeat steps 1-3 until the build passes with ZERO errors. (5) Only then commit and push to GitHub. NEVER push code with known build failures, type errors, lint errors, or broken functionality. This rule applies EVERY time — there are NO exceptions, not even for "quick fixes" or "minor changes." A broken build pushed to main is unacceptable.
+12. **YOU CANNOT PUSH CODE, RUN BUILDS, CREATE REPOS, OR EXECUTE COMMANDS.** You are a document generation and project management assistant. You can ONLY: (a) Generate documents via /docs commands, (b) Manage projects via your available tools (create_project, update_project, add_project_member, list_projects, get_project_info), (c) Answer questions. If a user asks you to push code, create a repo, run a build, or deploy, tell them honestly: "I don't have a tool for that — please do it from your code editor or GitHub dashboard." **NEVER pretend you performed an action you cannot do.** Never say "I'll push it now" or "Build passed, deploying..." because you cannot do those things.
 13. **CUSTOMIZATION FLOW**: When the user requests changes to a generated document: (a) Ask clarifying questions if the request is vague. (b) For color changes, accept both color names (blue, red, green) and hex codes (#1E40AF). (c) For any design element change, ask specifically what they want (color name or hex code for each component). (d) Regenerate the FULL document with all changes incorporated — never just show a diff or partial update. (e) The system will auto-save the updated version and increment the version number.
 14. **POST-GENERATION REVIEW**: After generating any document (PRD, TRD, Flow, UX, Schema, Plan), you MUST append a review prompt at the end asking: Would you like to make any changes? Reply Yes to describe changes, No to continue to next document, or specify a section. Click Download PDF button to get the styled document. This review prompt must appear after EVERY generated document without exception.`;
 
@@ -1017,12 +1012,12 @@ We use GitHub for version control, CI/CD, and collaboration. I need:
 
 1. **GitHub Repository URL**
    - The full repository URL (e.g., \`https://github.com/username/repo-name\`)
-   - If the repository doesn't exist yet, ask the user for their preferred repo name and I will note it needs to be created first
-   - This is where Karma Space will push and pull code
+   - If the repository doesn't exist yet, ask the user to create it first on GitHub
+   - This URL is saved for optional auto-push of generated documents to the repo
 
 2. **GitHub Personal Access Token (PAT)**
    - A token with at minimum \`repo\` and \`write:packages\` scopes
-   - This token is used for: pushing code, pulling code, setting up GitHub Actions CI/CD, and managing repository settings
+   - This token is stored securely for optional document auto-push to the repository
    - **How to create a PAT:** Go to GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token. Select the repository and grant \`Contents: Read and write\` and \`Administration: Read and write\` permissions.
 
 3. **GitHub PAT Expiry Date**

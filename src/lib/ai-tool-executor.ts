@@ -468,16 +468,16 @@ async function addProjectMember(
   }
 }
 
-// ===== Tool: web_search (Knowledge-Based Research) =====
+// ===== Tool: knowledge_research (Knowledge-Based Research) =====
 
-async function webSearch(
+async function knowledgeResearch(
   args: { query: string; category?: string },
   _ctx: ExecutorContext
 ): Promise<AiToolResult> {
   if (!args.query || args.query.trim().length === 0) {
     return {
       toolCallId: "",
-      toolName: "web_search",
+      toolName: "knowledge_research",
       success: false,
       result: "Research query is required.",
       displayMessage: "Missing research query.",
@@ -510,7 +510,7 @@ async function webSearch(
 
   return {
     toolCallId: "",
-    toolName: "web_search",
+    toolName: "knowledge_research",
     success: true,
     result: JSON.stringify(result),
     displayMessage: `Researching: "${query.slice(0, 50)}" (${category})`,
@@ -725,8 +725,8 @@ export async function executeToolCall(
       return { ...(await updateProject(parsedArgs as Parameters<typeof updateProject>[0], ctx)), toolCallId: toolCall.id };
     case "add_project_member":
       return { ...(await addProjectMember(parsedArgs as Parameters<typeof addProjectMember>[0], ctx)), toolCallId: toolCall.id };
-    case "web_search":
-      return { ...(await webSearch(parsedArgs as { query: string }, ctx)), toolCallId: toolCall.id };
+    case "knowledge_research":
+      return { ...(await knowledgeResearch(parsedArgs as { query: string }, ctx)), toolCallId: toolCall.id };
     case "save_github_config":
       return { ...(await saveGithubConfig(parsedArgs as { repoUrl: string; pat: string; patExpiry?: string }, ctx)), toolCallId: toolCall.id };
     case "save_database_config":
@@ -758,7 +758,7 @@ export function getToolLabel(toolName: string): string {
     get_project_info: "Getting project info",
     update_project: "Updating project",
     add_project_member: "Adding team member",
-    web_search: "Searching the web",
+    knowledge_research: "Researching topic",
     save_github_config: "Saving GitHub config",
     save_database_config: "Saving database config",
   };
@@ -775,7 +775,7 @@ export function getToolIcon(toolName: string): string {
     get_project_info: "🔍",
     update_project: "✏️",
     add_project_member: "👤",
-    web_search: "🌐",
+    knowledge_research: "📚",
     save_github_config: "🚀",
     save_database_config: "🗄️",
   };
