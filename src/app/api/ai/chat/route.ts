@@ -930,6 +930,135 @@ export async function POST(request: NextRequest) {
       })();
     }
 
+    // ===== z.ai Bridge: Check if /init should include bridge info =====
+    // If command is /init and project has all 6 documents, check z.ai config and add bridge data
+    let zaiBridge: {
+      chatId: string;
+      chatUrl: string;
+      context: string;
+      modelName: string;
+      documentsFound: number;
+      isNewChat: boolean;
+      aiResponse?: string;
+    } | undefined;
+
+    if (command === "/init") {
+      try {
+        // Check if project has all 6 documents
+        const docsCountResult = await client.execute({
+          sql: `SELECT COUNT(*) as count FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan')`,
+          args: [projectId],
+        });
+        const docsCount = Number(docsCountResult.rows[0]?.count || 0);
+
+        if (docsCount >= 6) {
+          // Check z.ai config
+          const zaiKeyResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
+            args: [],
+          });
+
+          if (zaiKeyResult.rows.length > 0 && zaiKeyResult.rows[0].value) {
+            // Fetch all documents and build context
+            const docsResult = await client.execute({
+              sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
+              args: [projectId],
+            });
+
+            const DOC_LABELS: Record<string, string> = {
+              prd: "Product Requirements Document",
+              trd: "Technical Requirements Document",
+              flow: "Application Flow Document",
+              ux: "UI/UX Design Brief",
+              schema: "Backend Schema Document",
+              plan: "Implementation Plan",
+            };
+
+            // Check for existing chat mapping
+            const chatKey = `ZAI_CHAT:${projectId}`;
+            const existingChat = await client.execute({
+              sql: `SELECT value FROM "Settings" WHERE key = ?`,
+              args: [chatKey],
+            });
+
+            let chatId: string;
+            let isNewChat = false;
+            if (existingChat.rows.length > 0 && existingChat.rows[0].value) {
+              chatId = existingChat.rows[0].value as string;
+            } else {
+              chatId = crypto.randomUUID();
+              isNewChat = true;
+              await client.execute({
+                sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+                args: [chatKey, chatId],
+              });
+            }
+
+            // Get z.ai settings
+            const zaiBaseUrlResult = await client.execute({
+              sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
+              args: [],
+            });
+            const zaiModelResult = await client.execute({
+              sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_MODEL'`,
+              args: [],
+            });
+
+            const zaiBaseUrl = zaiBaseUrlResult.rows.length > 0 && zaiBaseUrlResult.rows[0].value
+              ? (zaiBaseUrlResult.rows[0].value as string)
+              : "https://api.z.ai/api/paas/v4";
+            const zaiModel = zaiModelResult.rows.length > 0 && zaiModelResult.rows[0].value
+              ? (zaiModelResult.rows[0].value as string)
+              : "glm-5-turbo";
+
+            // Fetch GitHub repo URL
+            let githubRepoUrl = "";
+            try {
+              const repoResult = await client.execute({
+                sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+                args: [],
+              });
+              if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
+            } catch { /* non-critical */ }
+
+            // Build context
+            let context = `# ${project?.name || "Project"} — Complete Project Brief\n\n`;
+            context += `**Project:** ${project?.name || ""}\n`;
+            if (project?.description) context += `**Description:** ${project.description}\n`;
+            if (project?.clientName) context += `**Client:** ${project.clientName}\n`;
+            if (project?.status) context += `**Status:** ${project.status}\n`;
+            if (project?.priority) context += `**Priority:** ${project.priority}\n`;
+            if (project?.deadline) context += `**Deadline:** ${project.deadline}\n`;
+            if (githubRepoUrl) context += `**GitHub Repo:** ${githubRepoUrl}\n`;
+            context += `**Prepared by:** ${userName}\n\n---\n\n`;
+
+            for (const docRow of docsResult.rows) {
+              const docType = docRow.docType as string;
+              const label = DOC_LABELS[docType] || docType.toUpperCase();
+              const docContent = (docRow.content as string) || "(empty)";
+              const truncated = docContent.length > 8000
+                ? docContent.slice(0, 8000) + "\n\n... (truncated)"
+                : docContent;
+              context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
+            }
+
+            zaiBridge = {
+              chatId,
+              chatUrl: "https://z.ai/chat",
+              context,
+              modelName: zaiModel,
+              documentsFound: docsCount,
+              isNewChat,
+            };
+
+            console.log(`[Chat] z.ai Bridge: ${docsCount} docs found for project ${projectId}, chatId=${chatId}, isNew=${isNewChat}`);
+          }
+        }
+      } catch (bridgeErr) {
+        console.error("[Chat] z.ai Bridge check error (non-fatal):", bridgeErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -942,6 +1071,7 @@ export async function POST(request: NextRequest) {
         modelAutoRouted: modelAutoRouted || undefined,
         modelRouteReason: modelRouteReason || undefined,
         documentInfo: documentInfo || undefined,
+        zaiBridge: zaiBridge,
       },
     });
   } catch (error) {

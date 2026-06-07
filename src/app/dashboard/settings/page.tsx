@@ -13,6 +13,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Palette,
+  Globe,
+  Zap,
+  XCircle,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -99,6 +102,15 @@ export default function SettingsPage() {
   const [pdfThemeHasChanges, setPdfThemeHasChanges] = useState(false);
   const [pdfThemeSaving, setPdfThemeSaving] = useState(false);
 
+  // z.ai Bridge state
+  const [zaiApiKey, setZaiApiKey] = useState("");
+  const [zaiApiKeyChanged, setZaiApiKeyChanged] = useState(false);
+  const [zaiBaseUrl, setZaiBaseUrl] = useState("https://api.z.ai/api/paas/v4");
+  const [zaiModel, setZaiModel] = useState("glm-5-turbo");
+  const [zaiTestStatus, setZaiTestStatus] = useState<null | 'success' | 'error'>(null);
+  const [zaiTesting, setZaiTesting] = useState(false);
+  const [zaiSaving, setZaiSaving] = useState(false);
+
   // Fetch settings
   useEffect(() => {
     async function fetchSettings() {
@@ -115,6 +127,11 @@ export default function SettingsPage() {
           if (data.RESEND_FROM_NAME) setFromName(data.RESEND_FROM_NAME.value);
           if (data.SMTP_USER) setSmtpUser(data.SMTP_USER.value);
           if (data.SMTP_PASSWORD) setSmtpPassword(data.SMTP_PASSWORD.value);
+
+          // Load z.ai Bridge settings
+          if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
+          if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
 
           // Load PDF theme
           if (data.PDF_THEME) {
@@ -141,6 +158,71 @@ export default function SettingsPage() {
     }
     if (userRole === "SUPERADMIN") fetchSettings();
   }, [userRole]);
+
+  // Test z.ai connection
+  async function handleTestZai() {
+    setZaiTesting(true);
+    setZaiTestStatus(null);
+    try {
+      const res = await fetch("/api/settings/test-zai");
+      const json = await res.json();
+      setZaiTestStatus(json.success ? "success" : "error");
+      if (json.success) {
+        toast.success("z.ai connection successful! Model: " + (json.model || "OK"));
+      } else {
+        toast.error(json.error || "Connection failed");
+      }
+    } catch {
+      setZaiTestStatus("error");
+      toast.error("Failed to test z.ai connection");
+    } finally {
+      setZaiTesting(false);
+    }
+  }
+
+  // Save z.ai bridge settings
+  async function handleSaveZai() {
+    setZaiSaving(true);
+    try {
+      const updateSettings: Record<string, string> = {};
+      if (zaiApiKeyChanged && zaiApiKey) updateSettings.ZAI_BRIDGE_API_KEY = zaiApiKey;
+      if (zaiBaseUrl !== (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4")) updateSettings.ZAI_BRIDGE_BASE_URL = zaiBaseUrl;
+      if (zaiModel !== (settings.ZAI_BRIDGE_MODEL?.value || "glm-5-turbo")) updateSettings.ZAI_BRIDGE_MODEL = zaiModel;
+
+      if (Object.keys(updateSettings).length === 0) {
+        toast.info("No changes to save");
+        setZaiSaving(false);
+        return;
+      }
+
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: updateSettings }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success("z.ai Bridge settings saved successfully");
+        setZaiApiKeyChanged(false);
+        // Refresh settings
+        const refreshRes = await fetch("/api/settings");
+        const refreshJson = await refreshRes.json();
+        if (refreshJson.success) {
+          setSettings(refreshJson.data);
+          const data = refreshJson.data as Record<string, SettingItem>;
+          if (data.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
+          if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
+        }
+      } else {
+        toast.error(json.error || "Failed to save settings");
+      }
+    } catch {
+      toast.error("Something went wrong");
+    } finally {
+      setZaiSaving(false);
+    }
+  }
 
   // Save settings
   async function handleSave() {
@@ -197,6 +279,9 @@ export default function SettingsPage() {
           if (data.EMAIL_PROVIDER) setEmailProvider(data.EMAIL_PROVIDER.value);
           if (data.SMTP_USER) setSmtpUser(data.SMTP_USER.value);
           if (data.SMTP_PASSWORD && !smtpPassChanged) setSmtpPassword(data.SMTP_PASSWORD.value);
+          if (data.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
+          if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
         }
       } else {
         toast.error(json.error || "Failed to save settings");
@@ -506,6 +591,139 @@ export default function SettingsPage() {
                 <Save className="mr-2 h-4 w-4" />
               )}
               {saving ? "Saving..." : "Save Settings"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* z.ai Bridge Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            z.ai Bridge
+          </CardTitle>
+          <CardDescription>
+            Connect KarmaBoard to z.ai so users can launch project context into z.ai chat sessions.
+            Used by the <code className="text-xs bg-muted px-1 py-0.5 rounded">/init</code> command.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <Alert>
+            <Zap className="h-4 w-4" />
+            <AlertDescription>
+              When configured, users can type <strong>/init</strong> in Karma Space to open z.ai with all
+              6 generated project documents loaded. The API key is stored encrypted in the database.
+            </AlertDescription>
+          </Alert>
+
+          <Separator />
+
+          {/* z.ai API Key */}
+          <div className="space-y-1.5">
+            <Label htmlFor="zai-api-key" className="flex items-center gap-1.5">
+              <Key className="h-3.5 w-3.5" />
+              z.ai API Key
+            </Label>
+            <Input
+              id="zai-api-key"
+              type="password"
+              placeholder="Enter z.ai API key"
+              value={zaiApiKey}
+              onChange={(e) => {
+                setZaiApiKey(e.target.value);
+                setZaiApiKeyChanged(true);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Your z.ai platform API key. Encrypted in the database.
+              {settings.ZAI_BRIDGE_API_KEY?.updatedAt && (
+                <span className="block mt-1">
+                  Last updated:{" "}
+                  {new Date(settings.ZAI_BRIDGE_API_KEY.updatedAt).toLocaleString()}
+                </span>
+              )}
+            </p>
+            {settings.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged && (
+              <p className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> API key is configured
+              </p>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* z.ai Base URL */}
+          <div className="space-y-1.5">
+            <Label htmlFor="zai-base-url" className="flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5" />
+              z.ai Base URL
+            </Label>
+            <Input
+              id="zai-base-url"
+              type="text"
+              placeholder="https://api.z.ai/api/paas/v4"
+              value={zaiBaseUrl}
+              onChange={(e) => setZaiBaseUrl(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              The z.ai API endpoint. Default: <code className="text-[11px]">https://api.z.ai/api/paas/v4</code>
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* z.ai Model */}
+          <div className="space-y-1.5">
+            <Label htmlFor="zai-model" className="flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5" />
+              z.ai Model
+            </Label>
+            <Input
+              id="zai-model"
+              type="text"
+              placeholder="glm-5-turbo"
+              value={zaiModel}
+              onChange={(e) => setZaiModel(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              The model to use for z.ai chat sessions. Default: <code className="text-[11px]">glm-5-turbo</code>
+            </p>
+          </div>
+
+          {/* Test Connection + Save */}
+          <div className="flex items-center gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestZai}
+              disabled={zaiTesting || !settings.ZAI_BRIDGE_API_KEY}
+            >
+              {zaiTesting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : zaiTestStatus === "success" ? (
+                <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-500" />
+              ) : zaiTestStatus === "error" ? (
+                <XCircle className="mr-2 h-4 w-4 text-red-500" />
+              ) : null}
+              {zaiTesting ? "Testing..." : "Test Connection"}
+            </Button>
+            <div className="flex-1" />
+            <Button
+              onClick={handleSaveZai}
+              disabled={
+                zaiSaving ||
+                (!zaiApiKeyChanged &&
+                  zaiBaseUrl === (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4") &&
+                  zaiModel === (settings.ZAI_BRIDGE_MODEL?.value || "glm-5-turbo"))
+              }
+            >
+              {zaiSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              {zaiSaving ? "Saving..." : "Save"}
             </Button>
           </div>
         </CardContent>

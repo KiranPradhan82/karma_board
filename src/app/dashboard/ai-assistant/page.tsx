@@ -36,6 +36,8 @@ import {
   FolderTree,
   TerminalSquare,
   PanelLeft,
+  Globe,
+  Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +79,7 @@ import {
 } from "@/components/ui/dialog";
 import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
 import { IdeLayout } from "@/components/karma-space/ide-layout";
 import { FileExplorer, buildFileTree } from "@/components/karma-space/file-explorer";
@@ -113,6 +116,15 @@ interface ChatMessage {
     docType: string;
     title: string;
     version: number;
+  };
+  zaiBridge?: {
+    chatId: string;
+    chatUrl: string;
+    context: string;
+    modelName: string;
+    documentsFound: number;
+    isNewChat: boolean;
+    aiResponse?: string;
   };
 }
 
@@ -413,6 +425,7 @@ export default function KarmaSpacePage() {
               toolExecutions: json.data.toolExecutions || undefined,
               modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
               documentInfo: json.data.documentInfo || undefined,
+              zaiBridge: json.data.zaiBridge || undefined,
             },
           ];
         });
@@ -485,6 +498,7 @@ export default function KarmaSpacePage() {
                   toolExecutions: json.data.toolExecutions || undefined,
                   modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
                   documentInfo: json.data.documentInfo || undefined,
+                  zaiBridge: json.data.zaiBridge || undefined,
                 },
               ];
             });
@@ -870,6 +884,25 @@ export default function KarmaSpacePage() {
       else next.add(id);
       return next;
     });
+  };
+
+  // Handle z.ai bridge — open in new tab and copy context
+  const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
+  const handleOpenZai = (msg: ChatMessage) => {
+    if (!msg.zaiBridge) return;
+    // Open z.ai chat in new tab
+    window.open(msg.zaiBridge.chatUrl, "_blank", "noopener,noreferrer");
+  };
+  const handleCopyZaiContext = async (msg: ChatMessage) => {
+    if (!msg.zaiBridge) return;
+    try {
+      await navigator.clipboard.writeText(msg.zaiBridge.context);
+      setZaiCopiedId(msg.id);
+      toast.success("Project context copied! Paste it in z.ai chat.");
+      setTimeout(() => setZaiCopiedId(null), 3000);
+    } catch {
+      toast.error("Failed to copy to clipboard");
+    }
   };
 
   // Color mapping for doc types
@@ -1378,7 +1411,64 @@ export default function KarmaSpacePage() {
                         )}
 
                         {/* Message Content */}
-                        {message.role === "assistant" && message.documentInfo ? (
+                        {message.role === "assistant" && message.zaiBridge ? (
+                          <>
+                            {/* z.ai Bridge Card */}
+                            <div className="w-full rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
+                              <div className="flex items-center gap-3 px-4 py-3 bg-primary/10">
+                                <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
+                                  <Globe className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-primary">
+                                    {user?.name ? `${user.name}'s` : "Your"} Karmaspace
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-0.5">
+                                    <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                                      {message.zaiBridge.documentsFound} Documents
+                                    </Badge>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {message.zaiBridge.modelName}
+                                    </span>
+                                    {message.zaiBridge.isNewChat ? (
+                                      <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-700">
+                                        New Session
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-700">
+                                        Resume Session
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 px-4 py-3 border-t border-primary/10">
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="gap-1.5 h-8 text-xs bg-primary text-primary-foreground"
+                                  onClick={() => handleOpenZai(message)}
+                                >
+                                  <Globe className="h-3.5 w-3.5" />
+                                  <span>Open in z.ai</span>
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5 h-8 text-xs"
+                                  onClick={() => handleCopyZaiContext(message)}
+                                >
+                                  {zaiCopiedId === message.id ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                  <span>{zaiCopiedId === message.id ? "Copied!" : "Copy Context"}</span>
+                                </Button>
+                              </div>
+                            </div>
+                          </>
+                        ) : message.role === "assistant" && message.documentInfo ? (
                           /* ===== Document Card ===== */
                           (() => {
                             const doc = message.documentInfo;

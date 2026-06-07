@@ -3,7 +3,7 @@ import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } fr
 import { encrypt, decrypt, maskSensitive } from '@/lib/encryption';
 
 // Settings keys that should be encrypted in DB
-const SENSITIVE_KEYS = ['RESEND_API_KEY', 'SMTP_PASSWORD'];
+const SENSITIVE_KEYS = ['RESEND_API_KEY', 'SMTP_PASSWORD', 'ZAI_BRIDGE_API_KEY'];
 
 // Allowed setting keys
 const ALLOWED_KEYS = [
@@ -16,6 +16,10 @@ const ALLOWED_KEYS = [
   'SMTP_PASSWORD',
   // PDF Theme (JSON object with color keys)
   'PDF_THEME',
+  // z.ai Bridge credentials
+  'ZAI_BRIDGE_API_KEY',
+  'ZAI_BRIDGE_BASE_URL',
+  'ZAI_BRIDGE_MODEL',
 ];
 
 // GET /api/settings — Fetch all settings (sensitive values masked)
