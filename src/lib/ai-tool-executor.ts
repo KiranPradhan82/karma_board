@@ -1309,11 +1309,11 @@ async function fsListDir(
 ): Promise<AiToolResult> {
   const { tursoClient, userRole } = ctx;
 
-  if (userRole !== "SUPERADMIN") {
+  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
     return {
       toolCallId: "", toolName: "fs_list_dir",
-      success: false, result: "Permission denied: Only SUPERADMIN can list directories.",
-      displayMessage: "Permission denied — only Super Admin can list directories.",
+      success: false, result: "Permission denied: Only ADMIN and SUPERADMIN can list directories.",
+      displayMessage: "Permission denied — only admins can list directories.",
     };
   }
 
@@ -1395,11 +1395,11 @@ async function fsReadFile(
 ): Promise<AiToolResult> {
   const { tursoClient, userRole } = ctx;
 
-  if (userRole !== "SUPERADMIN") {
+  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
     return {
       toolCallId: "", toolName: "fs_read_file",
-      success: false, result: "Permission denied: Only SUPERADMIN can read files.",
-      displayMessage: "Permission denied — only Super Admin can read files.",
+      success: false, result: "Permission denied: Only ADMIN and SUPERADMIN can read files.",
+      displayMessage: "Permission denied — only admins can read files.",
     };
   }
 
@@ -1848,6 +1848,84 @@ async function fsBatchWrite(
   }
 }
 
+// ===== Helper: Extract text from ZIP buffer =====
+
+async function extractTextFromZipBuffer(buffer: ArrayBuffer): Promise<string | null> {
+  // Simple ZIP parser: find Local File Header entries and extract uncompressed content
+  // ZIP format: PK\x03\x04 followed by file metadata and content
+  const bytes = new Uint8Array(buffer);
+  const parts: string[] = [];
+  let offset = 0;
+
+  while (offset < bytes.length - 30) {
+    // Look for Local File Header signature: PK\x03\x04
+    if (bytes[offset] === 0x50 && bytes[offset + 1] === 0x4B &&
+        bytes[offset + 2] === 0x03 && bytes[offset + 3] === 0x04) {
+      const compressionMethod = bytes[offset + 8] | (bytes[offset + 9] << 8);
+      const compressedSize = bytes[offset + 18] | (bytes[offset + 19] << 8) |
+        (bytes[offset + 20] << 16) | (bytes[offset + 21] << 24);
+      const uncompressedSize = bytes[offset + 22] | (bytes[offset + 23] << 8) |
+        (bytes[offset + 24] << 16) | (bytes[offset + 25] << 24);
+      const fileNameLength = bytes[offset + 26] | (bytes[offset + 27] << 8);
+      const extraFieldLength = bytes[offset + 28] | (bytes[offset + 29] << 8);
+
+      const fileNameStart = offset + 30;
+      const fileName = new TextDecoder().decode(bytes.slice(fileNameStart, fileNameStart + fileNameLength));
+      const dataStart = fileNameStart + fileNameLength + extraFieldLength;
+
+      if (compressionMethod === 0) {
+        // STORED (no compression)
+        const content = new TextDecoder().decode(bytes.slice(dataStart, dataStart + uncompressedSize));
+        if (fileName.endsWith(".txt")) {
+          parts.push(content);
+        }
+        offset = dataStart + compressedSize;
+      } else if (compressionMethod === 8) {
+        // DEFLATE - use DecompressionStream if available (Edge Runtime)
+        if (typeof DecompressionStream !== "undefined") {
+          try {
+            const deflateStream = new DecompressionStream("deflate-raw");
+            const writer = deflateStream.writable.getWriter();
+            writer.write(bytes.slice(dataStart, dataStart + compressedSize));
+            writer.close();
+
+            const reader = deflateStream.readable.getReader();
+            const chunks: Uint8Array[] = [];
+            let totalSize = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              totalSize += value.length;
+            }
+
+            const result = new Uint8Array(totalSize);
+            let pos = 0;
+            for (const chunk of chunks) {
+              result.set(chunk, pos);
+              pos += chunk.length;
+            }
+
+            const content = new TextDecoder().decode(result);
+            if (fileName.endsWith(".txt")) {
+              parts.push(content);
+            }
+          } catch {
+            // Decompression failed, skip
+          }
+        }
+        offset = dataStart + compressedSize;
+      } else {
+        offset = dataStart + compressedSize;
+      }
+    } else {
+      offset++;
+    }
+  }
+
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
 // ===== Tool: exec_command =====
 
 async function execCommand(
@@ -1970,9 +2048,11 @@ async function execCommand(
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
-    // 4. Get job details if run completed
+    // 4. Get job details and logs if run completed
     let stepResults: { name: string; conclusion: string }[] = [];
-    if (runId && runStatus === "completed") {
+    let commandOutput: string | null = null;
+
+    if (runId) {
       try {
         const jobsRes = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/jobs`,
@@ -1989,6 +2069,61 @@ async function execCommand(
       } catch (e) {
         console.error("[execCommand] Error fetching job details:", e);
       }
+
+      // 5. Try to download the artifact with command output
+      if (runStatus === "completed") {
+        try {
+          const artifactsRes = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`,
+            { headers }
+          );
+          if (artifactsRes.ok) {
+            const artifactsData = await artifactsRes.json();
+            const outputArtifact = (artifactsData.artifacts || []).find(
+              (a: any) => a.name?.startsWith("karma-output-")
+            );
+            if (outputArtifact) {
+              // Download the artifact zip (contains karma-output.txt and karma-error.txt)
+              const zipRes = await fetch(outputArtifact.archive_download_url, {
+                headers: { ...headers, Accept: "application/zip" },
+              });
+              if (zipRes.ok) {
+                // Parse the zip to extract text files
+                const zipBuffer = await zipRes.arrayBuffer();
+                commandOutput = await extractTextFromZipBuffer(zipBuffer);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("[execCommand] Error fetching artifact:", e);
+        }
+      }
+    }
+
+    // 6. Try to get logs directly as fallback (for simpler output)
+    if (!commandOutput && runId && runStatus === "completed") {
+      try {
+        const logsRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/logs`,
+          { headers }
+        );
+        if (logsRes.ok) {
+          const logText = await logsRes.text();
+          // Extract the "Execute command" section
+          const execMatch = logText.match(/Execute command[\s\S]*?(?=\n\x00|\n\n[A-Z]|\Z)/);
+          if (execMatch) {
+            const cleaned = execMatch[0]
+              .replace(/\x00/g, "")
+              .replace(/\x1b\[[0-9;]*m/g, "")
+              .trim();
+            if (cleaned.length > 50) {
+              commandOutput = cleaned.slice(0, 10000);
+            }
+          }
+        }
+      } catch {
+        // Logs not available, that's fine
+      }
     }
 
     return {
@@ -2002,9 +2137,10 @@ async function execCommand(
         status: runStatus,
         conclusion: runConclusion,
         steps: stepResults,
+        output: commandOutput || null,
       }),
       displayMessage: runStatus === "completed"
-        ? `Command completed (${runConclusion}). ${runUrl ? `View: ${runUrl}` : ""}`
+        ? `Command completed (${runConclusion}). ${runUrl ? `View: ${runUrl}` : ""}${commandOutput ? `\n\nOutput:\n${commandOutput.slice(0, 2000)}` : ""}`
         : `Command ${runStatus}... ${runUrl ? `Monitor: ${runUrl}` : ""}`,
     };
   } catch (error) {
@@ -2302,9 +2438,11 @@ export async function executeToolCall(
 function isToolAllowedForRole(toolName: string, role: string): boolean {
   // SUPERADMIN-only tools (not even ADMIN)
   const superAdminOnlyTools = [
-    "fs_list_dir", "fs_read_file", "fs_write_file", "fs_delete_file",
+    "fs_write_file", "fs_delete_file",
     "fs_search_code", "fs_batch_write", "exec_command", "image_generate",
   ];
+  // SUPERADMIN+ADMIN tools (read-only filesystem)
+  const adminPlusFsTools = ["fs_list_dir", "fs_read_file"];
   // ADMIN+ tools (restricted from MEMBER role)
   const adminPlusTools = ["create_project", "update_project", "add_project_member", "github_pull", "create_or_update_file", "github_push_code"];
   // SUPERADMIN or ADMIN-only tools (web_read_page)
@@ -2312,10 +2450,11 @@ function isToolAllowedForRole(toolName: string, role: string): boolean {
 
   if (role === "SUPERADMIN") return true;
   if (role === "ADMIN") {
+    // ADMIN can use adminPlusFsTools + adminPlusTools + superOrAdminTools + public tools
     return !superAdminOnlyTools.includes(toolName);
   }
   // MEMBER or other roles
-  if (superAdminOnlyTools.includes(toolName) || adminPlusTools.includes(toolName) || superOrAdminTools.includes(toolName)) {
+  if (superAdminOnlyTools.includes(toolName) || adminPlusTools.includes(toolName) || superOrAdminTools.includes(toolName) || adminPlusFsTools.includes(toolName)) {
     return false;
   }
   return true; // web_search and knowledge_research are available to all roles

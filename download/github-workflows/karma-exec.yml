@@ -1,0 +1,121 @@
+# Karma Space Remote Command Execution Workflow
+# Place this file at: .github/workflows/karma-exec.yml
+# Required: GitHub PAT with 'workflow' scope
+# Free tier: 2,000 minutes/month, 5-min timeout per run
+
+name: karma-exec
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Shell command to execute'
+        required: true
+        type: string
+      timeout:
+        description: 'Max execution time in seconds'
+        required: false
+        default: '120'
+        type: string
+      working_directory:
+        description: 'Working directory for the command'
+        required: false
+        default: '/'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    name: Run Command
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install common tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git curl wget jq sqlite3
+
+      - name: Execute command
+        id: exec
+        run: |
+          # Change to working directory
+          cd "${{ github.event.inputs.working_directory }}" 2>/dev/null || true
+
+          # Execute the command with timeout
+          TIMEOUT="${{ github.event.inputs.timeout }}"
+          COMMAND="${{ github.event.inputs.command }}"
+
+          echo "=== COMMAND ===" >> $GITHUB_OUTPUT
+          echo "cmd=$COMMAND" >> $GITHUB_OUTPUT
+          echo "=== STARTING ===" >> $GITHUB_OUTPUT
+
+          # Run command and capture output
+          set +e
+          timeout "$TIMEOUT" bash -c "$COMMAND" > /tmp/karma-output.txt 2> /tmp/karma-error.txt
+          EXIT_CODE=$?
+          set -e
+
+          # Truncate output if too large (max 50KB for artifact)
+          MAX_SIZE=51200
+          if [ -f /tmp/karma-output.txt ] && [ $(stat -c%s /tmp/karma-output.txt) -gt $MAX_SIZE ]; then
+            head -c $MAX_SIZE /tmp/karma-output.txt > /tmp/karma-output-truncated.txt
+            echo "" >> /tmp/karma-output-truncated.txt
+            echo "... [OUTPUT TRUNCATED: exceeded 50KB limit]" >> /tmp/karma-output-truncated.txt
+            mv /tmp/karma-output-truncated.txt /tmp/karma-output.txt
+          fi
+
+          if [ -f /tmp/karma-error.txt ] && [ $(stat -c%s /tmp/karma-error.txt) -gt $MAX_SIZE ]; then
+            head -c $MAX_SIZE /tmp/karma-error.txt > /tmp/karma-error-truncated.txt
+            echo "" >> /tmp/karma-error-truncated.txt
+            echo "... [ERROR TRUNCATED: exceeded 50KB limit]" >> /tmp/karma-error-truncated.txt
+            mv /tmp/karma-error-truncated.txt /tmp/karma-error.txt
+          fi
+
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Print output for the GitHub Actions log
+          echo "=== OUTPUT ==="
+          cat /tmp/karma-output.txt 2>/dev/null || echo "(no stdout)"
+          echo ""
+          echo "=== ERRORS ==="
+          cat /tmp/karma-error.txt 2>/dev/null || echo "(no stderr)"
+          echo ""
+          echo "=== EXIT CODE: $EXIT_CODE ==="
+
+      - name: Upload command output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: karma-output-${{ github.run_id }}
+          path: |
+            /tmp/karma-output.txt
+            /tmp/karma-error.txt
+          retention-days: 1
+
+      - name: Set final status
+        if: always()
+        run: |
+          EXIT="${{ steps.exec.outputs.exit_code }}"
+          if [ "$EXIT" = "0" ]; then
+            echo "Command completed successfully (exit code 0)"
+          else
+            echo "Command exited with code: $EXIT"
+            exit $EXIT
+          fi
