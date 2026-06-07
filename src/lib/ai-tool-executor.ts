@@ -1234,6 +1234,981 @@ async function githubPushCode(
   }
 }
 
+// ===== Helper: Load GitHub Config =====
+
+interface GithubConfig {
+  owner: string;
+  repo: string;
+  token: string;
+  headers: Record<string, string>;
+}
+
+async function loadGithubConfig(tursoClient: ExecutorContext["tursoClient"], branch?: string): Promise<GithubConfig | AiToolResult> {
+  const repoResult = await tursoClient.execute({
+    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+    args: [],
+  });
+  const patResult = await tursoClient.execute({
+    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_PAT'`,
+    args: [],
+  });
+
+  if (repoResult.rows.length === 0) {
+    return {
+      toolCallId: "",
+      toolName: "",
+      success: false,
+      result: "GitHub not configured — run /init first.",
+      displayMessage: "GitHub is not configured. Please run /init to set up GitHub credentials.",
+    };
+  }
+
+  if (patResult.rows.length === 0) {
+    return {
+      toolCallId: "",
+      toolName: "",
+      success: false,
+      result: "GitHub PAT not configured — run /init first.",
+      displayMessage: "GitHub PAT is missing. Please run /init to set up GitHub credentials.",
+    };
+  }
+
+  const repoUrl = repoResult.rows[0].value as string;
+  let token: string;
+  try {
+    token = decrypt(patResult.rows[0].value as string);
+  } catch {
+    token = patResult.rows[0].value as string;
+  }
+
+  const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/\s#?]+)/i);
+  if (!match) {
+    return {
+      toolCallId: "",
+      toolName: "",
+      success: false,
+      result: "Invalid GitHub repository URL: " + repoUrl,
+      displayMessage: "The GitHub repository URL is invalid.",
+    };
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: "Bearer " + token,
+    Accept: "application/vnd.github.v3+json",
+    "User-Agent": "KarmaBoard/1.0",
+  };
+
+  return { owner: match[1], repo: match[2], token, headers };
+}
+
+// ===== Tool: fs_list_dir =====
+
+async function fsListDir(
+  args: { path?: string; branch?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "fs_list_dir",
+      success: false, result: "Permission denied: Only SUPERADMIN can list directories.",
+      displayMessage: "Permission denied — only Super Admin can list directories.",
+    };
+  }
+
+  const branch = args.branch || "main";
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    let items: { name: string; path: string; type: string; size: number }[] = [];
+
+    if (args.path) {
+      // Use contents API for a specific path
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+        { headers }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "Unknown error");
+        return {
+          toolCallId: "", toolName: "fs_list_dir",
+          success: false, result: `GitHub API error (${res.status}): ${errText}`,
+          displayMessage: `Failed to list directory '${args.path}' (${res.status}).`,
+        };
+      }
+
+      const data = await res.json();
+      items = Array.isArray(data)
+        ? data.map((item: any) => ({ name: item.name, path: item.path, type: item.type, size: item.size || 0 }))
+        : [{ name: data.name, path: data.path, type: data.type, size: data.size || 0 }];
+    } else {
+      // Use recursive tree API for full listing
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+        { headers }
+      );
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "Unknown error");
+        return {
+          toolCallId: "", toolName: "fs_list_dir",
+          success: false, result: `GitHub API error (${res.status}): ${errText}`,
+          displayMessage: `Failed to list repository tree (${res.status}).`,
+        };
+      }
+
+      const data = await res.json();
+      items = (data.tree || []).map((item: any) => ({
+        name: item.path.split("/").pop() || item.path,
+        path: item.path,
+        type: item.type === "tree" ? "dir" : "file",
+        size: item.size || 0,
+      }));
+    }
+
+    return {
+      toolCallId: "", toolName: "fs_list_dir",
+      success: true,
+      result: JSON.stringify({ branch, path: args.path || "/", count: items.length, items }),
+      displayMessage: `Listed ${items.length} item(s) in '${args.path || "/"}' (${branch}).`,
+    };
+  } catch (error) {
+    console.error("[fsListDir tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "fs_list_dir",
+      success: false, result: `Error listing directory: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to list directory.",
+    };
+  }
+}
+
+// ===== Tool: fs_read_file =====
+
+async function fsReadFile(
+  args: { path: string; branch?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "fs_read_file",
+      success: false, result: "Permission denied: Only SUPERADMIN can read files.",
+      displayMessage: "Permission denied — only Super Admin can read files.",
+    };
+  }
+
+  if (!args.path) {
+    return {
+      toolCallId: "", toolName: "fs_read_file",
+      success: false, result: "File path is required.",
+      displayMessage: "Missing file path.",
+    };
+  }
+
+  const branch = args.branch || "main";
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+      { headers }
+    );
+
+    if (res.status === 404) {
+      return {
+        toolCallId: "", toolName: "fs_read_file",
+        success: false, result: `File not found: ${args.path}`,
+        displayMessage: `File '${args.path}' was not found in the repository.`,
+      };
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_read_file",
+        success: false, result: `GitHub API error (${res.status}): ${errText}`,
+        displayMessage: `Failed to read file '${args.path}' (${res.status}).`,
+      };
+    }
+
+    const data = await res.json();
+    let fileContent: string;
+    if (data.encoding === "base64" && data.content) {
+      fileContent = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+    } else {
+      fileContent = data.content || "";
+    }
+
+    return {
+      toolCallId: "", toolName: "fs_read_file",
+      success: true,
+      result: JSON.stringify({ path: data.path, sha: data.sha, size: data.size, encoding: data.encoding, content: fileContent }),
+      displayMessage: `Read '${data.path}' (${data.size} bytes) from ${branch}.`,
+    };
+  } catch (error) {
+    console.error("[fsReadFile tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "fs_read_file",
+      success: false, result: `Error reading file: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to read file.",
+    };
+  }
+}
+
+// ===== Tool: fs_write_file =====
+
+async function fsWriteFile(
+  args: { path: string; content: string; message: string; branch?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "fs_write_file",
+      success: false, result: "Permission denied: Only SUPERADMIN can write files.",
+      displayMessage: "Permission denied — only Super Admin can write files.",
+    };
+  }
+
+  if (!args.path || !args.content || !args.message) {
+    return {
+      toolCallId: "", toolName: "fs_write_file",
+      success: false, result: "path, content, and message are required.",
+      displayMessage: "Missing required fields (path, content, message).",
+    };
+  }
+
+  const branch = args.branch || "main";
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    // Check if file exists to get SHA
+    const existingRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+      { headers }
+    );
+
+    const body: Record<string, unknown> = {
+      message: args.message,
+      content: Buffer.from(args.content).toString("base64"),
+      branch,
+    };
+
+    if (existingRes.ok) {
+      const existingData = await existingRes.json();
+      body.sha = existingData.sha;
+    }
+
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}`,
+      {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_write_file",
+        success: false, result: `GitHub API error (${res.status}): ${errText}`,
+        displayMessage: `Failed to write file '${args.path}' (${res.status}).`,
+      };
+    }
+
+    const data = await res.json();
+    const action = body.sha ? "updated" : "created";
+
+    return {
+      toolCallId: "", toolName: "fs_write_file",
+      success: true,
+      result: JSON.stringify({ path: args.path, action, commitSha: data.commit?.sha, url: data.content?.html_url }),
+      displayMessage: `${action === "created" ? "Created" : "Updated"} '${args.path}' on ${branch}. Commit: ${data.commit?.sha?.slice(0, 7)}`,
+    };
+  } catch (error) {
+    console.error("[fsWriteFile tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "fs_write_file",
+      success: false, result: `Error writing file: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to write file.",
+    };
+  }
+}
+
+// ===== Tool: fs_delete_file =====
+
+async function fsDeleteFile(
+  args: { path: string; message: string; branch?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "fs_delete_file",
+      success: false, result: "Permission denied: Only SUPERADMIN can delete files.",
+      displayMessage: "Permission denied — only Super Admin can delete files.",
+    };
+  }
+
+  if (!args.path || !args.message) {
+    return {
+      toolCallId: "", toolName: "fs_delete_file",
+      success: false, result: "path and message are required.",
+      displayMessage: "Missing required fields (path, message).",
+    };
+  }
+
+  const branch = args.branch || "main";
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    // Get the file SHA first
+    const existingRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+      { headers }
+    );
+
+    if (!existingRes.ok) {
+      const errText = await existingRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_delete_file",
+        success: false, result: `File not found or cannot be accessed (${existingRes.status}): ${errText}`,
+        displayMessage: `File '${args.path}' was not found or cannot be deleted.`,
+      };
+    }
+
+    const existingData = await existingRes.json();
+    const sha = existingData.sha;
+
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}`,
+      {
+        method: "DELETE",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: args.message, sha, branch }),
+      }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_delete_file",
+        success: false, result: `GitHub API error (${res.status}): ${errText}`,
+        displayMessage: `Failed to delete file '${args.path}' (${res.status}).`,
+      };
+    }
+
+    const data = await res.json();
+
+    return {
+      toolCallId: "", toolName: "fs_delete_file",
+      success: true,
+      result: JSON.stringify({ path: args.path, deleted: true, commitSha: data.commit?.sha, url: data.content?.html_url }),
+      displayMessage: `Deleted '${args.path}' from ${branch}. Commit: ${data.commit?.sha?.slice(0, 7)}`,
+    };
+  } catch (error) {
+    console.error("[fsDeleteFile tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "fs_delete_file",
+      success: false, result: `Error deleting file: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to delete file.",
+    };
+  }
+}
+
+// ===== Tool: fs_search_code =====
+
+async function fsSearchCode(
+  args: { query: string; branch?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "fs_search_code",
+      success: false, result: "Permission denied: Only SUPERADMIN can search code.",
+      displayMessage: "Permission denied — only Super Admin can search code.",
+    };
+  }
+
+  if (!args.query) {
+    return {
+      toolCallId: "", toolName: "fs_search_code",
+      success: false, result: "Search query is required.",
+      displayMessage: "Missing search query.",
+    };
+  }
+
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    const q = encodeURIComponent(`${args.query} repo:${owner}/${repo}`);
+    const res = await fetch(
+      `https://api.github.com/search/code?q=${q}`,
+      { headers }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_search_code",
+        success: false, result: `GitHub Search API error (${res.status}): ${errText}`,
+        displayMessage: `Code search failed (${res.status}).`,
+      };
+    }
+
+    const data = await res.json();
+    const results = (data.items || []).map((item: any) => ({
+      name: item.name,
+      path: item.path,
+      score: item.score,
+      htmlUrl: item.html_url,
+    }));
+
+    return {
+      toolCallId: "", toolName: "fs_search_code",
+      success: true,
+      result: JSON.stringify({ query: args.query, total: data.total_count, results }),
+      displayMessage: `Found ${data.total_count} result(s) for "${args.query}".`,
+    };
+  } catch (error) {
+    console.error("[fsSearchCode tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "fs_search_code",
+      success: false, result: `Error searching code: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Code search failed.",
+    };
+  }
+}
+
+// ===== Tool: fs_batch_write =====
+
+async function fsBatchWrite(
+  args: { files: { path: string; content: string; message?: string }[]; branch?: string; message?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "fs_batch_write",
+      success: false, result: "Permission denied: Only SUPERADMIN can batch write files.",
+      displayMessage: "Permission denied — only Super Admin can batch write.",
+    };
+  }
+
+  if (!args.files || args.files.length === 0) {
+    return {
+      toolCallId: "", toolName: "fs_batch_write",
+      success: false, result: "files array is required and must not be empty.",
+      displayMessage: "No files provided for batch write.",
+    };
+  }
+
+  const branch = args.branch || "main";
+  const commitMsg = args.message || "chore: batch write via Karma Space";
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    // 1. Get current commit SHA for the branch
+    const refRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+      { headers }
+    );
+    if (!refRes.ok) {
+      const errText = await refRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_batch_write",
+        success: false, result: `Failed to get branch ref (${refRes.status}): ${errText}`,
+        displayMessage: `Failed to access branch '${branch}' on GitHub.`,
+      };
+    }
+    const refData = await refRes.json();
+    const baseSha = refData.object.sha;
+
+    // 2. Create blobs for each file
+    const treeEntries: { path: string; mode: string; type: string; sha: string }[] = [];
+
+    for (const file of args.files) {
+      const blobRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/blobs`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ content: file.content, encoding: "utf-8" }),
+        }
+      );
+      if (!blobRes.ok) {
+        const errText = await blobRes.text().catch(() => "Unknown error");
+        return {
+          toolCallId: "", toolName: "fs_batch_write",
+          success: false, result: `Failed to create blob for ${file.path} (${blobRes.status}): ${errText}`,
+          displayMessage: `Failed to process file '${file.path}' (${blobRes.status}).`,
+        };
+      }
+      const blob = await blobRes.json();
+      treeEntries.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
+    }
+
+    // 3. Create a tree with all blobs
+    const treeRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/trees`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ base_tree: baseSha, tree: treeEntries }),
+      }
+    );
+    if (!treeRes.ok) {
+      const errText = await treeRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_batch_write",
+        success: false, result: `Failed to create tree (${treeRes.status}): ${errText}`,
+        displayMessage: "Failed to create git tree on GitHub.",
+      };
+    }
+    const treeData = await treeRes.json();
+
+    // 4. Create a commit
+    const commitRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/commits`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: commitMsg, tree: treeData.sha, parents: [baseSha] }),
+      }
+    );
+    if (!commitRes.ok) {
+      const errText = await commitRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_batch_write",
+        success: false, result: `Failed to create commit (${commitRes.status}): ${errText}`,
+        displayMessage: "Failed to create commit on GitHub.",
+      };
+    }
+    const commitData = await commitRes.json();
+
+    // 5. Update branch ref
+    const updateRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+      {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ sha: commitData.sha }),
+      }
+    );
+    if (!updateRes.ok) {
+      const errText = await updateRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "fs_batch_write",
+        success: false, result: `Failed to update branch ref (${updateRes.status}): ${errText}`,
+        displayMessage: `Failed to update branch '${branch}' on GitHub.`,
+      };
+    }
+
+    const pushedPaths = args.files.map((f) => f.path);
+    return {
+      toolCallId: "", toolName: "fs_batch_write",
+      success: true,
+      result: JSON.stringify({ commitSha: commitData.sha, branch, filesWritten: pushedPaths, count: args.files.length }),
+      displayMessage: `Batch wrote ${args.files.length} file(s) to GitHub (${branch}). Commit: ${commitData.sha.slice(0, 7)}`,
+    };
+  } catch (error) {
+    console.error("[fsBatchWrite tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "fs_batch_write",
+      success: false, result: `Batch write error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to batch write files to GitHub.",
+    };
+  }
+}
+
+// ===== Tool: exec_command =====
+
+async function execCommand(
+  args: { command: string; timeout?: number; working_directory?: string; branch?: string },
+  ctx: ExecutorContext
+): Promise<AiToolResult> {
+  const { tursoClient, userRole } = ctx;
+
+  if (userRole !== "SUPERADMIN") {
+    return {
+      toolCallId: "", toolName: "exec_command",
+      success: false, result: "Permission denied: Only SUPERADMIN can execute commands.",
+      displayMessage: "Permission denied — only Super Admin can execute commands.",
+    };
+  }
+
+  if (!args.command) {
+    return {
+      toolCallId: "", toolName: "exec_command",
+      success: false, result: "Command is required.",
+      displayMessage: "Missing command to execute.",
+    };
+  }
+
+  const branch = args.branch || "main";
+  const timeoutSec = Math.min(args.timeout || 120, 600);
+  const config = await loadGithubConfig(tursoClient);
+  if (!("owner" in config)) return config as AiToolResult;
+
+  const { owner, repo, headers } = config;
+
+  try {
+    // 1. Find the karma-exec workflow
+    const wfRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows`,
+      { headers }
+    );
+
+    if (!wfRes.ok) {
+      const errText = await wfRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "exec_command",
+        success: false, result: `Failed to list workflows (${wfRes.status}): ${errText}`,
+        displayMessage: `Failed to find execution workflow (${wfRes.status}).`,
+      };
+    }
+
+    const wfData = await wfRes.json();
+    const workflow = (wfData.workflows || []).find((w: any) =>
+      w.path?.endsWith("karma-exec.yml") || w.path?.endsWith("karma-exec.yaml") || w.name === "karma-exec"
+    );
+
+    if (!workflow) {
+      return {
+        toolCallId: "", toolName: "exec_command",
+        success: false,
+        result: "No karma-exec workflow found. Ensure 'karma-exec.yml' exists in .github/workflows/.",
+        displayMessage: "No execution workflow found. Please create a 'karma-exec.yml' workflow in .github/workflows/.",
+      };
+    }
+
+    // 2. Trigger the workflow
+    const dispatchRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow.id}/dispatches`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ref: branch,
+          inputs: {
+            command: args.command,
+            timeout: String(timeoutSec),
+            working_directory: args.working_directory || "/",
+          },
+        }),
+      }
+    );
+
+    if (!dispatchRes.ok) {
+      const errText = await dispatchRes.text().catch(() => "Unknown error");
+      return {
+        toolCallId: "", toolName: "exec_command",
+        success: false, result: `Failed to trigger workflow (${dispatchRes.status}): ${errText}`,
+        displayMessage: `Failed to execute command (${dispatchRes.status}).`,
+      };
+    }
+
+    // 3. Poll for the run (wait a few seconds first for GitHub to register the run)
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
+    let runId: number | null = null;
+    let runUrl: string | null = null;
+    let runStatus: string = "queued";
+    let runConclusion: string | null = null;
+    const pollStart = Date.now();
+
+    while (Date.now() - pollStart < timeoutSec * 1000) {
+      const runsRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/actions/runs?per_page=5`,
+        { headers }
+      );
+
+      if (runsRes.ok) {
+        const runsData = await runsRes.json();
+        const matchingRun = (runsData.workflow_runs || []).find((r: any) =>
+          r.workflow_id === workflow.id && r.ref === branch &&
+          (r.status === "queued" || r.status === "in_progress" || r.status === "completed")
+        );
+
+        if (matchingRun) {
+          runId = matchingRun.id;
+          runUrl = matchingRun.html_url;
+          runStatus = matchingRun.status;
+          runConclusion = matchingRun.conclusion;
+
+          if (runStatus === "completed") break;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+
+    // 4. Get job details if run completed
+    let stepResults: { name: string; conclusion: string }[] = [];
+    if (runId && runStatus === "completed") {
+      try {
+        const jobsRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/jobs`,
+          { headers }
+        );
+        if (jobsRes.ok) {
+          const jobsData = await jobsRes.json();
+          for (const job of jobsData.jobs || []) {
+            for (const step of job.steps || []) {
+              stepResults.push({ name: step.name, conclusion: step.conclusion || "unknown" });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[execCommand] Error fetching job details:", e);
+      }
+    }
+
+    return {
+      toolCallId: "", toolName: "exec_command",
+      success: runStatus === "completed" && runConclusion === "success",
+      result: JSON.stringify({
+        command: args.command,
+        workflowId: workflow.id,
+        runId,
+        runUrl,
+        status: runStatus,
+        conclusion: runConclusion,
+        steps: stepResults,
+      }),
+      displayMessage: runStatus === "completed"
+        ? `Command completed (${runConclusion}). ${runUrl ? `View: ${runUrl}` : ""}`
+        : `Command ${runStatus}... ${runUrl ? `Monitor: ${runUrl}` : ""}`,
+    };
+  } catch (error) {
+    console.error("[execCommand tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "exec_command",
+      success: false, result: `Execution error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to execute command.",
+    };
+  }
+}
+
+// ===== Tool: web_search =====
+
+async function webSearch(
+  args: { query: string; num?: number },
+  _ctx: ExecutorContext
+): Promise<AiToolResult> {
+  if (!args.query || args.query.trim().length === 0) {
+    return {
+      toolCallId: "", toolName: "web_search",
+      success: false, result: "Search query is required.",
+      displayMessage: "Missing search query.",
+    };
+  }
+
+  try {
+    const ZAIModule = await import("z-ai-web-dev-sdk");
+    const ZAIClass = ZAIModule.default as any;
+    const zai = await ZAIClass.create();
+    const response: any = await zai.functions.invoke("web_search", {
+      query: args.query.trim(),
+      num: args.num || 5,
+    });
+
+    const results = response?.results || response?.data || response?.items || response || [];
+
+    return {
+      toolCallId: "", toolName: "web_search",
+      success: true,
+      result: JSON.stringify({ query: args.query, count: Array.isArray(results) ? results.length : 0, results }),
+      displayMessage: `Found ${Array.isArray(results) ? results.length : 0} web result(s) for "${args.query.slice(0, 50)}".`,
+    };
+  } catch (error) {
+    console.error("[webSearch tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "web_search",
+      success: false, result: `Web search error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Web search failed. The search service may be unavailable.",
+    };
+  }
+}
+
+// ===== Tool: web_read_page =====
+
+async function webReadPage(
+  args: { url: string },
+  _ctx: ExecutorContext
+): Promise<AiToolResult> {
+  if (!args.url) {
+    return {
+      toolCallId: "", toolName: "web_read_page",
+      success: false, result: "URL is required.",
+      displayMessage: "Missing URL to read.",
+    };
+  }
+
+  try {
+    // First try z-ai-web-dev-sdk
+    const ZAIModule = await import("z-ai-web-dev-sdk");
+    const ZAIClass = ZAIModule.default as any;
+    const zai = await ZAIClass.create();
+    if (zai?.functions) {
+      const response: any = await zai.functions.invoke("web_reader" as any, { url: args.url });
+      if (response) {
+        const content = response.content || response.text || response.data || JSON.stringify(response);
+        return {
+          toolCallId: "", toolName: "web_read_page",
+          success: true,
+          result: JSON.stringify({ url: args.url, title: response.title || null, content }),
+          displayMessage: `Read page: ${args.url}`,
+        };
+      }
+    }
+  } catch {
+    // SDK not available or web_reader not supported, fall back to fetch
+  }
+
+  // Fallback: simple fetch + text extraction
+  try {
+    const res = await fetch(args.url, {
+      headers: {
+        "User-Agent": "KarmaBoard/1.0 (compatible; bot)",
+        Accept: "text/html,application/xhtml+xml,application/json,text/plain,*/*",
+      },
+    });
+
+    if (!res.ok) {
+      return {
+        toolCallId: "", toolName: "web_read_page",
+        success: false, result: `Failed to fetch page (${res.status}).`,
+        displayMessage: `Could not read page (${res.status}).`,
+      };
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    const rawText = await res.text();
+
+    if (contentType.includes("application/json")) {
+      return {
+        toolCallId: "", toolName: "web_read_page",
+        success: true,
+        result: JSON.stringify({ url: args.url, content: rawText }),
+        displayMessage: `Read JSON from ${args.url}`,
+      };
+    }
+
+    // Strip HTML tags and extract text content
+    const titleMatch = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : null;
+
+    // Remove script/style tags and their content
+    const stripped = rawText
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Truncate to reasonable length for AI context
+    const maxLen = 10000;
+    const content = stripped.length > maxLen ? stripped.slice(0, maxLen) + "... (truncated)" : stripped;
+
+    return {
+      toolCallId: "", toolName: "web_read_page",
+      success: true,
+      result: JSON.stringify({ url: args.url, title, content }),
+      displayMessage: `Read page: ${title || args.url} (${content.length} chars)`,
+    };
+  } catch (error) {
+    console.error("[webReadPage tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "web_read_page",
+      success: false, result: `Failed to read page: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to read web page.",
+    };
+  }
+}
+
+// ===== Tool: image_generate =====
+
+async function imageGenerate(
+  args: { prompt: string; size?: string },
+  _ctx: ExecutorContext
+): Promise<AiToolResult> {
+  if (!args.prompt || args.prompt.trim().length === 0) {
+    return {
+      toolCallId: "", toolName: "image_generate",
+      success: false, result: "Prompt is required.",
+      displayMessage: "Missing image generation prompt.",
+    };
+  }
+
+  try {
+    const ZAIModule = await import("z-ai-web-dev-sdk");
+    const ZAIClass = ZAIModule.default as any;
+    const zai = await ZAIClass.create();
+    const response: any = await zai.images.generations.create({
+      prompt: args.prompt.trim(),
+      size: args.size || "1024x1024",
+    });
+
+    const images = response?.data || response?.images || [];
+    const base64Data = images.length > 0
+      ? (images[0].b64_json || images[0].url || images[0].data || null)
+      : null;
+
+    return {
+      toolCallId: "", toolName: "image_generate",
+      success: !!base64Data,
+      result: JSON.stringify({
+        prompt: args.prompt,
+        size: args.size || "1024x1024",
+        imageCount: images.length,
+        imageData: base64Data ? `[base64 image data, ${typeof base64Data === "string" ? base64Data.length : 0} chars]` : null,
+      }),
+      displayMessage: base64Data ? `Generated image from prompt: "${args.prompt.slice(0, 50)}"` : "Image generation returned no data.",
+    };
+  } catch (error) {
+    console.error("[imageGenerate tool] Error:", error);
+    return {
+      toolCallId: "", toolName: "image_generate",
+      success: false, result: `Image generation error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      displayMessage: "Failed to generate image. The service may be unavailable.",
+    };
+  }
+}
+
 // ===== Main Executor =====
 
 /**
@@ -1293,6 +2268,26 @@ export async function executeToolCall(
       return { ...(await createOrUpdateFile(parsedArgs as { path: string; content: string; message: string }, ctx)), toolCallId: toolCall.id };
     case "github_push_code":
       return { ...(await githubPushCode(parsedArgs as { branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "fs_list_dir":
+      return { ...(await fsListDir(parsedArgs as { path?: string; branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "fs_read_file":
+      return { ...(await fsReadFile(parsedArgs as { path: string; branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "fs_write_file":
+      return { ...(await fsWriteFile(parsedArgs as { path: string; content: string; message: string; branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "fs_delete_file":
+      return { ...(await fsDeleteFile(parsedArgs as { path: string; message: string; branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "fs_search_code":
+      return { ...(await fsSearchCode(parsedArgs as { query: string; branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "fs_batch_write":
+      return { ...(await fsBatchWrite(parsedArgs as { files: { path: string; content: string; message?: string }[]; branch?: string; message?: string }, ctx)), toolCallId: toolCall.id };
+    case "exec_command":
+      return { ...(await execCommand(parsedArgs as { command: string; timeout?: number; working_directory?: string; branch?: string }, ctx)), toolCallId: toolCall.id };
+    case "web_search":
+      return { ...(await webSearch(parsedArgs as { query: string; num?: number }, ctx)), toolCallId: toolCall.id };
+    case "web_read_page":
+      return { ...(await webReadPage(parsedArgs as { url: string }, ctx)), toolCallId: toolCall.id };
+    case "image_generate":
+      return { ...(await imageGenerate(parsedArgs as { prompt: string; size?: string }, ctx)), toolCallId: toolCall.id };
     default:
       return {
         toolCallId: toolCall.id,
@@ -1305,9 +2300,25 @@ export async function executeToolCall(
 }
 
 function isToolAllowedForRole(toolName: string, role: string): boolean {
-  const restrictedTools = ["create_project", "update_project", "add_project_member", "github_pull", "create_or_update_file", "github_push_code"];
-  if (role === "SUPERADMIN" || role === "ADMIN") return true;
-  return !restrictedTools.includes(toolName);
+  // SUPERADMIN-only tools (not even ADMIN)
+  const superAdminOnlyTools = [
+    "fs_list_dir", "fs_read_file", "fs_write_file", "fs_delete_file",
+    "fs_search_code", "fs_batch_write", "exec_command", "image_generate",
+  ];
+  // ADMIN+ tools (restricted from MEMBER role)
+  const adminPlusTools = ["create_project", "update_project", "add_project_member", "github_pull", "create_or_update_file", "github_push_code"];
+  // SUPERADMIN or ADMIN-only tools (web_read_page)
+  const superOrAdminTools = ["web_read_page"];
+
+  if (role === "SUPERADMIN") return true;
+  if (role === "ADMIN") {
+    return !superAdminOnlyTools.includes(toolName);
+  }
+  // MEMBER or other roles
+  if (superAdminOnlyTools.includes(toolName) || adminPlusTools.includes(toolName) || superOrAdminTools.includes(toolName)) {
+    return false;
+  }
+  return true; // web_search and knowledge_research are available to all roles
 }
 
 /**
@@ -1326,6 +2337,16 @@ export function getToolLabel(toolName: string): string {
     github_pull: "Pulling from GitHub",
     create_or_update_file: "Creating file",
     github_push_code: "Pushing to GitHub",
+    fs_list_dir: "Directory Listing",
+    fs_read_file: "Read File",
+    fs_write_file: "Write File",
+    fs_delete_file: "Delete File",
+    fs_search_code: "Code Search",
+    fs_batch_write: "Batch Write",
+    exec_command: "Execute Command",
+    web_search: "Web Search",
+    web_read_page: "Read Web Page",
+    image_generate: "Generate Image",
   };
   return labels[toolName] || toolName;
 }
@@ -1346,6 +2367,16 @@ export function getToolIcon(toolName: string): string {
     github_pull: "📥",
     create_or_update_file: "📝",
     github_push_code: "🚀",
+    fs_list_dir: "📁",
+    fs_read_file: "📁",
+    fs_write_file: "✏️",
+    fs_delete_file: "🗑️",
+    fs_search_code: "🔍",
+    fs_batch_write: "📦",
+    exec_command: "⌨️",
+    web_search: "🌐",
+    web_read_page: "📖",
+    image_generate: "🎨",
   };
   return icons[toolName] || "🔧";
 }
