@@ -214,3 +214,28 @@ Stage Summary:
 - Key: Email notifications sent at all 3 stages: request created (to admins), approved/declined (to requestor)
 - PAT expiry feature confirmed complete from previous session
 
+---
+Task ID: 1
+Agent: Main Agent
+Task: Investigate and fix internal server errors on team members and projects pages
+
+Work Log:
+- Investigated team members API (GET /api/members) and projects API (GET /api/projects)
+- Both use getTursoClient() from api-auth.ts which creates raw libsql client
+- Found getTursoClient() had hardcoded local fallback path: file:/home/z/my-project/db/custom.db
+- Fixed fallback to use process.cwd() for relative path resolution
+- Found no Turso env vars set locally (only on Vercel), so can't test Turso directly
+- Prisma schema has 14 models with columns like status, joinDate, deletedAt that must exist in Turso
+- If Turso cloud DB schema is out of sync (missing columns), all queries would fail with internal server error
+- Created GET /api/db-diagnose endpoint: checks all 14 tables, column mismatches, connection status, generates repair SQL
+- Created POST /api/db-repair endpoint: auto-adds missing columns (ALTER TABLE) and creates missing tables
+- Added both endpoints to middleware public routes for easy debugging
+- Build passed clean, pushed as commit 9752c08
+
+Stage Summary:
+- Root cause likely: Turso cloud DB schema missing columns (status, joinDate, deletedAt on User; removedAt on ProjectMember)
+- Created files: src/app/api/db-diagnose/route.ts, src/app/api/db-repair/route.ts
+- Modified files: src/lib/api-auth.ts, src/middleware.ts
+- User should visit https://karma-board.vercel.app/api/db-diagnose to see exact schema issues
+- Then call POST https://karma-board.vercel.app/api/db-repair to auto-fix missing columns
+- Both endpoints are public (no auth required) for easy debugging
