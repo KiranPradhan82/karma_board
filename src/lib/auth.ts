@@ -171,9 +171,9 @@ export const authOptions: NextAuthOptions = {
           return null;
         } catch (error) {
           console.error("[Auth] Error during authorization:", error);
-          // Re-throw infrastructure errors so next-auth returns a proper error
-          // instead of silently showing "CredentialsSignin" for DB failures
-          throw error;
+          // Return null instead of throwing — prevents "fetch failed" on client.
+          // NextAuth will show "Invalid email or password" which is safer than exposing errors.
+          return null;
         }
       },
     }),
