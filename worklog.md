@@ -260,3 +260,24 @@ Stage Summary:
 - GitHub Actions workflow created locally at .github/workflows/karma-exec.yml (needs manual push — PAT lacks workflow scope)
 - System prompt updated to describe all new capabilities
 - All changes pushed to GitHub (commit: 8573220)
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix React error #31 — object {code, id, message} rendered as React child
+
+Work Log:
+- User reported React error #31 on /dashboard/ai-assistant (live Vercel deployment)
+- React error #31 = "Objects are not valid as a React child"
+- Root cause: AI provider (ZhipuAI/GLM) sometimes returns content as object {code, id, message} instead of string
+- The object propagated through ai-client.ts → route.ts → page.tsx and was rendered directly as React child
+- Fix 1 (primary): ai-client.ts — Type-check content in chatCompletion(), visionCompletion(), and fallback path; JSON.stringify if not string
+- Fix 2 (defense): route.ts — Type-guard aiText before anti-hallucination filter: `typeof finalContent === "string" ? finalContent : JSON.stringify(finalContent)`
+- Fix 3 (defense): page.tsx — Added safeContent() helper function; wrapped all 5 message.content renderings (2x ReactMarkdown, 1x split lines, 1x user paragraph, 1x length check)
+- Build passed clean with zero errors
+- Committed and pushed as a9c527e
+
+Stage Summary:
+- Modified files: src/lib/ai-client.ts, src/app/api/ai/chat/route.ts, src/app/dashboard/ai-assistant/page.tsx
+- Triple-layer defense: AI client, API route, and frontend all type-check content
+- Vercel will auto-deploy from the push
