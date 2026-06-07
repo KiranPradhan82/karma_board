@@ -128,6 +128,11 @@ const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
   "/help": { label: "Help", icon: "❓" },
 };
 
+/** Ensure content is always a string — prevents React error #31 when API returns objects */
+function safeContent(content: unknown): string {
+  return typeof content === "string" ? content : content != null ? JSON.stringify(content) : "";
+}
+
 export default function KarmaSpacePage() {
   const { data: session } = useSession();
   const user = session?.user as { name?: string; role?: string } | undefined;
@@ -1435,7 +1440,7 @@ export default function KarmaSpacePage() {
                                       [&_table]:text-xs [&_th]:p-1 [&_td]:p-1 [&_th]:border [&_td]:border"
                                     >
                                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {message.content}
+                                        {safeContent(message.content)}
                                       </ReactMarkdown>
                                     </div>
                                   </div>
@@ -1451,7 +1456,7 @@ export default function KarmaSpacePage() {
                                       <ChevronDown className="h-3 w-3" />
                                       <span>Click to preview content</span>
                                       <span className="text-muted-foreground/60 ml-1">
-                                        ({message.content.split("\n").length} lines)
+                                        ({safeContent(message.content).split("\n").length} lines)
                                       </span>
                                     </button>
                                   </div>
@@ -1476,12 +1481,12 @@ export default function KarmaSpacePage() {
                                 [&_table]:text-xs [&_th]:p-1 [&_td]:p-1 [&_th]:border [&_td]:border"
                               >
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {message.content}
+                                  {safeContent(message.content)}
                                 </ReactMarkdown>
                               </div>
                             ) : (
                               <p className="text-sm whitespace-pre-wrap m-0">
-                                {message.content}
+                                {safeContent(message.content)}
                               </p>
                             )}
                           </div>
@@ -1496,7 +1501,7 @@ export default function KarmaSpacePage() {
                         )}
 
                         {/* PDF Download button on AI messages with substantial content (no documentInfo) */}
-                        {message.role === "assistant" && !message.documentInfo && message.content.length > 500 && (
+                        {message.role === "assistant" && !message.documentInfo && safeContent(message.content).length > 500 && (
                           <button
                             onClick={() => handleDownloadPdf(message)}
                             disabled={downloadingPdf === message.id}

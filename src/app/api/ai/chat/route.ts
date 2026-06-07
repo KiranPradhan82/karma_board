@@ -733,7 +733,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        aiText = finalContent;
+        aiText = typeof finalContent === "string" ? finalContent : JSON.stringify(finalContent);
       }
     } catch (err) {
       console.error("[POST /api/ai/chat] AI call error:", err);

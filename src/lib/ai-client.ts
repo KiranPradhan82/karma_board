@@ -187,7 +187,12 @@ export async function chatCompletion(options: AiChatOptions): Promise<AiResponse
 
     const data = await response.json();
     const message = data.choices?.[0]?.message;
-    const content = message?.content || "";
+    const rawContent = message?.content;
+    const content = typeof rawContent === "string"
+      ? rawContent
+      : rawContent != null
+        ? JSON.stringify(rawContent)
+        : "";
     const toolCalls = message?.tool_calls?.map((tc: Record<string, unknown>) => ({
       id: tc.id as string,
       type: "function" as const,
@@ -266,9 +271,15 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
       }
 
       const data = await response.json();
+      const rawVisionContent = data.choices?.[0]?.message?.content;
+      const visionContent = typeof rawVisionContent === "string"
+        ? rawVisionContent
+        : rawVisionContent != null
+          ? JSON.stringify(rawVisionContent)
+          : "No response generated.";
       return {
         success: true,
-        content: data.choices?.[0]?.message?.content || "No response generated.",
+        content: visionContent,
         model: data.model || model,
         usage: data.usage,
       };
@@ -326,9 +337,15 @@ export async function visionCompletion(options: AiVisionOptions): Promise<AiResp
     }
 
     const data = await response.json();
+    const rawFallbackContent = data.choices?.[0]?.message?.content;
+    const fallbackContent = typeof rawFallbackContent === "string"
+      ? rawFallbackContent
+      : rawFallbackContent != null
+        ? JSON.stringify(rawFallbackContent)
+        : "No response generated.";
     return {
       success: true,
-      content: data.choices?.[0]?.message?.content || "No response generated.",
+      content: fallbackContent,
       model: data.model || model,
       usage: data.usage,
     };
