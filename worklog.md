@@ -181,3 +181,25 @@ Stage Summary:
 - Commit 07c990f pushed to GitHub main branch
 - User still needs to: update z.ai model in Settings from old glm-5-turbo to glm-4.7-flash (if saved previously)
 - GitHub PAT active (~1 week expiry reminder around June 14)
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Replace z.ai API key with username/password credentials in Settings
+
+Work Log:
+- Changed Settings UI: removed "z.ai API Key" field, added "z.ai Username / Email" and "z.ai Password" fields
+- Updated state variables: zaiApiKey → zaiUsername + zaiPassword with change tracking
+- Updated save handler: ZAI_BRIDGE_API_KEY → ZAI_BRIDGE_USERNAME + ZAI_BRIDGE_PASSWORD
+- Updated load handler: reads new credential keys from Settings table
+- Updated test-zai route: reads username + password, decrypts password, sends as Bearer token
+- Updated /init bridge in chat/route.ts: reads username + password, sends password as Bearer + username as X-User-Id header
+- Updated standalone zai-bridge route: same credential pattern
+- Fixed GitHub push protection: removed PAT from worklog.md history via git reset --soft + recommit
+- Build passes, commit 463f405 pushed successfully
+
+Stage Summary:
+- 4 files changed across Settings UI, test-zai, chat/route.ts, zai-bridge
+- Super admin now stores z.ai login credentials (username + password) instead of API key
+- Both credentials encrypted in database via existing encryption utility
+- Password used as Bearer token for z.ai API auth, username sent as X-User-Id header
