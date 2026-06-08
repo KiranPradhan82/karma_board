@@ -951,6 +951,224 @@ export async function POST(request: NextRequest) {
       })();
     }
 
+    // ===== z.ai Bridge: Check if /init should include bridge info =====
+    // If command is /init and project has documents, check z.ai config and add bridge data
+    let zaiBridge: {
+      chatId: string;
+      chatUrl: string;
+      context: string;
+      modelName: string;
+      documentsFound: number;
+      isNewChat: boolean;
+      aiResponse?: string;
+      apiError?: string;
+      chatMessagesFound?: number;
+      docsSource?: string;
+    } | undefined;
+
+    if (command === "/init") {
+      try {
+        // Count project documents (no minimum required — send whatever exists)
+        const docsCountResult = await client.execute({
+          sql: `SELECT COUNT(*) as count FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan')`,
+          args: [projectId],
+        });
+        const docsCount = Number(docsCountResult.rows[0]?.count || 0);
+
+        // Check z.ai API key (primary auth method)
+        const zaiApiKeyResult = await client.execute({
+          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
+          args: [],
+        });
+
+        let zaiBearerToken = "";
+        if (zaiApiKeyResult.rows.length > 0 && zaiApiKeyResult.rows[0].value) {
+          try { zaiBearerToken = decrypt(zaiApiKeyResult.rows[0].value as string); }
+          catch { zaiBearerToken = zaiApiKeyResult.rows[0].value as string; }
+        }
+
+        if (zaiBearerToken) {
+          // Fetch all documents and build context
+          const docsResult = await client.execute({
+            sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
+            args: [projectId],
+          });
+
+          const DOC_LABELS: Record<string, string> = {
+            prd: "Product Requirements Document",
+            trd: "Technical Requirements Document",
+            flow: "Application Flow Document",
+            ux: "UI/UX Design Brief",
+            schema: "Backend Schema Document",
+            plan: "Implementation Plan",
+          };
+
+          // Check for existing chat mapping
+          const chatKey = `ZAI_CHAT:${projectId}`;
+          const existingChat = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = ?`,
+            args: [chatKey],
+          });
+
+          let chatId: string;
+          let isNewChat = false;
+          if (existingChat.rows.length > 0 && existingChat.rows[0].value) {
+            chatId = existingChat.rows[0].value as string;
+          } else {
+            chatId = crypto.randomUUID();
+            isNewChat = true;
+            await client.execute({
+              sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+              args: [chatKey, chatId],
+            });
+          }
+
+          // Get z.ai settings
+          const zaiBaseUrlResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
+            args: [],
+          });
+          const zaiModelResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_MODEL'`,
+            args: [],
+          });
+
+          const zaiBaseUrl = zaiBaseUrlResult.rows.length > 0 && zaiBaseUrlResult.rows[0].value
+            ? (zaiBaseUrlResult.rows[0].value as string)
+            : "https://api.z.ai/api/paas/v4";
+          const zaiModel = zaiModelResult.rows.length > 0 && zaiModelResult.rows[0].value
+            ? (zaiModelResult.rows[0].value as string)
+            : "glm-4.7-flash";
+
+          // Fetch GitHub repo URL
+          let githubRepoUrl = "";
+          try {
+            const repoResult = await client.execute({
+              sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+              args: [],
+            });
+            if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
+          } catch { /* non-critical */ }
+
+          // Build context
+          let context = `# ${project?.name || "Project"} — Complete Project Brief\n\n`;
+          context += `**Project:** ${project?.name || ""}\n`;
+          if (project?.description) context += `**Description:** ${project.description}\n`;
+          if (project?.clientName) context += `**Client:** ${project.clientName}\n`;
+          if (project?.status) context += `**Status:** ${project.status}\n`;
+          if (project?.priority) context += `**Priority:** ${project.priority}\n`;
+          if (project?.deadline) context += `**Deadline:** ${project.deadline}\n`;
+          if (githubRepoUrl) context += `**GitHub Repo:** ${githubRepoUrl}\n`;
+          context += `**Prepared by:** ${userName}\n\n---\n\n`;
+
+          for (const docRow of docsResult.rows) {
+            const docType = docRow.docType as string;
+            const label = DOC_LABELS[docType] || docType.toUpperCase();
+            const docContent = (docRow.content as string) || "(empty)";
+            const truncated = docContent.length > 8000
+              ? docContent.slice(0, 8000) + "\n\n... (truncated)"
+              : docContent;
+            context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
+          }
+
+          // Fetch ALL chat history for this project
+          const chatHistoryResult = await client.execute({
+            sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? ORDER BY "timestamp" ASC`,
+            args: [projectId],
+          });
+          const chatMessagesFound = chatHistoryResult.rows.length;
+          if (chatMessagesFound > 0) {
+            context += `## KarmaSpace Chat History (${chatMessagesFound} messages)\n\n`;
+            for (const msgRow of chatHistoryResult.rows) {
+              const role = msgRow.role as string;
+              const msgContent = (msgRow.content as string) || "";
+              const truncatedMsg = msgContent.length > 2000
+                ? msgContent.slice(0, 2000) + "\n\n... (truncated)"
+                : msgContent;
+              if (role === "user") {
+                context += `**User:** ${truncatedMsg}\n\n`;
+              } else {
+                context += `**Karma Space AI:** ${truncatedMsg}\n\n`;
+              }
+            }
+            context += `---\n\n`;
+          }
+
+          // Send context to z.ai API — create/resume chat session
+          let aiResponse = "";
+          let apiError = "";
+          try {
+            const chatApiUrl = `${zaiBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+            const zaiResponse = await fetch(chatApiUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${zaiBearerToken}`,
+              },
+              body: JSON.stringify({
+                model: zaiModel,
+                messages: [
+                  {
+                    role: "system",
+                    content: `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`,
+                  },
+                  {
+                    role: "user",
+                    content: `Here is my complete project brief from KarmaBoard with all generated documents and the full chat history. Please review everything and help me build this project:\n\n${context.slice(0, 120000)}`,
+                  },
+                ],
+                max_tokens: 2048,
+              }),
+              signal: AbortSignal.timeout(45000),
+            });
+
+            if (zaiResponse.ok) {
+              const data = await zaiResponse.json();
+              if (data.choices && data.choices[0]?.message?.content) {
+                aiResponse = data.choices[0].message.content;
+              }
+            } else {
+              const errText = await zaiResponse.text().catch(() => "");
+              console.error("[Chat] z.ai API error:", zaiResponse.status, errText);
+              let detailMsg = errText.slice(0, 300);
+              try {
+                const errJson = JSON.parse(errText);
+                if (errJson.error?.message) detailMsg = errJson.error.message;
+              } catch { /* keep raw */ }
+              if (zaiResponse.status === 429) {
+                apiError = `z.ai API rate limited (429). The free tier has usage limits. Wait 30-60 seconds and try again.`;
+              } else if (zaiResponse.status === 401) {
+                apiError = `z.ai API auth failed (401). Your API key may be expired. Check Settings → z.ai Bridge.`;
+              } else {
+                apiError = `z.ai API error (${zaiResponse.status}): ${detailMsg}`;
+              }
+            }
+          } catch (apiErr) {
+            const msg = apiErr instanceof Error ? apiErr.message : String(apiErr);
+            console.error("[Chat] z.ai API call failed (non-fatal):", msg);
+            apiError = `Network error: ${msg}`;
+          }
+
+          zaiBridge = {
+            chatId,
+            chatUrl: `https://z.ai/chat/${chatId}`,
+            context,
+            modelName: zaiModel,
+            documentsFound: docsCount,
+            isNewChat,
+            aiResponse: aiResponse || undefined,
+            apiError: apiError || undefined,
+            chatMessagesFound,
+            docsSource: "projectDocument",
+          };
+
+          console.log(`[Chat] z.ai Bridge: ${docsCount} docs + ${chatMessagesFound} chat msgs sent, chatId=${chatId}, isNew=${isNewChat}, aiResponse=${!!aiResponse}, apiError=${!!apiError}`);
+        }
+      } catch (bridgeErr) {
+        console.error("[Chat] z.ai Bridge check error (non-fatal):", bridgeErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
