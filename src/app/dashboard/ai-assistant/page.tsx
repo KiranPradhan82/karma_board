@@ -38,6 +38,7 @@ import {
   PanelLeft,
   Globe,
   Copy,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -429,6 +430,15 @@ export default function KarmaSpacePage() {
             },
           ];
         });
+
+        // Auto-redirect to z.ai when bridge response received
+        if (json.data.zaiBridge?.chatUrl) {
+          const bridgeData = json.data.zaiBridge;
+          setTimeout(() => {
+            window.open(bridgeData.chatUrl, "_blank", "noopener,noreferrer");
+            toast.success(`${user?.name || "Your"}'s Workspace launched in z.ai!`);
+          }, 1000);
+        }
       } else {
         setError(json.error || "Failed to send message");
       }
@@ -502,6 +512,15 @@ export default function KarmaSpacePage() {
                 },
               ];
             });
+
+            // Auto-redirect to z.ai when bridge response received
+            if (json.data.zaiBridge?.chatUrl) {
+              const bridgeData = json.data.zaiBridge;
+              setTimeout(() => {
+                window.open(bridgeData.chatUrl, "_blank", "noopener,noreferrer");
+                toast.success(`${user?.name || "Your"}'s Workspace launched in z.ai!`);
+              }, 1000);
+            }
           } else {
             setError(json.error || "Failed to send message");
           }
@@ -886,8 +905,9 @@ export default function KarmaSpacePage() {
     });
   };
 
-  // Handle z.ai bridge — open in new tab and copy context
+  // Handle z.ai bridge — auto-redirect to z.ai and copy context
   const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
+  const [zaiRedirected, setZaiRedirected] = useState<string | null>(null);
   const handleOpenZai = (msg: ChatMessage) => {
     if (!msg.zaiBridge) return;
     // Open z.ai chat in new tab
@@ -1421,25 +1441,32 @@ export default function KarmaSpacePage() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-semibold text-primary">
-                                    {user?.name ? `${user.name}'s` : "Your"} Karmaspace
+                                    {user?.name ? `${user.name}'s` : "Your"} Workspace
                                   </p>
-                                  <div className="flex items-center gap-2 mt-0.5">
+                                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                                    All {message.zaiBridge.documentsFound} documents sent to z.ai
+                                    {message.zaiBridge.aiResponse ? " — AI responded" : ""}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1">
                                     <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20">
-                                      {message.zaiBridge.documentsFound} Documents
+                                      {message.zaiBridge.documentsFound} Docs
                                     </Badge>
-                                    <span className="text-[11px] text-muted-foreground">
+                                    <Badge variant="secondary" className="text-[10px]">
                                       {message.zaiBridge.modelName}
-                                    </span>
+                                    </Badge>
                                     {message.zaiBridge.isNewChat ? (
                                       <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-700">
                                         New Session
                                       </Badge>
                                     ) : (
                                       <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-700">
-                                        Resume Session
+                                        Resumed
                                       </Badge>
                                     )}
                                   </div>
+                                </div>
+                                <div className="shrink-0">
+                                  <ExternalLink className="h-4 w-4 text-primary" />
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 px-4 py-3 border-t border-primary/10">

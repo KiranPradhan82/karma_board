@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
 
     const zaiModel = modelResult.rows.length > 0 && modelResult.rows[0].value
       ? (modelResult.rows[0].value as string)
-      : "glm-5-turbo";
+      : "glm-4.7-flash";
 
     // 5. Check for existing chat mapping
     const chatKey = `ZAI_CHAT:${projectId}`;

@@ -1009,7 +1009,7 @@ export async function POST(request: NextRequest) {
               : "https://api.z.ai/api/paas/v4";
             const zaiModel = zaiModelResult.rows.length > 0 && zaiModelResult.rows[0].value
               ? (zaiModelResult.rows[0].value as string)
-              : "glm-5-turbo";
+              : "glm-4.7-flash";
 
             // Fetch GitHub repo URL
             let githubRepoUrl = "";
@@ -1042,16 +1042,66 @@ export async function POST(request: NextRequest) {
               context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
             }
 
+            // Decrypt API key
+            let zaiApiKey: string;
+            try {
+              zaiApiKey = decrypt(zaiKeyResult.rows[0].value as string);
+            } catch {
+              zaiApiKey = zaiKeyResult.rows[0].value as string;
+            }
+
+            // Send context to z.ai API — create/resume chat session with all docs
+            let aiResponse = "";
+            try {
+              const chatApiUrl = `${zaiBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+              const zaiResponse = await fetch(chatApiUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${zaiApiKey}`,
+                  "X-Chat-Id": chatId,
+                },
+                body: JSON.stringify({
+                  model: zaiModel,
+                  messages: [
+                    {
+                      role: "system",
+                      content: `You are a senior full-stack AI developer assistant. You have received a complete project brief with all 6 pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) from KarmaBoard. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`,
+                    },
+                    {
+                      role: "user",
+                      content: `Here is my complete project brief from KarmaBoard. Please review all documents and help me build this project:\n\n${context.slice(0, 120000)}`,
+                    },
+                  ],
+                  max_tokens: 2048,
+                }),
+                signal: AbortSignal.timeout(30000),
+              });
+
+              if (zaiResponse.ok) {
+                const data = await zaiResponse.json();
+                if (data.choices && data.choices[0]?.message?.content) {
+                  aiResponse = data.choices[0].message.content;
+                }
+              } else {
+                const errText = await zaiResponse.text().catch(() => "");
+                console.error("[Chat] z.ai API error:", zaiResponse.status, errText);
+              }
+            } catch (apiErr) {
+              console.error("[Chat] z.ai API call failed (non-fatal):", apiErr);
+            }
+
             zaiBridge = {
               chatId,
-              chatUrl: "https://z.ai/chat",
+              chatUrl: `https://z.ai/chat/${chatId}`,
               context,
               modelName: zaiModel,
               documentsFound: docsCount,
               isNewChat,
+              aiResponse: aiResponse || undefined,
             };
 
-            console.log(`[Chat] z.ai Bridge: ${docsCount} docs found for project ${projectId}, chatId=${chatId}, isNew=${isNewChat}`);
+            console.log(`[Chat] z.ai Bridge: ${docsCount} docs sent to z.ai, chatId=${chatId}, isNew=${isNewChat}, aiResponse=${!!aiResponse}`);
           }
         }
       } catch (bridgeErr) {

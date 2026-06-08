@@ -106,7 +106,7 @@ export default function SettingsPage() {
   const [zaiApiKey, setZaiApiKey] = useState("");
   const [zaiApiKeyChanged, setZaiApiKeyChanged] = useState(false);
   const [zaiBaseUrl, setZaiBaseUrl] = useState("https://api.z.ai/api/paas/v4");
-  const [zaiModel, setZaiModel] = useState("glm-5-turbo");
+  const [zaiModel, setZaiModel] = useState("glm-4.7-flash");
   const [zaiTestStatus, setZaiTestStatus] = useState<null | 'success' | 'error'>(null);
   const [zaiTesting, setZaiTesting] = useState(false);
   const [zaiSaving, setZaiSaving] = useState(false);
@@ -604,16 +604,15 @@ export default function SettingsPage() {
             z.ai Bridge
           </CardTitle>
           <CardDescription>
-            Connect KarmaBoard to z.ai so users can launch project context into z.ai chat sessions.
-            Used by the <code className="text-xs bg-muted px-1 py-0.5 rounded">/init</code> command.
+            Connect KarmaBoard to z.ai so users can launch project context into z.ai agentic chat sessions.
+            When a user types <code className="text-xs bg-muted px-1 py-0.5 rounded">/init</code> in Karma Space, all 6 project documents are sent to z.ai and the browser auto-redirects to the z.ai chat.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <Alert>
             <Zap className="h-4 w-4" />
             <AlertDescription>
-              When configured, users can type <strong>/init</strong> in Karma Space to open z.ai with all
-              6 generated project documents loaded. The API key is stored encrypted in the database.
+              When configured, typing <strong>/init</strong> in Karma Space will automatically send all 6 project documents to z.ai, create a chat session named after the user (e.g. "Kiran's Workspace"), and redirect the browser to z.ai. The API key is stored encrypted. Default model <strong>glm-4.7-flash</strong> is completely free.
             </AlertDescription>
           </Alert>
 
@@ -682,12 +681,12 @@ export default function SettingsPage() {
             <Input
               id="zai-model"
               type="text"
-              placeholder="glm-5-turbo"
+              placeholder="glm-4.7-flash"
               value={zaiModel}
               onChange={(e) => setZaiModel(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              The model to use for z.ai chat sessions. Default: <code className="text-[11px]">glm-5-turbo</code>
+              The model to use for z.ai chat sessions. Default: <code className="text-[11px]">glm-4.7-flash</code> (FREE)
             </p>
           </div>
 
@@ -715,7 +714,7 @@ export default function SettingsPage() {
                 zaiSaving ||
                 (!zaiApiKeyChanged &&
                   zaiBaseUrl === (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4") &&
-                  zaiModel === (settings.ZAI_BRIDGE_MODEL?.value || "glm-5-turbo"))
+                  zaiModel === (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash"))
               }
             >
               {zaiSaving ? (
