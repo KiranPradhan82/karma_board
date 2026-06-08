@@ -113,3 +113,50 @@ Stage Summary:
 - Key: Each document prompt now ends with a review instruction for Yes/No changes
 - Key: TRD generation automatically extracts hex color codes for the project theme
 - Key: After doc auto-save, system logs GitHub push availability for future integration
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix React error #31 — object {code, id, message} rendered as React child
+
+Work Log:
+- User reported React error #31 on /dashboard/ai-assistant (live Vercel deployment)
+- Root cause: AI provider returns content as object {code, id, message} instead of string
+- Fix 1 (primary): ai-client.ts — Type-check content in chatCompletion(), visionCompletion(), fallback path
+- Fix 2 (defense): route.ts — Type-guard aiText before saving
+- Fix 3 (defense): page.tsx — Added safeContent() helper, wrapped all message.content renderings
+- Pushed as a9c527e
+
+Stage Summary:
+- Modified: src/lib/ai-client.ts, src/app/api/ai/chat/route.ts, src/app/dashboard/ai-assistant/page.tsx
+- Triple-layer defense prevents React error #31
+
+---
+Task ID: 4c-4g
+Agent: Main Agent + full-stack-developer subagent
+Task: z.ai Bridge — rebuild with FREE GLM-4.7-Flash model
+
+Work Log:
+- Searched z.ai documentation — discovered GLM-4.7-Flash is 100% FREE (input+output, no credits)
+- Also free: GLM-4.5-Flash, GLM-4.6V-Flash (vision)
+- User's previous "Insufficient balance" error was from using glm-5-turbo (paid model)
+- Solution: default to glm-4.7-flash (free), no balance/recharge needed
+
+Created files:
+- src/app/api/settings/test-zai/route.ts: GET endpoint (SUPERADMIN) to test z.ai connection
+- src/app/api/ai/zai-bridge/route.ts: POST endpoint to build project context + send to z.ai
+
+Modified files:
+- src/app/api/settings/route.ts: Added ZAI_BRIDGE_API_KEY/BASE_URL/MODEL to ALLOWED_KEYS, ZAI_BRIDGE_API_KEY to SENSITIVE_KEYS
+- src/app/api/ai/chat/route.ts: Added z.ai bridge logic after /init command, builds context from docs, sends to z.ai API
+- src/app/dashboard/settings/page.tsx: Added z.ai Bridge Card (API Key, Base URL, Model, Test Connection, Save, FREE badge)
+- src/app/dashboard/ai-assistant/page.tsx: Added zaiBridge interface, handlers, Bridge Card UI (Open in z.ai & Copy, Copy Context)
+
+Build passed clean. Committed as af4f8d0. PUSH FAILED — PAT in git remote URL expired.
+
+Stage Summary:
+- Default model: glm-4.7-flash (FREE, unlimited tokens, no balance needed)
+- /init with docs → z.ai Bridge Card appears with "Open in z.ai & Copy" button
+- Session persistence: projectId → chatId in Settings
+- Clipboard fallback if API call fails
+- User needs to update PAT in git remote URL to push
