@@ -99,6 +99,10 @@ export async function POST(request: NextRequest) {
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
       args: [],
     });
+    const userIdResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USER_ID'`,
+      args: [],
+    });
     const baseUrlResult = await client.execute({
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
       args: [],
@@ -128,6 +132,10 @@ export async function POST(request: NextRequest) {
       password = passwordResult.rows[0].value as string;
     }
     const username = usernameResult.rows[0].value as string;
+    // Use dedicated User ID if set, otherwise fall back to username
+    const effectiveUserId = (userIdResult.rows.length > 0 && userIdResult.rows[0].value)
+      ? (userIdResult.rows[0].value as string)
+      : username;
 
     const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
       ? (baseUrlResult.rows[0].value as string)
@@ -210,7 +218,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${password}`,
           "X-Chat-Id": chatId,
-          "X-User-Id": username,
+          "X-User-Id": effectiveUserId,
         },
         body: JSON.stringify({
           model: zaiModel,

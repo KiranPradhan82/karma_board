@@ -24,6 +24,10 @@ export async function GET(request: NextRequest) {
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
       args: [],
     });
+    const userIdResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USER_ID'`,
+      args: [],
+    });
     const baseUrlResult = await client.execute({
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
       args: [],
@@ -48,6 +52,10 @@ export async function GET(request: NextRequest) {
       password = passwordResult.rows[0].value as string;
     }
     const username = usernameResult.rows[0].value as string;
+    // Use dedicated User ID if set, otherwise fall back to username
+    const userId = (userIdResult.rows.length > 0 && userIdResult.rows[0].value)
+      ? (userIdResult.rows[0].value as string)
+      : username;
 
     const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
       ? (baseUrlResult.rows[0].value as string)
@@ -65,6 +73,7 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${password}`,
+        "X-User-Id": userId,
       },
       body: JSON.stringify({
         model,

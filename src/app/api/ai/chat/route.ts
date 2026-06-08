@@ -961,6 +961,10 @@ export async function POST(request: NextRequest) {
             sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
             args: [],
           });
+          const zaiUserIdResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USER_ID'`,
+            args: [],
+          });
 
           if (zaiUsernameResult.rows.length > 0 && zaiUsernameResult.rows[0].value &&
               zaiPasswordResult.rows.length > 0 && zaiPasswordResult.rows[0].value) {
@@ -1055,6 +1059,10 @@ export async function POST(request: NextRequest) {
               zaiPassword = zaiPasswordResult.rows[0].value as string;
             }
             const zaiUsername = zaiUsernameResult.rows[0].value as string;
+            // Use dedicated User ID if set, otherwise fall back to username
+            const zaiEffectiveUserId = (zaiUserIdResult.rows.length > 0 && zaiUserIdResult.rows[0].value)
+              ? (zaiUserIdResult.rows[0].value as string)
+              : zaiUsername;
 
             // Send context to z.ai API — create/resume chat session with all docs
             let aiResponse = "";
@@ -1066,7 +1074,7 @@ export async function POST(request: NextRequest) {
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${zaiPassword}`,
                   "X-Chat-Id": chatId,
-                  "X-User-Id": zaiUsername,
+                  "X-User-Id": zaiEffectiveUserId,
                 },
                 body: JSON.stringify({
                   model: zaiModel,

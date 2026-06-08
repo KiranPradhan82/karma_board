@@ -103,6 +103,8 @@ export default function SettingsPage() {
   const [pdfThemeSaving, setPdfThemeSaving] = useState(false);
 
   // z.ai Bridge state
+  const [zaiUserId, setZaiUserId] = useState("");
+  const [zaiUserIdChanged, setZaiUserIdChanged] = useState(false);
   const [zaiUsername, setZaiUsername] = useState("");
   const [zaiUsernameChanged, setZaiUsernameChanged] = useState(false);
   const [zaiPassword, setZaiPassword] = useState("");
@@ -131,6 +133,7 @@ export default function SettingsPage() {
           if (data.SMTP_PASSWORD) setSmtpPassword(data.SMTP_PASSWORD.value);
 
           // Load z.ai Bridge settings
+          if (data.ZAI_BRIDGE_USER_ID) setZaiUserId(data.ZAI_BRIDGE_USER_ID.value);
           if (data.ZAI_BRIDGE_USERNAME) setZaiUsername(data.ZAI_BRIDGE_USERNAME.value);
           if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
@@ -188,6 +191,7 @@ export default function SettingsPage() {
     setZaiSaving(true);
     try {
       const updateSettings: Record<string, string> = {};
+      if (zaiUserIdChanged) updateSettings.ZAI_BRIDGE_USER_ID = zaiUserId || "";
       if (zaiUsernameChanged && zaiUsername) updateSettings.ZAI_BRIDGE_USERNAME = zaiUsername;
       if (zaiPasswordChanged && zaiPassword) updateSettings.ZAI_BRIDGE_PASSWORD = zaiPassword;
       if (zaiBaseUrl !== (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4")) updateSettings.ZAI_BRIDGE_BASE_URL = zaiBaseUrl;
@@ -207,6 +211,7 @@ export default function SettingsPage() {
       const json = await res.json();
       if (json.success) {
         toast.success("z.ai Bridge settings saved successfully");
+        setZaiUserIdChanged(false);
         setZaiUsernameChanged(false);
         setZaiPasswordChanged(false);
         // Refresh settings
@@ -215,6 +220,7 @@ export default function SettingsPage() {
         if (refreshJson.success) {
           setSettings(refreshJson.data);
           const data = refreshJson.data as Record<string, SettingItem>;
+          if (data.ZAI_BRIDGE_USER_ID && !zaiUserIdChanged) setZaiUserId(data.ZAI_BRIDGE_USER_ID.value);
           if (data.ZAI_BRIDGE_USERNAME && !zaiUsernameChanged) setZaiUsername(data.ZAI_BRIDGE_USERNAME.value);
           if (data.ZAI_BRIDGE_PASSWORD && !zaiPasswordChanged) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
@@ -624,16 +630,48 @@ export default function SettingsPage() {
 
           <Separator />
 
+          {/* z.ai User ID — Primary identifier */}
+          <div className="space-y-1.5">
+            <Label htmlFor="zai-user-id" className="flex items-center gap-1.5">
+              <Shield className="h-3.5 w-3.5" />
+              z.ai User ID
+            </Label>
+            <Input
+              id="zai-user-id"
+              type="text"
+              placeholder="Enter your z.ai User ID"
+              value={zaiUserId}
+              onChange={(e) => {
+                setZaiUserId(e.target.value);
+                setZaiUserIdChanged(true);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Your unique user ID on z.ai. Used as <code className="text-[11px]">X-User-Id</code> header to identify your account.
+              You can find it in your z.ai profile settings or browser DevTools after logging in.
+            </p>
+            {settings.ZAI_BRIDGE_USER_ID && !zaiUserIdChanged && (
+              <p className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> User ID is configured
+              </p>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Login Credentials — for API authentication */}
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Login Credentials (for API auth)</p>
+
           {/* z.ai Username */}
           <div className="space-y-1.5">
             <Label htmlFor="zai-username" className="flex items-center gap-1.5">
               <User className="h-3.5 w-3.5" />
-              z.ai Username / Email
+              z.ai Email
             </Label>
             <Input
               id="zai-username"
               type="text"
-              placeholder="Enter z.ai username or email"
+              placeholder="Enter z.ai login email"
               value={zaiUsername}
               onChange={(e) => {
                 setZaiUsername(e.target.value);
@@ -641,19 +679,8 @@ export default function SettingsPage() {
               }}
             />
             <p className="text-xs text-muted-foreground">
-              Your z.ai login username or email address.
-              {settings.ZAI_BRIDGE_USERNAME?.updatedAt && (
-                <span className="block mt-1">
-                  Last updated:{" "}
-                  {new Date(settings.ZAI_BRIDGE_USERNAME.updatedAt).toLocaleString()}
-                </span>
-              )}
+              Your z.ai login email. Used to authenticate API calls.
             </p>
-            {settings.ZAI_BRIDGE_USERNAME && !zaiUsernameChanged && (
-              <p className="text-xs text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Username is configured
-              </p>
-            )}
           </div>
 
           <Separator />
@@ -675,19 +702,8 @@ export default function SettingsPage() {
               }}
             />
             <p className="text-xs text-muted-foreground">
-              Your z.ai login password. Encrypted in the database.
-              {settings.ZAI_BRIDGE_PASSWORD?.updatedAt && (
-                <span className="block mt-1">
-                  Last updated:{" "}
-                  {new Date(settings.ZAI_BRIDGE_PASSWORD.updatedAt).toLocaleString()}
-                </span>
-              )}
+              Your z.ai login password. Encrypted in the database. Used as Bearer token for API authentication.
             </p>
-            {settings.ZAI_BRIDGE_PASSWORD && !zaiPasswordChanged && (
-              <p className="text-xs text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Password is configured
-              </p>
-            )}
           </div>
 
           <Separator />
