@@ -160,3 +160,24 @@ Stage Summary:
 - Session persistence: projectId → chatId in Settings
 - Clipboard fallback if API call fails
 - User needs to update PAT in git remote URL to push
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix z.ai bridge - auto-redirect, free model, API call on /init
+
+Work Log:
+- Investigated Vercel build error at ai-prompts.ts:801 - confirmed NO error exists (tsc clean)
+- Changed default model from glm-5-turbo (paid) to glm-4.7-flash (completely free) in 3 files
+- Fixed /init bridge in route.ts: now decrypts API key and actually sends all 6 docs to z.ai API via fetch with X-Chat-Id header
+- Chat URL changed from generic "https://z.ai/chat" to "https://z.ai/chat/{chatId}" for session-specific redirect
+- Added auto-redirect in frontend: when zaiBridge response received, automatically opens z.ai in new tab after 1s delay + toast notification
+- Updated bridge card UI: shows "{User}'s Workspace" label, "X docs sent to z.ai" status, AI response indicator
+- Added ExternalLink icon import to lucide-react imports
+- Updated Settings descriptions to explain auto-redirect flow and free model
+
+Stage Summary:
+- Build passes locally (next build succeeds)
+- Commit 07c990f pushed to GitHub main branch
+- User still needs to: update z.ai model in Settings from old glm-5-turbo to glm-4.7-flash (if saved previously)
+- GitHub PAT active (~1 week expiry reminder around June 14)

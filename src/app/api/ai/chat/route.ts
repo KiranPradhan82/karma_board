@@ -952,13 +952,18 @@ export async function POST(request: NextRequest) {
         const docsCount = Number(docsCountResult.rows[0]?.count || 0);
 
         if (docsCount >= 6) {
-          // Check z.ai config
-          const zaiKeyResult = await client.execute({
-            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
+          // Check z.ai credentials
+          const zaiUsernameResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USERNAME'`,
+            args: [],
+          });
+          const zaiPasswordResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
             args: [],
           });
 
-          if (zaiKeyResult.rows.length > 0 && zaiKeyResult.rows[0].value) {
+          if (zaiUsernameResult.rows.length > 0 && zaiUsernameResult.rows[0].value &&
+              zaiPasswordResult.rows.length > 0 && zaiPasswordResult.rows[0].value) {
             // Fetch all documents and build context
             const docsResult = await client.execute({
               sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
@@ -1042,13 +1047,14 @@ export async function POST(request: NextRequest) {
               context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
             }
 
-            // Decrypt API key
-            let zaiApiKey: string;
+            // Decrypt z.ai password
+            let zaiPassword: string;
             try {
-              zaiApiKey = decrypt(zaiKeyResult.rows[0].value as string);
+              zaiPassword = decrypt(zaiPasswordResult.rows[0].value as string);
             } catch {
-              zaiApiKey = zaiKeyResult.rows[0].value as string;
+              zaiPassword = zaiPasswordResult.rows[0].value as string;
             }
+            const zaiUsername = zaiUsernameResult.rows[0].value as string;
 
             // Send context to z.ai API — create/resume chat session with all docs
             let aiResponse = "";
@@ -1058,8 +1064,9 @@ export async function POST(request: NextRequest) {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  "Authorization": `Bearer ${zaiApiKey}`,
+                  "Authorization": `Bearer ${zaiPassword}`,
                   "X-Chat-Id": chatId,
+                  "X-User-Id": zaiUsername,
                 },
                 body: JSON.stringify({
                   model: zaiModel,

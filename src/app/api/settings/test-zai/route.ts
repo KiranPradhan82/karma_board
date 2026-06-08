@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, requireRole, getTursoClient } from "@/lib/api-auth";
 import { decrypt } from "@/lib/encryption";
 
-// GET /api/settings/test-zai — Test z.ai API connection
+// GET /api/settings/test-zai — Test z.ai API connection using stored credentials
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request);
@@ -15,9 +15,13 @@ export async function GET(request: NextRequest) {
 
     const client = getTursoClient();
 
-    // Fetch z.ai settings from Settings table
-    const apiKeyResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
+    // Fetch z.ai credentials from Settings table
+    const usernameResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USERNAME'`,
+      args: [],
+    });
+    const passwordResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
       args: [],
     });
     const baseUrlResult = await client.execute({
@@ -29,17 +33,21 @@ export async function GET(request: NextRequest) {
       args: [],
     });
 
-    if (apiKeyResult.rows.length === 0 || !apiKeyResult.rows[0].value) {
-      return NextResponse.json({ success: false, error: "z.ai API key not configured" });
+    if (usernameResult.rows.length === 0 || !usernameResult.rows[0].value) {
+      return NextResponse.json({ success: false, error: "z.ai username not configured" });
+    }
+    if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
+      return NextResponse.json({ success: false, error: "z.ai password not configured" });
     }
 
-    // Decrypt the API key
-    let apiKey: string;
+    // Decrypt the password
+    let password: string;
     try {
-      apiKey = decrypt(apiKeyResult.rows[0].value as string);
+      password = decrypt(passwordResult.rows[0].value as string);
     } catch {
-      apiKey = apiKeyResult.rows[0].value as string;
+      password = passwordResult.rows[0].value as string;
     }
+    const username = usernameResult.rows[0].value as string;
 
     const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
       ? (baseUrlResult.rows[0].value as string)
@@ -47,16 +55,16 @@ export async function GET(request: NextRequest) {
 
     const model = modelResult.rows.length > 0 && modelResult.rows[0].value
       ? (modelResult.rows[0].value as string)
-      : "glm-5-turbo";
+      : "glm-4.7-flash";
 
-    // Test the connection with a simple chat completion request
+    // Test the connection with a simple chat completion request using password as bearer token
     const chatUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
     const testResponse = await fetch(chatUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "Authorization": `Bearer ${password}`,
       },
       body: JSON.stringify({
         model,
@@ -65,7 +73,7 @@ export async function GET(request: NextRequest) {
         ],
         max_tokens: 20,
       }),
-      signal: AbortSignal.timeout(15000), // 15s timeout
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!testResponse.ok) {

@@ -103,8 +103,10 @@ export default function SettingsPage() {
   const [pdfThemeSaving, setPdfThemeSaving] = useState(false);
 
   // z.ai Bridge state
-  const [zaiApiKey, setZaiApiKey] = useState("");
-  const [zaiApiKeyChanged, setZaiApiKeyChanged] = useState(false);
+  const [zaiUsername, setZaiUsername] = useState("");
+  const [zaiUsernameChanged, setZaiUsernameChanged] = useState(false);
+  const [zaiPassword, setZaiPassword] = useState("");
+  const [zaiPasswordChanged, setZaiPasswordChanged] = useState(false);
   const [zaiBaseUrl, setZaiBaseUrl] = useState("https://api.z.ai/api/paas/v4");
   const [zaiModel, setZaiModel] = useState("glm-4.7-flash");
   const [zaiTestStatus, setZaiTestStatus] = useState<null | 'success' | 'error'>(null);
@@ -129,7 +131,8 @@ export default function SettingsPage() {
           if (data.SMTP_PASSWORD) setSmtpPassword(data.SMTP_PASSWORD.value);
 
           // Load z.ai Bridge settings
-          if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_USERNAME) setZaiUsername(data.ZAI_BRIDGE_USERNAME.value);
+          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
 
@@ -185,9 +188,10 @@ export default function SettingsPage() {
     setZaiSaving(true);
     try {
       const updateSettings: Record<string, string> = {};
-      if (zaiApiKeyChanged && zaiApiKey) updateSettings.ZAI_BRIDGE_API_KEY = zaiApiKey;
+      if (zaiUsernameChanged && zaiUsername) updateSettings.ZAI_BRIDGE_USERNAME = zaiUsername;
+      if (zaiPasswordChanged && zaiPassword) updateSettings.ZAI_BRIDGE_PASSWORD = zaiPassword;
       if (zaiBaseUrl !== (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4")) updateSettings.ZAI_BRIDGE_BASE_URL = zaiBaseUrl;
-      if (zaiModel !== (settings.ZAI_BRIDGE_MODEL?.value || "glm-5-turbo")) updateSettings.ZAI_BRIDGE_MODEL = zaiModel;
+      if (zaiModel !== (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash")) updateSettings.ZAI_BRIDGE_MODEL = zaiModel;
 
       if (Object.keys(updateSettings).length === 0) {
         toast.info("No changes to save");
@@ -203,14 +207,16 @@ export default function SettingsPage() {
       const json = await res.json();
       if (json.success) {
         toast.success("z.ai Bridge settings saved successfully");
-        setZaiApiKeyChanged(false);
+        setZaiUsernameChanged(false);
+        setZaiPasswordChanged(false);
         // Refresh settings
         const refreshRes = await fetch("/api/settings");
         const refreshJson = await refreshRes.json();
         if (refreshJson.success) {
           setSettings(refreshJson.data);
           const data = refreshJson.data as Record<string, SettingItem>;
-          if (data.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_USERNAME && !zaiUsernameChanged) setZaiUsername(data.ZAI_BRIDGE_USERNAME.value);
+          if (data.ZAI_BRIDGE_PASSWORD && !zaiPasswordChanged) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
         }
@@ -612,40 +618,74 @@ export default function SettingsPage() {
           <Alert>
             <Zap className="h-4 w-4" />
             <AlertDescription>
-              When configured, typing <strong>/init</strong> in Karma Space will automatically send all 6 project documents to z.ai, create a chat session named after the user (e.g. "Kiran's Workspace"), and redirect the browser to z.ai. The API key is stored encrypted. Default model <strong>glm-4.7-flash</strong> is completely free.
+              When configured, typing <strong>/init</strong> in Karma Space will automatically send all 6 project documents to z.ai, create a chat session named after the user (e.g. "Kiran's Workspace"), and redirect the browser to z.ai. Credentials are stored encrypted. Default model <strong>glm-4.7-flash</strong> is completely free.
             </AlertDescription>
           </Alert>
 
           <Separator />
 
-          {/* z.ai API Key */}
+          {/* z.ai Username */}
           <div className="space-y-1.5">
-            <Label htmlFor="zai-api-key" className="flex items-center gap-1.5">
-              <Key className="h-3.5 w-3.5" />
-              z.ai API Key
+            <Label htmlFor="zai-username" className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5" />
+              z.ai Username / Email
             </Label>
             <Input
-              id="zai-api-key"
-              type="password"
-              placeholder="Enter z.ai API key"
-              value={zaiApiKey}
+              id="zai-username"
+              type="text"
+              placeholder="Enter z.ai username or email"
+              value={zaiUsername}
               onChange={(e) => {
-                setZaiApiKey(e.target.value);
-                setZaiApiKeyChanged(true);
+                setZaiUsername(e.target.value);
+                setZaiUsernameChanged(true);
               }}
             />
             <p className="text-xs text-muted-foreground">
-              Your z.ai platform API key. Encrypted in the database.
-              {settings.ZAI_BRIDGE_API_KEY?.updatedAt && (
+              Your z.ai login username or email address.
+              {settings.ZAI_BRIDGE_USERNAME?.updatedAt && (
                 <span className="block mt-1">
                   Last updated:{" "}
-                  {new Date(settings.ZAI_BRIDGE_API_KEY.updatedAt).toLocaleString()}
+                  {new Date(settings.ZAI_BRIDGE_USERNAME.updatedAt).toLocaleString()}
                 </span>
               )}
             </p>
-            {settings.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged && (
+            {settings.ZAI_BRIDGE_USERNAME && !zaiUsernameChanged && (
               <p className="text-xs text-emerald-600 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> API key is configured
+                <CheckCircle2 className="h-3 w-3" /> Username is configured
+              </p>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* z.ai Password */}
+          <div className="space-y-1.5">
+            <Label htmlFor="zai-password" className="flex items-center gap-1.5">
+              <Key className="h-3.5 w-3.5" />
+              z.ai Password
+            </Label>
+            <Input
+              id="zai-password"
+              type="password"
+              placeholder="Enter z.ai password"
+              value={zaiPassword}
+              onChange={(e) => {
+                setZaiPassword(e.target.value);
+                setZaiPasswordChanged(true);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Your z.ai login password. Encrypted in the database.
+              {settings.ZAI_BRIDGE_PASSWORD?.updatedAt && (
+                <span className="block mt-1">
+                  Last updated:{" "}
+                  {new Date(settings.ZAI_BRIDGE_PASSWORD.updatedAt).toLocaleString()}
+                </span>
+              )}
+            </p>
+            {settings.ZAI_BRIDGE_PASSWORD && !zaiPasswordChanged && (
+              <p className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Password is configured
               </p>
             )}
           </div>
@@ -696,7 +736,7 @@ export default function SettingsPage() {
               variant="outline"
               size="sm"
               onClick={handleTestZai}
-              disabled={zaiTesting || !settings.ZAI_BRIDGE_API_KEY}
+              disabled={zaiTesting || !settings.ZAI_BRIDGE_USERNAME || !settings.ZAI_BRIDGE_PASSWORD}
             >
               {zaiTesting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -712,7 +752,7 @@ export default function SettingsPage() {
               onClick={handleSaveZai}
               disabled={
                 zaiSaving ||
-                (!zaiApiKeyChanged &&
+                (!zaiUsernameChanged && !zaiPasswordChanged &&
                   zaiBaseUrl === (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4") &&
                   zaiModel === (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash"))
               }

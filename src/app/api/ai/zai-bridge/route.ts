@@ -90,9 +90,13 @@ export async function POST(request: NextRequest) {
       if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
     } catch { /* non-critical */ }
 
-    // 4. Fetch z.ai bridge settings
-    const apiKeyResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
+    // 4. Fetch z.ai bridge credentials
+    const usernameResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USERNAME'`,
+      args: [],
+    });
+    const passwordResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
       args: [],
     });
     const baseUrlResult = await client.execute({
@@ -104,19 +108,26 @@ export async function POST(request: NextRequest) {
       args: [],
     });
 
-    if (apiKeyResult.rows.length === 0 || !apiKeyResult.rows[0].value) {
+    if (usernameResult.rows.length === 0 || !usernameResult.rows[0].value) {
       return NextResponse.json({
         success: false,
-        error: "z.ai Bridge is not configured. Please ask your Super Admin to configure the z.ai API key in Settings.",
+        error: "z.ai Bridge is not configured. Please ask your Super Admin to configure the z.ai login credentials in Settings.",
+      });
+    }
+    if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
+      return NextResponse.json({
+        success: false,
+        error: "z.ai Bridge is not configured. Please ask your Super Admin to configure the z.ai login credentials in Settings.",
       });
     }
 
-    let apiKey: string;
+    let password: string;
     try {
-      apiKey = decrypt(apiKeyResult.rows[0].value as string);
+      password = decrypt(passwordResult.rows[0].value as string);
     } catch {
-      apiKey = apiKeyResult.rows[0].value as string;
+      password = passwordResult.rows[0].value as string;
     }
+    const username = usernameResult.rows[0].value as string;
 
     const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
       ? (baseUrlResult.rows[0].value as string)
@@ -197,8 +208,9 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${password}`,
           "X-Chat-Id": chatId,
+          "X-User-Id": username,
         },
         body: JSON.stringify({
           model: zaiModel,
