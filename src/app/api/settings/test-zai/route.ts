@@ -15,19 +15,46 @@ export async function GET(request: NextRequest) {
 
     const client = getTursoClient();
 
-    // Fetch z.ai credentials from Settings table
-    const usernameResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USERNAME'`,
+    // Fetch login method
+    const methodResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
       args: [],
     });
-    const passwordResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
-      args: [],
-    });
-    const userIdResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USER_ID'`,
-      args: [],
-    });
+    const loginMethod = (methodResult.rows.length > 0 && methodResult.rows[0].value)
+      ? (methodResult.rows[0].value as string)
+      : "email";
+
+    // Fetch credentials based on login method
+    let bearerToken = "";
+    if (loginMethod === "google") {
+      const tokenResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
+        args: [],
+      });
+      if (tokenResult.rows.length === 0 || !tokenResult.rows[0].value) {
+        return NextResponse.json({ success: false, error: "z.ai Google token not configured" });
+      }
+      try { bearerToken = decrypt(tokenResult.rows[0].value as string); }
+      catch { bearerToken = tokenResult.rows[0].value as string; }
+    } else {
+      const emailResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_EMAIL'`,
+        args: [],
+      });
+      const passwordResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
+        args: [],
+      });
+      if (emailResult.rows.length === 0 || !emailResult.rows[0].value) {
+        return NextResponse.json({ success: false, error: "z.ai email not configured" });
+      }
+      if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
+        return NextResponse.json({ success: false, error: "z.ai password not configured" });
+      }
+      try { bearerToken = decrypt(passwordResult.rows[0].value as string); }
+      catch { bearerToken = passwordResult.rows[0].value as string; }
+    }
+
     const baseUrlResult = await client.execute({
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
       args: [],
@@ -37,26 +64,6 @@ export async function GET(request: NextRequest) {
       args: [],
     });
 
-    if (usernameResult.rows.length === 0 || !usernameResult.rows[0].value) {
-      return NextResponse.json({ success: false, error: "z.ai username not configured" });
-    }
-    if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
-      return NextResponse.json({ success: false, error: "z.ai password not configured" });
-    }
-
-    // Decrypt the password
-    let password: string;
-    try {
-      password = decrypt(passwordResult.rows[0].value as string);
-    } catch {
-      password = passwordResult.rows[0].value as string;
-    }
-    const username = usernameResult.rows[0].value as string;
-    // Use dedicated User ID if set, otherwise fall back to username
-    const userId = (userIdResult.rows.length > 0 && userIdResult.rows[0].value)
-      ? (userIdResult.rows[0].value as string)
-      : username;
-
     const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
       ? (baseUrlResult.rows[0].value as string)
       : "https://api.z.ai/api/paas/v4";
@@ -65,15 +72,14 @@ export async function GET(request: NextRequest) {
       ? (modelResult.rows[0].value as string)
       : "glm-4.7-flash";
 
-    // Test the connection with a simple chat completion request using password as bearer token
+    // Test the connection with a simple chat completion request
     const chatUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
     const testResponse = await fetch(chatUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${password}`,
-        "X-User-Id": userId,
+        "Authorization": `Bearer ${bearerToken}`,
       },
       body: JSON.stringify({
         model,
@@ -94,11 +100,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const responseData = await testResponse.json();
-
     return NextResponse.json({
       success: true,
       model,
+      loginMethod,
     });
   } catch (error) {
     console.error("[GET /api/settings/test-zai] Error:", error);

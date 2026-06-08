@@ -953,21 +953,36 @@ export async function POST(request: NextRequest) {
 
         if (docsCount >= 6) {
           // Check z.ai credentials
-          const zaiUsernameResult = await client.execute({
-            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USERNAME'`,
+          const zaiMethodResult = await client.execute({
+            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
             args: [],
           });
-          const zaiPasswordResult = await client.execute({
-            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
-            args: [],
-          });
-          const zaiUserIdResult = await client.execute({
-            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USER_ID'`,
-            args: [],
-          });
+          const loginMethod = (zaiMethodResult.rows.length > 0 && zaiMethodResult.rows[0].value)
+            ? (zaiMethodResult.rows[0].value as string)
+            : "email";
 
-          if (zaiUsernameResult.rows.length > 0 && zaiUsernameResult.rows[0].value &&
-              zaiPasswordResult.rows.length > 0 && zaiPasswordResult.rows[0].value) {
+          let zaiBearerToken = "";
+          if (loginMethod === "google") {
+            const tokenResult = await client.execute({
+              sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
+              args: [],
+            });
+            if (tokenResult.rows.length > 0 && tokenResult.rows[0].value) {
+              try { zaiBearerToken = decrypt(tokenResult.rows[0].value as string); }
+              catch { zaiBearerToken = tokenResult.rows[0].value as string; }
+            }
+          } else {
+            const zaiPasswordResult = await client.execute({
+              sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
+              args: [],
+            });
+            if (zaiPasswordResult.rows.length > 0 && zaiPasswordResult.rows[0].value) {
+              try { zaiBearerToken = decrypt(zaiPasswordResult.rows[0].value as string); }
+              catch { zaiBearerToken = zaiPasswordResult.rows[0].value as string; }
+            }
+          }
+
+          if (zaiBearerToken) {
             // Fetch all documents and build context
             const docsResult = await client.execute({
               sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
@@ -1051,18 +1066,7 @@ export async function POST(request: NextRequest) {
               context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
             }
 
-            // Decrypt z.ai password
-            let zaiPassword: string;
-            try {
-              zaiPassword = decrypt(zaiPasswordResult.rows[0].value as string);
-            } catch {
-              zaiPassword = zaiPasswordResult.rows[0].value as string;
-            }
-            const zaiUsername = zaiUsernameResult.rows[0].value as string;
-            // Use dedicated User ID if set, otherwise fall back to username
-            const zaiEffectiveUserId = (zaiUserIdResult.rows.length > 0 && zaiUserIdResult.rows[0].value)
-              ? (zaiUserIdResult.rows[0].value as string)
-              : zaiUsername;
+            // zaiBearerToken is already decrypted above
 
             // Send context to z.ai API — create/resume chat session with all docs
             let aiResponse = "";
@@ -1072,9 +1076,8 @@ export async function POST(request: NextRequest) {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  "Authorization": `Bearer ${zaiPassword}`,
+                  "Authorization": `Bearer ${zaiBearerToken}`,
                   "X-Chat-Id": chatId,
-                  "X-User-Id": zaiEffectiveUserId,
                 },
                 body: JSON.stringify({
                   model: zaiModel,

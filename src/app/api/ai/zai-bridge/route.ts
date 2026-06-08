@@ -90,19 +90,54 @@ export async function POST(request: NextRequest) {
       if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
     } catch { /* non-critical */ }
 
-    // 4. Fetch z.ai bridge credentials
-    const usernameResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USERNAME'`,
+    // 4. Fetch z.ai bridge login method + credentials
+    const methodResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
       args: [],
     });
-    const passwordResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
-      args: [],
-    });
-    const userIdResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_USER_ID'`,
-      args: [],
-    });
+    const loginMethod = (methodResult.rows.length > 0 && methodResult.rows[0].value)
+      ? (methodResult.rows[0].value as string)
+      : "email";
+
+    let bearerToken = "";
+    if (loginMethod === "google") {
+      const tokenResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
+        args: [],
+      });
+      if (tokenResult.rows.length === 0 || !tokenResult.rows[0].value) {
+        return NextResponse.json({
+          success: false,
+          error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the Google login token in Settings.",
+        });
+      }
+      try { bearerToken = decrypt(tokenResult.rows[0].value as string); }
+      catch { bearerToken = tokenResult.rows[0].value as string; }
+    } else {
+      const emailResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_EMAIL'`,
+        args: [],
+      });
+      const passwordResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
+        args: [],
+      });
+      if (emailResult.rows.length === 0 || !emailResult.rows[0].value) {
+        return NextResponse.json({
+          success: false,
+          error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
+        });
+      }
+      if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
+        return NextResponse.json({
+          success: false,
+          error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
+        });
+      }
+      try { bearerToken = decrypt(passwordResult.rows[0].value as string); }
+      catch { bearerToken = passwordResult.rows[0].value as string; }
+    }
+
     const baseUrlResult = await client.execute({
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
       args: [],
@@ -111,31 +146,6 @@ export async function POST(request: NextRequest) {
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_MODEL'`,
       args: [],
     });
-
-    if (usernameResult.rows.length === 0 || !usernameResult.rows[0].value) {
-      return NextResponse.json({
-        success: false,
-        error: "z.ai Bridge is not configured. Please ask your Super Admin to configure the z.ai login credentials in Settings.",
-      });
-    }
-    if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
-      return NextResponse.json({
-        success: false,
-        error: "z.ai Bridge is not configured. Please ask your Super Admin to configure the z.ai login credentials in Settings.",
-      });
-    }
-
-    let password: string;
-    try {
-      password = decrypt(passwordResult.rows[0].value as string);
-    } catch {
-      password = passwordResult.rows[0].value as string;
-    }
-    const username = usernameResult.rows[0].value as string;
-    // Use dedicated User ID if set, otherwise fall back to username
-    const effectiveUserId = (userIdResult.rows.length > 0 && userIdResult.rows[0].value)
-      ? (userIdResult.rows[0].value as string)
-      : username;
 
     const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
       ? (baseUrlResult.rows[0].value as string)
@@ -216,9 +226,8 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${password}`,
+          "Authorization": `Bearer ${bearerToken}`,
           "X-Chat-Id": chatId,
-          "X-User-Id": effectiveUserId,
         },
         body: JSON.stringify({
           model: zaiModel,
