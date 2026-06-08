@@ -1444,7 +1444,7 @@ export default function KarmaSpacePage() {
                                     {user?.name ? `${user.name}'s` : "Your"} Workspace
                                   </p>
                                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                                    All {message.zaiBridge.documentsFound} documents sent to z.ai
+                                    All {message.zaiBridge.documentsFound} document{message.zaiBridge.documentsFound !== 1 ? "s" : ""} + chat context sent to z.ai
                                     {message.zaiBridge.aiResponse ? " — AI responded" : ""}
                                   </p>
                                   <div className="flex items-center gap-2 mt-1">

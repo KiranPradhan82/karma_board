@@ -944,15 +944,14 @@ export async function POST(request: NextRequest) {
 
     if (command === "/init") {
       try {
-        // Check if project has all 6 documents
+        // Count project documents (no minimum required — send whatever exists)
         const docsCountResult = await client.execute({
           sql: `SELECT COUNT(*) as count FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan')`,
           args: [projectId],
         });
         const docsCount = Number(docsCountResult.rows[0]?.count || 0);
 
-        if (docsCount >= 6) {
-          // Check z.ai credentials
+        // Check z.ai credentials
           const zaiMethodResult = await client.execute({
             sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
             args: [],
@@ -1066,6 +1065,28 @@ export async function POST(request: NextRequest) {
               context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
             }
 
+            // Fetch ALL chat history for this project (not just the last 6)
+            const chatHistoryResult = await client.execute({
+              sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? ORDER BY "timestamp" ASC`,
+              args: [projectId],
+            });
+            if (chatHistoryResult.rows.length > 0) {
+              context += `## KarmaSpace Chat History (${chatHistoryResult.rows.length} messages)\n\n`;
+              for (const msgRow of chatHistoryResult.rows) {
+                const role = msgRow.role as string;
+                const msgContent = (msgRow.content as string) || "";
+                const truncatedMsg = msgContent.length > 2000
+                  ? msgContent.slice(0, 2000) + "\n\n... (truncated)"
+                  : msgContent;
+                if (role === "user") {
+                  context += `**User:** ${truncatedMsg}\n\n`;
+                } else {
+                  context += `**Karma Space AI:** ${truncatedMsg}\n\n`;
+                }
+              }
+              context += `---\n\n`;
+            }
+
             // zaiBearerToken is already decrypted above
 
             // Send context to z.ai API — create/resume chat session with all docs
@@ -1084,11 +1105,11 @@ export async function POST(request: NextRequest) {
                   messages: [
                     {
                       role: "system",
-                      content: `You are a senior full-stack AI developer assistant. You have received a complete project brief with all 6 pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) from KarmaBoard. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`,
+                      content: `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`,
                     },
                     {
                       role: "user",
-                      content: `Here is my complete project brief from KarmaBoard. Please review all documents and help me build this project:\n\n${context.slice(0, 120000)}`,
+                      content: `Here is my complete project brief from KarmaBoard with all generated documents and the full chat history. Please review everything and help me build this project:\n\n${context.slice(0, 120000)}`,
                     },
                   ],
                   max_tokens: 2048,
@@ -1119,9 +1140,8 @@ export async function POST(request: NextRequest) {
               aiResponse: aiResponse || undefined,
             };
 
-            console.log(`[Chat] z.ai Bridge: ${docsCount} docs sent to z.ai, chatId=${chatId}, isNew=${isNewChat}, aiResponse=${!!aiResponse}`);
+              console.log(`[Chat] z.ai Bridge: ${docsCount} docs + chat history sent to z.ai, chatId=${chatId}, isNew=${isNewChat}, aiResponse=${!!aiResponse}`);
           }
-        }
       } catch (bridgeErr) {
         console.error("[Chat] z.ai Bridge check error (non-fatal):", bridgeErr);
       }
