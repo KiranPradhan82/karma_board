@@ -64,8 +64,8 @@ export default function ClientChangePasswordPage() {
       } else {
         errorToast({ error: json.error || 'Failed to change password', title: 'Change Password' });
       }
-    } catch {
-      errorToast({ error: 'Something went wrong. Please try again.' });
+    } catch (err) {
+      errorToast({ error: err, title: 'Change password failed' });
     } finally {
       setLoading(false);
     }

@@ -256,8 +256,8 @@ export default function KarmaSpacePage() {
       } else {
         setDeleteError(safeError(json.error, "Failed to submit delete request."));
       }
-    } catch {
-      setDeleteError("Network error. Please try again.");
+    } catch (err) {
+      setDeleteError(safeError(err, "Network error. Please try again."));
     } finally {
       setDeleteSubmitting(false);
     }
@@ -533,7 +533,7 @@ export default function KarmaSpacePage() {
         })
         .catch((err) => {
           console.error("[handleCommandClick] Error:", err);
-          setError("Network error. Please check your connection and try again.");
+          setError(safeError(err, "Network error. Please check your connection and try again."));
         })
         .finally(() => {
           setIsLoading(false);
@@ -842,8 +842,8 @@ export default function KarmaSpacePage() {
       } else {
         setError(safeError(json.error, "Failed to submit requirements."));
       }
-    } catch {
-      setError("Failed to submit. Please try again.");
+    } catch (err) {
+      setError(safeError(err, "Failed to submit. Please try again."));
     } finally {
       setOnboardingSubmitting(false);
     }
@@ -898,8 +898,8 @@ export default function KarmaSpacePage() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch {
-      setError("Failed to export PDF");
+    } catch (err) {
+      setError(safeError(err, "Failed to export PDF"));
     } finally {
       setIsExporting(false);
     }

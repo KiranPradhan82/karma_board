@@ -195,8 +195,8 @@ export default function ProfilePage() {
       } else {
         errorToast({ error: json.error, title: 'Failed to update profile' });
       }
-    } catch {
-      errorToast({ error: 'Something went wrong', title: 'Save profile failed' });
+    } catch (err) {
+      errorToast({ error: err, title: 'Save profile failed' });
     } finally {
       setSaving(false);
     }
@@ -243,8 +243,8 @@ export default function ProfilePage() {
       } else {
         setPasswordError(json.error || 'Failed to change password');
       }
-    } catch {
-      setPasswordError('Something went wrong');
+    } catch (err) {
+      setPasswordError(err instanceof Error ? err.message : String(err));
     } finally {
       setPasswordSaving(false);
     }

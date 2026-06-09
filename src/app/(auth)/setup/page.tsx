@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { errorToast } from "@/lib/error-toast";
 import {
   Loader2,
   UserPlus,
@@ -138,7 +139,7 @@ export default function SetupPage() {
           },
         },
       });
-      toast.error("Something went wrong. Please try again.");
+      errorToast({ error: err, title: "Setup failed" });
     } finally {
       setIsLoading(false);
     }

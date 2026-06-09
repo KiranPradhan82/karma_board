@@ -166,12 +166,16 @@ export default function SettingsPage() {
     if (userRole === "SUPERADMIN") fetchSettings();
   }, [userRole]);
 
-  // Test z.ai connection
+  // Test z.ai connection — sends the form's current API key (even if not saved yet)
   async function handleTestZai() {
     setZaiTesting(true);
     setZaiTestStatus(null);
     try {
-      const res = await fetch("/api/settings/test-zai");
+      const res = await fetch("/api/settings/test-zai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: zaiApiKey }),
+      });
       const json = await res.json();
       setZaiTestStatus(json.success ? "success" : "error");
       if (json.success) {
@@ -179,9 +183,9 @@ export default function SettingsPage() {
       } else {
         errorToast({ error: json.error, title: "Connection failed" });
       }
-    } catch {
+    } catch (err) {
       setZaiTestStatus("error");
-      errorToast({ error: "Failed to test z.ai connection", title: "Connection test failed" });
+      errorToast({ error: err, title: "Connection test failed" });
     } finally {
       setZaiTesting(false);
     }
@@ -224,8 +228,8 @@ export default function SettingsPage() {
       } else {
         errorToast({ error: json.error, title: "Failed to save z.ai settings" });
       }
-    } catch {
-      errorToast({ error: "Something went wrong", title: "Save z.ai settings failed" });
+    } catch (err) {
+      errorToast({ error: err, title: "Save z.ai settings failed" });
     } finally {
       setZaiSaving(false);
     }
@@ -293,8 +297,8 @@ export default function SettingsPage() {
       } else {
         errorToast({ error: json.error, title: "Failed to save settings" });
       }
-    } catch {
-      errorToast({ error: "Something went wrong", title: "Save settings failed" });
+    } catch (err) {
+      errorToast({ error: err, title: "Save settings failed" });
     } finally {
       setSaving(false);
     }
@@ -358,8 +362,8 @@ export default function SettingsPage() {
       } else {
         errorToast({ error: json.error, title: "Failed to save PDF theme" });
       }
-    } catch {
-      errorToast({ error: "Something went wrong", title: "Save PDF theme failed" });
+    } catch (err) {
+      errorToast({ error: err, title: "Save PDF theme failed" });
     } finally {
       setPdfThemeSaving(false);
     }
@@ -751,7 +755,7 @@ export default function SettingsPage() {
               variant="outline"
               size="sm"
               onClick={handleTestZai}
-              disabled={zaiTesting || !settings.ZAI_BRIDGE_API_KEY}
+              disabled={zaiTesting || !zaiApiKey}
             >
               {zaiTesting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

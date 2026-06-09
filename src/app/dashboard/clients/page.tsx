@@ -569,7 +569,7 @@ export default function ClientsPage() {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to delete client', errMsg, `URL: /api/clients/${deletingClient?.id}`);
-      errorToast({ error: 'Something went wrong', title: 'Delete client failed' });
+      errorToast({ error: errMsg, title: 'Delete client failed' });
     } finally {
       setDeleteLoading(false);
     }

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { errorToast } from '@/lib/error-toast';
 import { Loader2, User, Hammer, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -104,7 +105,7 @@ export default function ClientProfilePage() {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to update profile', errMsg, 'URL: PUT /api/clients/me');
-      toast.error('Something went wrong');
+      errorToast({ error: errMsg, title: 'Update profile failed' });
     } finally {
       setSaving(false);
     }

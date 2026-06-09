@@ -824,8 +824,8 @@ export default function TeamPage() {
       } else {
         errorToast({ error: json.error, title: 'Failed to delete member' });
       }
-    } catch {
-      errorToast({ error: 'Something went wrong', title: 'Delete member failed' });
+    } catch (err) {
+      errorToast({ error: err, title: 'Delete member failed' });
     } finally {
       setDeleteLoading(false);
     }
@@ -850,8 +850,8 @@ export default function TeamPage() {
       } else {
         errorToast({ error: json.error, title: 'Failed to delete members' });
       }
-    } catch {
-      errorToast({ error: 'Something went wrong', title: 'Bulk delete failed' });
+    } catch (err) {
+      errorToast({ error: err, title: 'Bulk delete failed' });
     } finally {
       setBulkDeleteLoading(false);
     }

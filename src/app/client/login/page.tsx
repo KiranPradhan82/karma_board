@@ -55,7 +55,7 @@ export default function ClientLoginPage() {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Login failed', errMsg, 'URL: signIn(credentials)');
-      toast.error("Something went wrong. Please try again.");
+      toast.error(errMsg);
     } finally {
       setIsLoading(false);
     }
