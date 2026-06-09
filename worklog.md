@@ -203,3 +203,24 @@ Stage Summary:
 - Super admin now stores z.ai login credentials (username + password) instead of API key
 - Both credentials encrypted in database via existing encryption utility
 - Password used as Bearer token for z.ai API auth, username sent as X-User-Id header
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Fix Launch Codex 404 redirect + display z.ai response in KarmaBoard chat
+
+Work Log:
+- Investigated root cause of 404: zai-bridge generated random UUID and built URL `https://z.ai/chat/{uuid}`, but z.ai web UI doesn't support deep-linking to API-created sessions
+- z.ai API (`/chat/completions`) and z.ai web UI are separate systems with different session management — no way to bridge via URL
+- Fix 1: Changed `chatUrl` from `https://z.ai/chat/${chatId}` to `https://z.ai` in route.ts
+- Fix 2: Rewrote `handleStartCodex` to add z.ai AI response as a chat message instead of `window.open()` redirect
+- Fix 3: Updated zaiBridge card UI — Zap icon, "Karmaspace Codex" branding, shows chatMessagesFound, displays AI response text in scrollable section
+- Fix 4: Added `Zap` to lucide-react imports, added `chatMessagesFound` to ChatMessage interface
+- Verified ProjectDocument table auto-creation via `ensureProjectDocumentTable` function already handles the SQLITE table missing error
+- Build passes, commit 0b46530 pushed to GitHub
+
+Stage Summary:
+- Launch Codex button now works end-to-end: sends project context to z.ai API, displays AI response directly in KarmaBoard chat
+- No more 404 or login issues — user stays in KarmaBoard, z.ai response shown in-chat
+- "Open z.ai" button still available for manual z.ai access
+- ProjectDocument table auto-created on first use (runtime DDL)
