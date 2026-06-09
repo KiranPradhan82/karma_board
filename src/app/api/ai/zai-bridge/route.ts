@@ -28,6 +28,35 @@ const DOC_LABELS: Record<string, string> = {
 
 export const maxDuration = 60;
 
+/**
+ * Ensure ProjectDocument table exists. Auto-creates on first use.
+ */
+let _docTableEnsured = false;
+async function ensureProjectDocumentTable(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
+  if (_docTableEnsured) return;
+  try {
+    await tursoClient.execute({
+      sql: `CREATE TABLE IF NOT EXISTS "ProjectDocument" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "docType" TEXT NOT NULL,
+        "title" TEXT NOT NULL,
+        "content" TEXT NOT NULL,
+        "pdfData" TEXT NOT NULL DEFAULT '',
+        "version" INTEGER NOT NULL DEFAULT 1,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE("projectId", "docType")
+      )`,
+      args: [],
+    });
+    _docTableEnsured = true;
+    console.log("[zai-bridge] ProjectDocument table ensured");
+  } catch (err) {
+    console.error("[zai-bridge] Failed to create ProjectDocument table:", err);
+  }
+}
+
 // POST /api/ai/zai-bridge — Build project context and launch z.ai chat
 export async function POST(request: NextRequest) {
   try {
@@ -48,6 +77,9 @@ export async function POST(request: NextRequest) {
     }
 
     const client = getTursoClient();
+
+    // 0. Ensure ProjectDocument table exists
+    await ensureProjectDocumentTable(client);
 
     // 1. Fetch project info
     const projectResult = await client.execute({

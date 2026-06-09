@@ -142,6 +142,27 @@ async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): P
       console.log("[ensureAiTables] Protocol tables already exist, skipping");
     }
 
+    // Also ensure ProjectDocument table exists (needed for doc auto-save)
+    try {
+      await tursoClient.execute({
+        sql: `CREATE TABLE IF NOT EXISTS "ProjectDocument" (
+          "id" TEXT NOT NULL PRIMARY KEY,
+          "projectId" TEXT NOT NULL,
+          "docType" TEXT NOT NULL,
+          "title" TEXT NOT NULL,
+          "content" TEXT NOT NULL,
+          "pdfData" TEXT NOT NULL DEFAULT '',
+          "version" INTEGER NOT NULL DEFAULT 1,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE("projectId", "docType")
+        )`,
+        args: [],
+      });
+    } catch (docTableErr) {
+      console.error("[ensureAiTables] ProjectDocument table creation error (non-fatal):", docTableErr);
+    }
+
     _tablesEnsured = true;
   } catch (err) {
     console.error("[ensureAiTables] Migration error (non-fatal):", err);

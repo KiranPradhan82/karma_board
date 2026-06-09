@@ -1198,7 +1198,7 @@ export default function KarmaSpacePage() {
                     ) : (
                       <Rocket className="h-4 w-4" />
                     )}
-                    <span className="hidden sm:inline">Start Karmaspace Codex</span>
+                    <span className="hidden sm:inline">Launch Codex</span>
                     <span className="sm:hidden">Codex</span>
                   </Button>
                 </TooltipTrigger>
