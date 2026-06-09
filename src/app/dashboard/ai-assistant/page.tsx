@@ -722,13 +722,17 @@ export default function KarmaSpacePage() {
       try {
         const res = await fetch("/api/ai/onboarding?projectId=" + selectedProject.id);
         const json = await res.json();
-        if (json.success && json.data.hasDocuments) {
-          setOnboardingPhase("complete");
-        } else if (json.success && !json.data.hasDocuments && onboardingPhase === "idle") {
-          setOnboardingPhase("requirements");
+        if (json.success) {
+          // If project has documents OR existing chat history, skip onboarding
+          if (json.data.isOnboarded || json.data.hasChatHistory) {
+            setOnboardingPhase("complete");
+          } else if (onboardingPhase === "idle") {
+            setOnboardingPhase("requirements");
+          }
         }
       } catch {
-        // silent
+        // If onboarding check fails, default to showing chat (not onboarding)
+        setOnboardingPhase("complete");
       }
     }
     checkDocs();

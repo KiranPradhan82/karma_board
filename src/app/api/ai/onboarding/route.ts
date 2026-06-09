@@ -107,21 +107,47 @@ export async function GET(request: NextRequest) {
     }
 
     const client = getTursoClient();
-    const result = await client.execute({
-      sql: `SELECT id, "docType", content, "createdAt" FROM "ProjectDocument" WHERE "projectId" = ? ORDER BY "createdAt" DESC`,
-      args: [projectId],
-    });
 
-    const documents = result.rows.map((row) => ({
-      id: row.id,
-      docType: row.docType,
-      content: row.content,
-      createdAt: row.createdAt,
-    }));
+    // Check ProjectDocument table (try/catch in case table doesn't exist yet)
+    let documents: { id: string; docType: string; content: string; createdAt: string }[] = [];
+    try {
+      const result = await client.execute({
+        sql: `SELECT id, "docType", content, "createdAt" FROM "ProjectDocument" WHERE "projectId" = ? ORDER BY "createdAt" DESC`,
+        args: [projectId],
+      });
+      documents = result.rows.map((row) => ({
+        id: row.id as string,
+        docType: row.docType as string,
+        content: row.content as string,
+        createdAt: row.createdAt as string,
+      }));
+    } catch (err) {
+      console.warn("[GET /api/ai/onboarding] ProjectDocument table not available:", err);
+    }
+
+    // Also check if project has existing chat history (AiChat)
+    // If chat exists, consider the project as already onboarded
+    let hasChatHistory = false;
+    try {
+      const chatResult = await client.execute({
+        sql: `SELECT COUNT(*) as cnt FROM "AiChat" WHERE "projectId" = ?`,
+        args: [projectId],
+      });
+      if (chatResult.rows.length > 0 && Number(chatResult.rows[0].cnt) > 0) {
+        hasChatHistory = true;
+      }
+    } catch (err) {
+      console.warn("[GET /api/ai/onboarding] AiChat check failed:", err);
+    }
 
     return NextResponse.json({
       success: true,
-      data: { documents, hasDocuments: documents.length > 0 },
+      data: {
+        documents,
+        hasDocuments: documents.length > 0,
+        hasChatHistory,
+        isOnboarded: documents.length > 0 || hasChatHistory,
+      },
     });
   } catch (error) {
     console.error("[GET /api/ai/onboarding] Error:", error);
