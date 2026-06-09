@@ -428,14 +428,14 @@ export default function KarmaSpacePage() {
             {
               id: json.data.userMessage.id,
               role: json.data.userMessage.role,
-              content: json.data.userMessage.content,
+              content: safeContent(json.data.userMessage.content),
               timestamp: new Date().toISOString(),
               userName: user?.name || "You",
             },
             {
               id: json.data.aiMessage.id,
               role: json.data.aiMessage.role,
-              content: json.data.aiMessage.content,
+              content: safeContent(json.data.aiMessage.content),
               timestamp: new Date().toISOString(),
               userName: "Karma Space AI",
               toolExecutions: json.data.toolExecutions || undefined,
@@ -445,7 +445,7 @@ export default function KarmaSpacePage() {
           ];
         });
       } else {
-        setError(json.error || "Failed to send message");
+        setError(typeof json.error === "string" ? json.error : "Failed to send message");
       }
     } catch (err) {
       console.error("[sendMessage] Error:", err);
@@ -500,14 +500,14 @@ export default function KarmaSpacePage() {
                 {
                   id: json.data.userMessage.id,
                   role: json.data.userMessage.role,
-                  content: json.data.userMessage.content,
+                  content: safeContent(json.data.userMessage.content),
                   timestamp: new Date().toISOString(),
                   userName: user?.name || "You",
                 },
                 {
                   id: json.data.aiMessage.id,
                   role: json.data.aiMessage.role,
-                  content: json.data.aiMessage.content,
+                  content: safeContent(json.data.aiMessage.content),
                   timestamp: new Date().toISOString(),
                   userName: "Karma Space AI",
                   toolExecutions: json.data.toolExecutions || undefined,
@@ -517,7 +517,7 @@ export default function KarmaSpacePage() {
               ];
             });
           } else {
-            setError(json.error || "Failed to send message");
+            setError(typeof json.error === "string" ? json.error : "Failed to send message");
           }
         })
         .catch((err) => {
