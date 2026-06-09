@@ -103,13 +103,8 @@ export default function SettingsPage() {
   const [pdfThemeSaving, setPdfThemeSaving] = useState(false);
 
   // z.ai Bridge state
-  const [zaiLoginMethod, setZaiLoginMethod] = useState<"email" | "google">("email");
-  const [zaiEmail, setZaiEmail] = useState("");
-  const [zaiEmailChanged, setZaiEmailChanged] = useState(false);
-  const [zaiPassword, setZaiPassword] = useState("");
-  const [zaiPasswordChanged, setZaiPasswordChanged] = useState(false);
-  const [zaiGoogleToken, setZaiGoogleToken] = useState("");
-  const [zaiGoogleTokenChanged, setZaiGoogleTokenChanged] = useState(false);
+  const [zaiApiKey, setZaiApiKey] = useState("");
+  const [zaiApiKeyChanged, setZaiApiKeyChanged] = useState(false);
   const [zaiBaseUrl, setZaiBaseUrl] = useState("https://api.z.ai/api/paas/v4");
   const [zaiModel, setZaiModel] = useState("glm-4.7-flash");
   const [zaiTestStatus, setZaiTestStatus] = useState<null | 'success' | 'error'>(null);
@@ -134,10 +129,7 @@ export default function SettingsPage() {
           if (data.SMTP_PASSWORD) setSmtpPassword(data.SMTP_PASSWORD.value);
 
           // Load z.ai Bridge settings
-          if (data.ZAI_BRIDGE_LOGIN_METHOD) setZaiLoginMethod(data.ZAI_BRIDGE_LOGIN_METHOD.value as "email" | "google");
-          if (data.ZAI_BRIDGE_EMAIL) setZaiEmail(data.ZAI_BRIDGE_EMAIL.value);
-          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
-          if (data.ZAI_BRIDGE_GOOGLE_TOKEN) setZaiGoogleToken(data.ZAI_BRIDGE_GOOGLE_TOKEN.value);
+          if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
 
@@ -193,20 +185,7 @@ export default function SettingsPage() {
     setZaiSaving(true);
     try {
       const updateSettings: Record<string, string> = {};
-      // Always save the login method
-      updateSettings.ZAI_BRIDGE_LOGIN_METHOD = zaiLoginMethod;
-      // Save method-specific credentials
-      if (zaiLoginMethod === "email") {
-        if (zaiEmailChanged && zaiEmail) updateSettings.ZAI_BRIDGE_EMAIL = zaiEmail;
-        if (zaiPasswordChanged && zaiPassword) updateSettings.ZAI_BRIDGE_PASSWORD = zaiPassword;
-        // Clear google token if switching away
-        updateSettings.ZAI_BRIDGE_GOOGLE_TOKEN = "";
-      } else {
-        if (zaiGoogleTokenChanged) updateSettings.ZAI_BRIDGE_GOOGLE_TOKEN = zaiGoogleToken || "";
-        // Clear email/password if switching away
-        updateSettings.ZAI_BRIDGE_EMAIL = "";
-        updateSettings.ZAI_BRIDGE_PASSWORD = "";
-      }
+      if (zaiApiKeyChanged && zaiApiKey) updateSettings.ZAI_BRIDGE_API_KEY = zaiApiKey;
       if (zaiBaseUrl !== (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4")) updateSettings.ZAI_BRIDGE_BASE_URL = zaiBaseUrl;
       if (zaiModel !== (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash")) updateSettings.ZAI_BRIDGE_MODEL = zaiModel;
 
@@ -218,19 +197,14 @@ export default function SettingsPage() {
       const json = await res.json();
       if (json.success) {
         toast.success("z.ai Bridge settings saved successfully");
-        setZaiEmailChanged(false);
-        setZaiPasswordChanged(false);
-        setZaiGoogleTokenChanged(false);
+        setZaiApiKeyChanged(false);
         // Refresh settings
         const refreshRes = await fetch("/api/settings");
         const refreshJson = await refreshRes.json();
         if (refreshJson.success) {
           setSettings(refreshJson.data);
           const data = refreshJson.data as Record<string, SettingItem>;
-          if (data.ZAI_BRIDGE_LOGIN_METHOD) setZaiLoginMethod(data.ZAI_BRIDGE_LOGIN_METHOD.value as "email" | "google");
-          if (data.ZAI_BRIDGE_EMAIL) setZaiEmail(data.ZAI_BRIDGE_EMAIL.value);
-          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
-          if (data.ZAI_BRIDGE_GOOGLE_TOKEN) setZaiGoogleToken(data.ZAI_BRIDGE_GOOGLE_TOKEN.value);
+          if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
         }
