@@ -284,7 +284,15 @@ export default function KarmaSpacePage() {
         const res = await fetch("/api/projects?limit=100");
         const json = await res.json();
         if (json.success) {
-          setProjects(json.data.projects || []);
+          const allProjects = json.data.projects || [];
+          setProjects(allProjects);
+          // If selected project is archived or no longer exists, clear selection
+          setSelectedProject((prev) => {
+            if (!prev) return null;
+            const stillExists = allProjects.find((p: Project) => p.id === prev.id);
+            if (!stillExists || stillExists.status === "ARCHIVED") return null;
+            return prev;
+          });
         }
       } catch {
         console.error("Failed to fetch projects");
@@ -968,8 +976,9 @@ export default function KarmaSpacePage() {
 
   const filteredProjects = projects.filter(
     (p) =>
-      p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
-      p.description?.toLowerCase().includes(projectSearch.toLowerCase())
+      p.status !== "ARCHIVED" &&
+      (p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+        p.description?.toLowerCase().includes(projectSearch.toLowerCase()))
   );
 
   return (
