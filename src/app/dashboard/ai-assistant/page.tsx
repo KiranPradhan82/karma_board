@@ -126,8 +126,10 @@ interface ChatMessage {
     modelName: string;
     documentsFound: number;
     chatMessagesFound?: number;
+    docsSource?: string;
     isNewChat: boolean;
     aiResponse?: string;
+    apiError?: string;
   };
 }
 
@@ -929,8 +931,11 @@ export default function KarmaSpacePage() {
             context: json.context,
             modelName: json.modelName,
             documentsFound: json.documentsFound,
+            chatMessagesFound: json.chatMessagesFound,
+            docsSource: json.docsSource,
             isNewChat: json.isNewChat,
             aiResponse: json.aiResponse,
+            apiError: json.apiError,
           },
         };
         setMessages((prev) => [...prev, codexMsg]);
@@ -989,13 +994,13 @@ export default function KarmaSpacePage() {
     <TooltipProvider>
       <div className="flex flex-col h-[calc(100vh-3.5rem)] -m-4 sm:-m-6 lg:-m-8">
         {/* Top Bar */}
-        <div className="flex items-center justify-between border-b px-4 py-3 bg-card shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-primary" />
+        <div className="flex items-center justify-between border-b px-2 sm:px-4 py-2 sm:py-3 bg-card shrink-0 min-h-0">
+          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
               </div>
-              <h1 className="font-semibold text-lg">Karma Space</h1>
+              <h1 className="font-semibold text-sm sm:text-lg">Karma Space</h1>
             </div>
 
             {/* Project Selector */}
@@ -1006,13 +1011,13 @@ export default function KarmaSpacePage() {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className="ml-2 gap-2 text-sm h-9 max-w-[240px]"
+                  className="ml-1 sm:ml-2 gap-1.5 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 max-w-[140px] sm:max-w-[240px]"
                 >
                   {selectedProject ? (
                     <>
                       {selectedProject.color && (
                         <span
-                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full shrink-0"
                           style={{
                             backgroundColor: selectedProject.color,
                           }}
@@ -1024,13 +1029,13 @@ export default function KarmaSpacePage() {
                     </>
                   ) : (
                     <>
-                      <Search className="h-3.5 w-3.5 shrink-0" />
-                      <span className="text-muted-foreground">
+                      <Search className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+                      <span className="text-muted-foreground hidden sm:inline">
                         Select Project...
                       </span>
                     </>
                   )}
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                  <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-72 p-0" align="start">
@@ -1078,8 +1083,8 @@ export default function KarmaSpacePage() {
             </Popover>
           </div>
 
-          {/* IDE Panel Toggles */}
-          <div className="flex items-center gap-0.5 border-l pl-2 ml-1">
+          {/* IDE Panel Toggles — hidden on mobile */}
+          <div className="hidden sm:flex items-center gap-0.5 border-l pl-2 ml-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -1109,7 +1114,7 @@ export default function KarmaSpacePage() {
           </div>
 
           {/* Right side: Model selector + Export PDF */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {isSuperAdmin && selectedProject && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1500,7 +1505,7 @@ export default function KarmaSpacePage() {
                           <>
                             {/* z.ai Codex Card */}
                             <div className="w-full rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
-                              <div className="flex items-center gap-3 px-4 py-3 bg-primary/10">
+                              <div className="flex items-center gap-3 px-3 sm:px-4 py-3 bg-primary/10">
                                 <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
                                   <Zap className="h-4 w-4 text-primary" />
                                 </div>
@@ -1508,11 +1513,12 @@ export default function KarmaSpacePage() {
                                   <p className="text-sm font-semibold text-primary">
                                     {user?.name ? `${user.name}'s` : "Your"} Karmaspace Codex
                                   </p>
-                                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                                    {message.zaiBridge.documentsFound} document{message.zaiBridge.documentsFound !== 1 ? "s" : ""} + {message.zaiBridge.chatMessagesFound || 0} chat messages sent to z.ai
-                                    {message.zaiBridge.aiResponse ? " — AI responded" : " — awaiting response"}
+                                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
+                                    {message.zaiBridge.documentsFound} doc{message.zaiBridge.documentsFound !== 1 ? "s" : ""} + {message.zaiBridge.chatMessagesFound || 0} chat msg{message.zaiBridge.chatMessagesFound !== 1 ? "s" : ""}
+                                    {message.zaiBridge.docsSource === "aiChatScan" ? " (from chat)" : message.zaiBridge.docsSource === "projectDocument" ? " (from docs table)" : ""}
+                                    {message.zaiBridge.aiResponse ? " — AI responded" : message.zaiBridge.apiError ? " — failed" : " — awaiting response"}
                                   </p>
-                                  <div className="flex items-center gap-2 mt-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
                                     <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20">
                                       {message.zaiBridge.documentsFound} Docs
                                     </Badge>
@@ -1521,7 +1527,7 @@ export default function KarmaSpacePage() {
                                     </Badge>
                                     {message.zaiBridge.isNewChat ? (
                                       <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-700">
-                                        New Session
+                                        New
                                       </Badge>
                                     ) : (
                                       <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-700">
@@ -1530,20 +1536,27 @@ export default function KarmaSpacePage() {
                                     )}
                                   </div>
                                 </div>
-                                <div className="shrink-0">
+                                <div className="shrink-0 hidden sm:block">
                                   <Zap className="h-4 w-4 text-primary" />
                                 </div>
                               </div>
+                              {/* API Error */}
+                              {message.zaiBridge.apiError && (
+                                <div className="px-3 sm:px-4 py-3 border-t border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30">
+                                  <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">z.ai Error</p>
+                                  <p className="text-xs text-red-500 dark:text-red-300 leading-relaxed break-words">{message.zaiBridge.apiError}</p>
+                                </div>
+                              )}
                               {/* AI Response */}
                               {message.zaiBridge.aiResponse && (
-                                <div className="px-4 py-3 border-t border-primary/10">
+                                <div className="px-3 sm:px-4 py-3 border-t border-primary/10">
                                   <p className="text-xs font-medium text-muted-foreground mb-2">z.ai Codex Response</p>
                                   <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
                                     {message.zaiBridge.aiResponse}
                                   </div>
                                 </div>
                               )}
-                              <div className="flex items-center gap-2 px-4 py-3 border-t border-primary/10">
+                              <div className="flex items-center gap-2 px-3 sm:px-4 py-3 border-t border-primary/10">
                                 <Button
                                   variant="default"
                                   size="sm"

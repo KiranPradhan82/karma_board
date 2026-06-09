@@ -15,8 +15,6 @@ async function hasProjectAccess(userId: string, userRole: string, projectId: str
   return result.rows.length > 0;
 }
 
-const DOC_TYPES = ["prd", "trd", "flow", "ux", "schema", "plan"];
-
 const DOC_LABELS: Record<string, string> = {
   prd: "Product Requirements Document",
   trd: "Technical Requirements Document",
@@ -24,40 +22,39 @@ const DOC_LABELS: Record<string, string> = {
   ux: "UI/UX Design Brief",
   schema: "Backend Schema Document",
   plan: "Implementation Plan",
+  requirements: "Product Requirements",
 };
+
+/**
+ * Document signature keywords used to detect docs embedded in chat messages.
+ * Each doc type has 3+ keywords that must be present.
+ */
+const DOC_SIGNATURES: Record<string, string[]> = {
+  prd: ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision"],
+  trd: ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements"],
+  flow: ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management"],
+  ux: ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines"],
+  schema: ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules"],
+  plan: ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements"],
+};
+
+/**
+ * Detect document type from AI chat message content based on keyword signatures.
+ * Returns the doc type string or null.
+ */
+function detectDocType(content: string): string | null {
+  if (content.length < 1500) return null;
+  const lower = content.toLowerCase();
+  for (const [docType, keywords] of Object.entries(DOC_SIGNATURES)) {
+    const matchCount = keywords.filter(kw => lower.includes(kw.toLowerCase())).length;
+    if (matchCount >= 3) return docType;
+  }
+  return null;
+}
 
 export const maxDuration = 60;
 
-/**
- * Ensure ProjectDocument table exists. Auto-creates on first use.
- */
-let _docTableEnsured = false;
-async function ensureProjectDocumentTable(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
-  if (_docTableEnsured) return;
-  try {
-    await tursoClient.execute({
-      sql: `CREATE TABLE IF NOT EXISTS "ProjectDocument" (
-        "id" TEXT NOT NULL PRIMARY KEY,
-        "projectId" TEXT NOT NULL,
-        "docType" TEXT NOT NULL,
-        "title" TEXT NOT NULL,
-        "content" TEXT NOT NULL,
-        "pdfData" TEXT NOT NULL DEFAULT '',
-        "version" INTEGER NOT NULL DEFAULT 1,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE("projectId", "docType")
-      )`,
-      args: [],
-    });
-    _docTableEnsured = true;
-    console.log("[zai-bridge] ProjectDocument table ensured");
-  } catch (err) {
-    console.error("[zai-bridge] Failed to create ProjectDocument table:", err);
-  }
-}
-
-// POST /api/ai/zai-bridge — Build project context and launch z.ai chat
+// POST /api/ai/zai-bridge — Build project context and send to z.ai
 export async function POST(request: NextRequest) {
   try {
     const user = await getAuthUser(request);
@@ -78,15 +75,18 @@ export async function POST(request: NextRequest) {
 
     const client = getTursoClient();
 
-    // 0. Ensure ProjectDocument table exists
-    await ensureProjectDocumentTable(client);
-
-    // 1. Fetch project info
-    const projectResult = await client.execute({
-      sql: `SELECT name, description, "clientName", status, priority, deadline FROM "Project" WHERE id = ?`,
-      args: [projectId],
-    });
-    const project = projectResult.rows[0];
+    // 1. Fetch project info (isolated try/catch)
+    let project: Record<string, unknown> | null = null;
+    try {
+      const projectResult = await client.execute({
+        sql: `SELECT name, description, "clientName", status, priority, deadline FROM "Project" WHERE id = ?`,
+        args: [projectId],
+      });
+      project = projectResult.rows[0] || null;
+    } catch (err) {
+      console.error("[zai-bridge] Failed to fetch project:", err);
+      return NextResponse.json({ success: false, error: "Failed to fetch project info" }, { status: 500 });
+    }
     if (!project) {
       return NextResponse.json({ success: false, error: "Project not found" }, { status: 404 });
     }
@@ -101,25 +101,73 @@ export async function POST(request: NextRequest) {
       if (userResult.rows.length > 0) userName = userResult.rows[0].name as string;
     } catch { /* fallback */ }
 
-    // 3. Fetch ALL ProjectDocument rows for this project (any count — no minimum)
-    const docsResult = await client.execute({
-      sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
-      args: [projectId],
-    });
+    // 3. Fetch documents — try ProjectDocument table first, then fall back to AiChat scanning
+    const documents: { docType: string; title: string; content: string; version: number }[] = [];
+    let docsSource = "none";
 
-    const documents: { docType: string; title: string; content: string; version: number }[] =
-      docsResult.rows.map((row) => ({
-        docType: row.docType as string,
-        title: row.title as string,
-        content: row.content as string,
-        version: Number(row.version),
+    try {
+      const docsResult = await client.execute({
+        sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
+        args: [projectId],
+      });
+      for (const row of docsResult.rows) {
+        documents.push({
+          docType: row.docType as string,
+          title: row.title as string,
+          content: row.content as string,
+          version: Number(row.version),
+        });
+      }
+      if (documents.length > 0) docsSource = "projectDocument";
+    } catch (err) {
+      console.warn("[zai-bridge] ProjectDocument query failed, will scan AiChat:", err);
+    }
+
+    // 3b. If no docs from ProjectDocument table, scan AiChat for document content
+    if (documents.length === 0) {
+      try {
+        const chatDocsResult = await client.execute({
+          sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? AND role = 'assistant' ORDER BY "timestamp" ASC`,
+          args: [projectId],
+        });
+        const seenTypes = new Set<string>();
+        for (const row of chatDocsResult.rows) {
+          const content = (row.content as string) || "";
+          const detectedType = detectDocType(content);
+          if (detectedType && !seenTypes.has(detectedType)) {
+            seenTypes.add(detectedType);
+            const title = content.split("\n").find(l => l.trim().startsWith("#"))
+              ?.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim().slice(0, 100)
+              || (DOC_LABELS[detectedType] || detectedType.toUpperCase());
+            documents.push({
+              docType: detectedType,
+              title,
+              content,
+              version: 1,
+            });
+          }
+        }
+        if (documents.length > 0) docsSource = "aiChatScan";
+      } catch (err) {
+        console.warn("[zai-bridge] AiChat doc scan failed:", err);
+      }
+    }
+
+    // 4. Fetch ALL chat history for this project (isolated try/catch)
+    let chatHistoryRows: { role: string; content: string; timestamp: string }[] = [];
+    try {
+      const chatHistoryResult = await client.execute({
+        sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? ORDER BY "timestamp" ASC`,
+        args: [projectId],
+      });
+      chatHistoryRows = chatHistoryResult.rows.map((row) => ({
+        role: row.role as string,
+        content: (row.content as string) || "",
+        timestamp: row.timestamp as string,
       }));
-
-    // 4. Fetch ALL chat history for this project
-    const chatHistoryResult = await client.execute({
-      sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? ORDER BY "timestamp" ASC`,
-      args: [projectId],
-    });
+    } catch (err) {
+      console.warn("[zai-bridge] AiChat query failed:", err);
+    }
 
     // 5. Fetch project settings for context
     let githubRepoUrl = "";
@@ -132,79 +180,99 @@ export async function POST(request: NextRequest) {
     } catch { /* non-critical */ }
 
     // 6. Fetch z.ai bridge login method + credentials
-    const methodResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
-      args: [],
-    });
-    const loginMethod = (methodResult.rows.length > 0 && methodResult.rows[0].value)
-      ? (methodResult.rows[0].value as string)
-      : "email";
+    let loginMethod = "email";
+    try {
+      const methodResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
+        args: [],
+      });
+      if (methodResult.rows.length > 0 && methodResult.rows[0].value) {
+        loginMethod = methodResult.rows[0].value as string;
+      }
+    } catch { /* default to email */ }
 
     let bearerToken = "";
     if (loginMethod === "google") {
-      const tokenResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
-        args: [],
-      });
-      if (tokenResult.rows.length === 0 || !tokenResult.rows[0].value) {
+      try {
+        const tokenResult = await client.execute({
+          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
+          args: [],
+        });
+        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].value) {
+          return NextResponse.json({
+            success: false,
+            error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the Google login token in Settings.",
+          });
+        }
+        try { bearerToken = decrypt(tokenResult.rows[0].value as string); }
+        catch { bearerToken = tokenResult.rows[0].value as string; }
+      } catch (err) {
         return NextResponse.json({
           success: false,
-          error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the Google login token in Settings.",
+          error: "Failed to read z.ai Bridge settings from database.",
         });
       }
-      try { bearerToken = decrypt(tokenResult.rows[0].value as string); }
-      catch { bearerToken = tokenResult.rows[0].value as string; }
     } else {
-      const emailResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_EMAIL'`,
-        args: [],
-      });
-      const passwordResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
-        args: [],
-      });
-      if (emailResult.rows.length === 0 || !emailResult.rows[0].value) {
+      try {
+        const emailResult = await client.execute({
+          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_EMAIL'`,
+          args: [],
+        });
+        const passwordResult = await client.execute({
+          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
+          args: [],
+        });
+        if (emailResult.rows.length === 0 || !emailResult.rows[0].value) {
+          return NextResponse.json({
+            success: false,
+            error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
+          });
+        }
+        if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
+          return NextResponse.json({
+            success: false,
+            error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
+          });
+        }
+        try { bearerToken = decrypt(passwordResult.rows[0].value as string); }
+        catch { bearerToken = passwordResult.rows[0].value as string; }
+      } catch (err) {
         return NextResponse.json({
           success: false,
-          error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
+          error: "Failed to read z.ai Bridge settings from database.",
         });
       }
-      if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
-        return NextResponse.json({
-          success: false,
-          error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
-        });
-      }
-      try { bearerToken = decrypt(passwordResult.rows[0].value as string); }
-      catch { bearerToken = passwordResult.rows[0].value as string; }
     }
 
-    const baseUrlResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
-      args: [],
-    });
-    const modelResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_MODEL'`,
-      args: [],
-    });
+    let baseUrl = "https://api.z.ai/api/paas/v4";
+    let zaiModel = "glm-4.7-flash";
+    try {
+      const baseUrlResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
+        args: [],
+      });
+      if (baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value) {
+        baseUrl = baseUrlResult.rows[0].value as string;
+      }
+      const modelResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_MODEL'`,
+        args: [],
+      });
+      if (modelResult.rows.length > 0 && modelResult.rows[0].value) {
+        zaiModel = modelResult.rows[0].value as string;
+      }
+    } catch { /* use defaults */ }
 
-    const baseUrl = baseUrlResult.rows.length > 0 && baseUrlResult.rows[0].value
-      ? (baseUrlResult.rows[0].value as string)
-      : "https://api.z.ai/api/paas/v4";
-
-    const zaiModel = modelResult.rows.length > 0 && modelResult.rows[0].value
-      ? (modelResult.rows[0].value as string)
-      : "glm-4.7-flash";
-
-    // 7. Check for existing chat mapping — always create fresh session per button click
+    // 7. Create fresh session per button click
     const chatKey = `ZAI_CHAT:${projectId}`;
     const chatId = crypto.randomUUID();
     const isNewChat = true;
-    // Save the mapping (overwrites any previous session)
-    await client.execute({
-      sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
-      args: [chatKey, chatId],
-    });
+    try {
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+        args: [chatKey, chatId],
+      });
+    } catch { /* non-critical */ }
 
     // 8. Build comprehensive project context
     const projectName = project.name as string;
@@ -235,27 +303,35 @@ export async function POST(request: NextRequest) {
       context += `## ${label} (v${doc.version})\n\n${truncatedContent}\n\n---\n\n`;
     }
 
-    // Add ALL chat history
-    if (chatHistoryResult.rows.length > 0) {
-      context += `## KarmaSpace Chat History (${chatHistoryResult.rows.length} messages)\n\n`;
-      for (const msgRow of chatHistoryResult.rows) {
-        const role = msgRow.role as string;
-        const msgContent = (msgRow.content as string) || "";
-        const truncatedMsg = msgContent.length > 2000
-          ? msgContent.slice(0, 2000) + "\n\n... (truncated)"
-          : msgContent;
-        if (role === "user") {
-          context += `**User:** ${truncatedMsg}\n\n`;
-        } else {
-          context += `**Karma Space AI:** ${truncatedMsg}\n\n`;
+    // Add ALL chat history (exclude the very long AI doc responses to save space — they're already included above)
+    if (chatHistoryRows.length > 0) {
+      // Deduplicate: skip assistant messages that are already included as documents
+      const docContents = new Set(documents.map(d => d.content.slice(0, 200)));
+      const uniqueMessages = chatHistoryRows.filter(msg => {
+        if (msg.role === "assistant" && docContents.has(msg.content.slice(0, 200))) return false;
+        return true;
+      });
+
+      if (uniqueMessages.length > 0) {
+        context += `## KarmaSpace Chat History (${uniqueMessages.length} messages)\n\n`;
+        for (const msg of uniqueMessages) {
+          const truncatedMsg = msg.content.length > 2000
+            ? msg.content.slice(0, 2000) + "\n\n... (truncated)"
+            : msg.content;
+          if (msg.role === "user") {
+            context += `**User:** ${truncatedMsg}\n\n`;
+          } else {
+            context += `**Karma Space AI:** ${truncatedMsg}\n\n`;
+          }
         }
+        context += `---\n\n`;
       }
-      context += `---\n\n`;
     }
 
-    // 9. Send context to z.ai via API — create agentic chat with user's Karmaspace name
+    // 9. Send context to z.ai via API
     const chatName = `${userName}'s Karmaspace`;
     let aiResponse = "";
+    let apiError = "";
     try {
       const chatUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
       const response = await fetch(chatUrl, {
@@ -279,19 +355,24 @@ export async function POST(request: NextRequest) {
           ],
           max_tokens: 4096,
         }),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(45000),
       });
 
       if (response.ok) {
         const data = await response.json();
         if (data.choices && data.choices[0]?.message?.content) {
           aiResponse = data.choices[0].message.content;
+        } else {
+          apiError = "z.ai returned an empty response";
         }
       } else {
-        const errText = await response.text().catch(() => "");
+        const errText = await response.text().catch(() => "Unknown error");
+        apiError = `z.ai API error (${response.status}): ${errText.slice(0, 300)}`;
         console.error("[zai-bridge] API error:", response.status, errText);
       }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      apiError = `Failed to reach z.ai: ${msg}`;
       console.error("[zai-bridge] Failed to send to z.ai:", err);
     }
 
@@ -300,7 +381,7 @@ export async function POST(request: NextRequest) {
       await logActivity({
         userId: user.id,
         action: "ZAI_BRIDGE_LAUNCH",
-        details: `Launched Karmaspace Codex for project "${projectName}" (${documents.length} docs, ${chatHistoryResult.rows.length} chat messages)`,
+        details: `Launched Karmaspace Codex for project "${projectName}" (${documents.length} docs from ${docsSource}, ${chatHistoryRows.length} chat messages)`,
         entity: "ai_chat",
         entityId: projectId,
         ipAddress: getClientIp(request),
@@ -310,7 +391,7 @@ export async function POST(request: NextRequest) {
       console.error("[zai-bridge] Activity log failed (non-critical):", logErr);
     }
 
-    // 11. Return response — AI response displayed in KarmaBoard chat (no redirect)
+    // 11. Return response with full details
     return NextResponse.json({
       success: true,
       chatId,
@@ -319,9 +400,11 @@ export async function POST(request: NextRequest) {
       context,
       modelName: zaiModel,
       documentsFound: documents.length,
-      chatMessagesFound: chatHistoryResult.rows.length,
+      docsSource,
+      chatMessagesFound: chatHistoryRows.length,
       isNewChat,
       aiResponse: aiResponse || undefined,
+      apiError: apiError || undefined,
     });
   } catch (error) {
     console.error("[POST /api/ai/zai-bridge] Error:", error);
