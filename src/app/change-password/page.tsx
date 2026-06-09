@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Lock, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
+import { errorToast } from '@/lib/error-toast';
+import { Lock, Eye, EyeOff, Loader2, ShieldCheck, Copy, Check } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +27,7 @@ export default function ChangePasswordPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [copiedError, setCopiedError] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -65,10 +67,10 @@ export default function ChangePasswordPage() {
           router.push('/dashboard');
         }, 1000);
       } else {
-        setError(json.error || 'Failed to change password');
+        errorToast({ error: json.error || 'Failed to change password', title: 'Change Password' });
       }
     } catch {
-      setError('Something went wrong. Please try again.');
+      errorToast({ error: 'Something went wrong. Please try again.' });
     } finally {
       setLoading(false);
     }
@@ -114,8 +116,20 @@ export default function ChangePasswordPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
+              <Alert variant="destructive" className="flex items-center gap-2">
+                <AlertDescription className="flex-1">{error}</AlertDescription>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 shrink-0 px-2"
+                  onClick={() => {
+                    navigator.clipboard.writeText(error);
+                    setCopiedError(true);
+                    setTimeout(() => setCopiedError(false), 2000);
+                  }}
+                >
+                  {copiedError ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                </Button>
               </Alert>
             )}
 

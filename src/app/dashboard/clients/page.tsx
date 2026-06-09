@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
+import { errorToast } from '@/lib/error-toast';
 import {
   Search,
   Plus,
@@ -460,12 +461,12 @@ export default function ClientsPage() {
         setPagination(json.data.pagination);
       } else {
         showError('Failed to load clients', json.error || 'Unknown error', `URL: /api/clients?${params.toString()}`);
-        toast.error(json.error || 'Failed to load clients');
+        errorToast({ error: json.error, title: 'Failed to load clients' });
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to load clients', errMsg, `URL: /api/clients?${params.toString()}`);
-      toast.error('Failed to load clients');
+      errorToast({ error: 'Failed to load clients' });
     } finally {
       setLoading(false);
     }
@@ -509,7 +510,7 @@ export default function ClientsPage() {
           fetchClients();
         } else {
           showError('Failed to create client', json.error || 'Unknown error');
-          toast.error(json.error || 'Failed to create client');
+          errorToast({ error: json.error, title: 'Failed to create client' });
         }
       } else if (editingClient) {
         const updateData: Record<string, unknown> = {};
@@ -537,13 +538,13 @@ export default function ClientsPage() {
           fetchClients();
         } else {
           showError('Failed to update client', json.error || 'Unknown error', `URL: /api/clients/${editingClient.id}`);
-          toast.error(json.error || 'Failed to update client');
+          errorToast({ error: json.error, title: 'Failed to update client' });
         }
       }
     } catch (formError) {
       const errMsg = formError instanceof Error ? formError.message : String(formError);
       showError('Failed to save client', errMsg);
-      toast.error(`Request failed: ${errMsg}`);
+      errorToast({ error: errMsg, title: 'Request failed' });
     } finally {
       setDialogLoading(false);
     }
@@ -563,12 +564,12 @@ export default function ClientsPage() {
         fetchClients();
       } else {
         showError('Failed to delete client', json.error || 'Unknown error', `URL: /api/clients/${deletingClient.id}`);
-        toast.error(json.error || 'Failed to delete client');
+        errorToast({ error: json.error, title: 'Failed to delete client' });
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to delete client', errMsg, `URL: /api/clients/${deletingClient?.id}`);
-      toast.error('Something went wrong');
+      errorToast({ error: 'Something went wrong', title: 'Delete client failed' });
     } finally {
       setDeleteLoading(false);
     }

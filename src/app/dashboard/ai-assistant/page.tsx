@@ -963,6 +963,7 @@ export default function KarmaSpacePage() {
 
   // Handle z.ai bridge — auto-redirect to z.ai and copy context
   const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
+  const [errorCopied, setErrorCopied] = useState(false);
   const [zaiRedirected, setZaiRedirected] = useState<string | null>(null);
   const handleOpenZai = (msg: ChatMessage) => {
     if (!msg.zaiBridge) return;
@@ -1738,9 +1739,25 @@ export default function KarmaSpacePage() {
 
         {/* Error Banner */}
         {error && (
-          <div className="border-t px-4 py-2 bg-destructive/10 flex items-center gap-2 shrink-0">
+          <div className="border-t px-3 sm:px-4 py-2 bg-destructive/10 flex items-center gap-2 shrink-0">
             <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
             <p className="text-sm text-destructive flex-1 break-words">{error}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 shrink-0"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`[${new Date().toISOString()}] ${error}`);
+                  setErrorCopied(true);
+                  toast.success("Error copied");
+                  setTimeout(() => setErrorCopied(false), 2000);
+                } catch { /* ignore */ }
+              }}
+              title="Copy error"
+            >
+              {errorCopied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -1975,7 +1992,16 @@ export default function KarmaSpacePage() {
               {deleteError && (
                 <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
                   <XCircle className="h-4 w-4 text-destructive shrink-0" />
-                  <p className="text-sm text-destructive">{deleteError}</p>
+                  <p className="text-sm text-destructive flex-1 break-words">{deleteError}</p>
+                  <button
+                    onClick={async () => {
+                      try { await navigator.clipboard.writeText(deleteError); toast.success("Error copied"); } catch { /* ignore */ }
+                    }}
+                    className="shrink-0 p-1 hover:bg-destructive/10 rounded"
+                    title="Copy error"
+                  >
+                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
                 </div>
               )}
             </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
+import { errorToast } from '@/lib/error-toast';
 import {
   User,
   Mail,
@@ -140,10 +141,10 @@ export default function ProfilePage() {
           setPhone(json.data.phone || '');
           setSkillsInput(parseSkills(json.data.skills).join(', '));
         } else {
-          toast.error(json.error || 'Failed to load profile');
+          errorToast({ error: json.error, title: 'Failed to load profile' });
         }
       } catch {
-        toast.error('Failed to load profile');
+        errorToast({ error: 'Failed to load profile' });
       } finally {
         setLoading(false);
       }
@@ -192,10 +193,10 @@ export default function ProfilePage() {
           await updateSession({ name: updateData.name as string });
         }
       } else {
-        toast.error(json.error || 'Failed to update profile');
+        errorToast({ error: json.error, title: 'Failed to update profile' });
       }
     } catch {
-      toast.error('Something went wrong');
+      errorToast({ error: 'Something went wrong', title: 'Save profile failed' });
     } finally {
       setSaving(false);
     }

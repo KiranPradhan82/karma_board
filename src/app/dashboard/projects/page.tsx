@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { errorToast } from "@/lib/error-toast";
 import {
   Plus,
   Search,
@@ -151,7 +152,7 @@ export default function ProjectsPage() {
         setTotal(data.data.pagination.total);
       }
     } catch {
-      toast.error("Failed to load projects");
+      errorToast({ error: "Failed to load projects" });
     } finally {
       setLoading(false);
     }
@@ -204,10 +205,10 @@ export default function ProjectsPage() {
         // Navigate to project detail to manage team
         router.push(`/dashboard/projects/${data.data.project.id}`);
       } else {
-        toast.error(data.error || "Failed to create project");
+        errorToast({ error: data.error, title: "Failed to create project" });
       }
     } catch {
-      toast.error("Failed to create project");
+      errorToast({ error: "Failed to create project" });
     } finally {
       setCreateLoading(false);
     }
@@ -222,10 +223,10 @@ export default function ProjectsPage() {
         toast.success("Project archived");
         fetchProjects();
       } else {
-        toast.error(data.error || "Failed to archive project");
+        errorToast({ error: data.error, title: "Failed to archive project" });
       }
     } catch {
-      toast.error("Failed to archive project");
+      errorToast({ error: "Failed to archive project" });
     }
   };
 

@@ -5,7 +5,8 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Loader2, LogIn } from "lucide-react";
+import { errorToast } from "@/lib/error-toast";
+import { Loader2, LogIn, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  const [copiedDebug, setCopiedDebug] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -56,7 +58,7 @@ URL: ${typeof window !== "undefined" ? window.location.href : "unknown"}
 Email used: ${data.email}
 NEXTAUTH_URL: ${process.env.NEXT_PUBLIC_NEXTAUTH_URL || "not set (client-side)"}`;
         setDebugInfo(errDetail);
-        toast.error("Invalid email or password. Check technical details for more info.");
+        errorToast({ error: res.error, title: "Sign In Failed" });
         return;
       }
 
@@ -68,7 +70,7 @@ NEXTAUTH_URL: ${process.env.NEXT_PUBLIC_NEXTAUTH_URL || "not set (client-side)"}
       setDebugInfo(`Exception: ${errMsg}
 Email used: ${data.email}
 Stack: ${err instanceof Error ? err.stack : "N/A"}`);
-      toast.error("Something went wrong. Please try again.");
+      errorToast({ error: errMsg, title: "Sign In Failed" });
     } finally {
       setIsLoading(false);
     }
@@ -135,20 +137,24 @@ Stack: ${err instanceof Error ? err.stack : "N/A"}`);
 
         {debugInfo && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2">
-            <p className="text-sm font-medium text-destructive">Login failed</p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-destructive">Login failed</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2"
+                onClick={() => {
+                  navigator.clipboard.writeText(debugInfo);
+                  setCopiedDebug(true);
+                  setTimeout(() => setCopiedDebug(false), 2000);
+                }}
+              >
+                {copiedDebug ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
             <pre className="text-xs font-mono whitespace-pre-wrap break-all text-muted-foreground">
               {debugInfo}
             </pre>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                navigator.clipboard.writeText(debugInfo);
-                toast.success("Copied to clipboard");
-              }}
-            >
-              Copy details
-            </Button>
           </div>
         )}
       </div>

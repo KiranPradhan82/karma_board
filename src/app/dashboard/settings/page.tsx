@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
+import { errorToast } from "@/lib/error-toast";
 import {
   Mail,
   Key,
@@ -154,10 +155,10 @@ export default function SettingsPage() {
             } catch { /* ignore invalid JSON */ }
           }
         } else {
-          toast.error(json.error || "Failed to load settings");
+          errorToast({ error: json.error, title: "Failed to load settings" });
         }
       } catch {
-        toast.error("Failed to load settings");
+        errorToast({ error: "Failed to load settings" });
       } finally {
         setLoading(false);
       }
@@ -176,11 +177,11 @@ export default function SettingsPage() {
       if (json.success) {
         toast.success("z.ai connection successful! Model: " + (json.model || "OK"));
       } else {
-        toast.error(json.error || "Connection failed");
+        errorToast({ error: json.error, title: "Connection failed" });
       }
     } catch {
       setZaiTestStatus("error");
-      toast.error("Failed to test z.ai connection");
+      errorToast({ error: "Failed to test z.ai connection", title: "Connection test failed" });
     } finally {
       setZaiTesting(false);
     }
@@ -221,10 +222,10 @@ export default function SettingsPage() {
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
         }
       } else {
-        toast.error(json.error || "Failed to save settings");
+        errorToast({ error: json.error, title: "Failed to save z.ai settings" });
       }
     } catch {
-      toast.error("Something went wrong");
+      errorToast({ error: "Something went wrong", title: "Save z.ai settings failed" });
     } finally {
       setZaiSaving(false);
     }
@@ -290,10 +291,10 @@ export default function SettingsPage() {
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
         }
       } else {
-        toast.error(json.error || "Failed to save settings");
+        errorToast({ error: json.error, title: "Failed to save settings" });
       }
     } catch {
-      toast.error("Something went wrong");
+      errorToast({ error: "Something went wrong", title: "Save settings failed" });
     } finally {
       setSaving(false);
     }
@@ -355,10 +356,10 @@ export default function SettingsPage() {
           }
         }
       } else {
-        toast.error(json.error || "Failed to save PDF theme");
+        errorToast({ error: json.error, title: "Failed to save PDF theme" });
       }
     } catch {
-      toast.error("Something went wrong");
+      errorToast({ error: "Something went wrong", title: "Save PDF theme failed" });
     } finally {
       setPdfThemeSaving(false);
     }

@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import { errorToast } from "@/lib/error-toast";
 import {
   ArrowLeft,
   Pencil,
@@ -155,11 +156,11 @@ export default function ProjectDetailPage() {
       if (data.success) {
         setProject(data.data.project);
       } else {
-        toast.error(data.error || "Failed to load project");
+        errorToast({ error: data.error, title: "Failed to load project" });
         router.push("/dashboard/projects");
       }
     } catch {
-      toast.error("Failed to load project");
+      errorToast({ error: "Failed to load project" });
       router.push("/dashboard/projects");
     } finally {
       setLoading(false);
@@ -212,10 +213,10 @@ export default function ProjectDetailPage() {
         setEditOpen(false);
         fetchProject();
       } else {
-        toast.error(data.error || "Failed to update project");
+        errorToast({ error: data.error, title: "Failed to update project" });
       }
     } catch {
-      toast.error("Failed to update project");
+      errorToast({ error: "Failed to update project" });
     } finally {
       setEditLoading(false);
     }
@@ -253,7 +254,7 @@ export default function ProjectDetailPage() {
         setAvailableMembers(available);
       }
     } catch {
-      toast.error("Failed to load available members");
+      errorToast({ error: "Failed to load available members" });
     } finally {
       setLoadingMembers(false);
     }
@@ -278,10 +279,10 @@ export default function ProjectDetailPage() {
         fetchTeam();
         fetchProject(); // Update member count
       } else {
-        toast.error(data.error || "Failed to add member");
+        errorToast({ error: data.error, title: "Failed to add member" });
       }
     } catch {
-      toast.error("Failed to add member");
+      errorToast({ error: "Failed to add member" });
     } finally {
       setAddMemberLoading(false);
     }
@@ -305,10 +306,10 @@ export default function ProjectDetailPage() {
         fetchTeam();
         fetchProject();
       } else {
-        toast.error(data.error || "Failed to remove member");
+        errorToast({ error: data.error, title: "Failed to remove member" });
       }
     } catch {
-      toast.error("Failed to remove member");
+      errorToast({ error: "Failed to remove member" });
     }
   };
 
@@ -348,10 +349,10 @@ export default function ProjectDetailPage() {
         toast.success("Role updated");
         fetchTeam();
       } else {
-        toast.error(data.error || "Failed to change role");
+        errorToast({ error: data.error, title: "Failed to change role" });
       }
     } catch {
-      toast.error("Failed to change role");
+      errorToast({ error: "Failed to change role" });
     }
   };
 
@@ -364,10 +365,10 @@ export default function ProjectDetailPage() {
         toast.success("Project archived");
         router.push("/dashboard/projects");
       } else {
-        toast.error(data.error || "Failed to archive project");
+        errorToast({ error: data.error, title: "Failed to archive project" });
       }
     } catch {
-      toast.error("Failed to archive project");
+      errorToast({ error: "Failed to archive project" });
     }
   };
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import { errorToast } from "@/lib/error-toast";
 import { Loader2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,14 +58,14 @@ export default function RegisterPage() {
       const json = (await res.json()) as ApiSuccessResponse | ApiErrorResponse;
 
       if (!json.success) {
-        toast.error(json.error);
+        errorToast({ error: json.error });
         return;
       }
 
       toast.success("Account created! Please sign in.");
       router.push("/login");
     } catch {
-      toast.error("Something went wrong. Please try again.");
+      errorToast({ error: "Something went wrong. Please try again." });
     } finally {
       setIsLoading(false);
     }

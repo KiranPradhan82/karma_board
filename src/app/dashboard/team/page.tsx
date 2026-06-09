@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
+import { errorToast } from '@/lib/error-toast';
 import {
   Search,
   Plus,
@@ -683,10 +684,10 @@ export default function TeamPage() {
         setMembers(json.data.members);
         setPagination(json.data.pagination);
       } else {
-        toast.error(json.error || 'Failed to load members');
+        errorToast({ error: json.error, title: 'Failed to load members' });
       }
     } catch {
-      toast.error('Failed to load members');
+      errorToast({ error: 'Failed to load members' });
     } finally {
       setLoading(false);
     }
@@ -760,7 +761,7 @@ export default function TeamPage() {
           setMemberDialogOpen(false);
           fetchMembers();
         } else {
-          toast.error(json.error || 'Failed to create member');
+          errorToast({ error: json.error, title: 'Failed to create member' });
         }
       } else if (editingMember) {
         const updateData: Record<string, unknown> = {};
@@ -791,12 +792,12 @@ export default function TeamPage() {
           setMemberDialogOpen(false);
           fetchMembers();
         } else {
-          toast.error(json.error || 'Failed to update member');
+          errorToast({ error: json.error, title: 'Failed to update member' });
         }
       }
     } catch (formError) {
       const errMsg = formError instanceof Error ? formError.message : String(formError);
-      toast.error(`Request failed: ${errMsg}`);
+      errorToast({ error: errMsg, title: 'Request failed' });
       console.error('[team] Member form error:', formError);
     } finally {
       setDialogLoading(false);
@@ -821,10 +822,10 @@ export default function TeamPage() {
         });
         fetchMembers();
       } else {
-        toast.error(json.error || 'Failed to delete member');
+        errorToast({ error: json.error, title: 'Failed to delete member' });
       }
     } catch {
-      toast.error('Something went wrong');
+      errorToast({ error: 'Something went wrong', title: 'Delete member failed' });
     } finally {
       setDeleteLoading(false);
     }
@@ -847,10 +848,10 @@ export default function TeamPage() {
         setSelectedIds(new Set());
         fetchMembers();
       } else {
-        toast.error(json.error || 'Failed to delete members');
+        errorToast({ error: json.error, title: 'Failed to delete members' });
       }
     } catch {
-      toast.error('Something went wrong');
+      errorToast({ error: 'Something went wrong', title: 'Bulk delete failed' });
     } finally {
       setBulkDeleteLoading(false);
     }
