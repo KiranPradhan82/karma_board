@@ -59,18 +59,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Project not found" }, { status: 404 });
     }
 
-    // 2. Fetch ALL ProjectDocument rows for this project
+    // 2. Load user name from DB
+    let userName = user.name || "User";
+    try {
+      const userResult = await client.execute({
+        sql: `SELECT name FROM "User" WHERE id = ?`,
+        args: [user.id],
+      });
+      if (userResult.rows.length > 0) userName = userResult.rows[0].name as string;
+    } catch { /* fallback */ }
+
+    // 3. Fetch ALL ProjectDocument rows for this project (any count — no minimum)
     const docsResult = await client.execute({
-      sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? ORDER BY "docType"`,
+      sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
       args: [projectId],
     });
-
-    if (docsResult.rows.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: "No project documents found. Please generate all 6 documents first using /docs command.",
-      });
-    }
 
     const documents: { docType: string; title: string; content: string; version: number }[] =
       docsResult.rows.map((row) => ({
@@ -80,7 +83,13 @@ export async function POST(request: NextRequest) {
         version: Number(row.version),
       }));
 
-    // 3. Fetch project settings for context
+    // 4. Fetch ALL chat history for this project
+    const chatHistoryResult = await client.execute({
+      sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? ORDER BY "timestamp" ASC`,
+      args: [projectId],
+    });
+
+    // 5. Fetch project settings for context
     let githubRepoUrl = "";
     try {
       const repoResult = await client.execute({
@@ -90,7 +99,7 @@ export async function POST(request: NextRequest) {
       if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
     } catch { /* non-critical */ }
 
-    // 4. Fetch z.ai bridge login method + credentials
+    // 6. Fetch z.ai bridge login method + credentials
     const methodResult = await client.execute({
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
       args: [],
@@ -155,45 +164,23 @@ export async function POST(request: NextRequest) {
       ? (modelResult.rows[0].value as string)
       : "glm-4.7-flash";
 
-    // 5. Check for existing chat mapping
+    // 7. Check for existing chat mapping — always create fresh session per button click
     const chatKey = `ZAI_CHAT:${projectId}`;
-    const existingChatResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = ?`,
-      args: [chatKey],
+    const chatId = crypto.randomUUID();
+    const isNewChat = true;
+    // Save the mapping (overwrites any previous session)
+    await client.execute({
+      sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+      args: [chatKey, chatId],
     });
 
-    let chatId: string;
-    let isNewChat = false;
-
-    if (existingChatResult.rows.length > 0 && existingChatResult.rows[0].value) {
-      chatId = existingChatResult.rows[0].value as string;
-    } else {
-      chatId = crypto.randomUUID();
-      isNewChat = true;
-      // Save the mapping
-      await client.execute({
-        sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
-        args: [chatKey, chatId],
-      });
-    }
-
-    // 6. Build comprehensive project context
+    // 8. Build comprehensive project context
     const projectName = project.name as string;
     const projectDescription = project.description as string;
     const projectPriority = project.priority as string;
     const projectDeadline = project.deadline as string;
     const projectClient = project.clientName as string;
     const projectStatus = project.status as string;
-
-    // Load user name
-    let userName = user.name || "User";
-    try {
-      const userResult = await client.execute({
-        sql: `SELECT name FROM "User" WHERE id = ?`,
-        args: [user.id],
-      });
-      if (userResult.rows.length > 0) userName = userResult.rows[0].name as string;
-    } catch { /* fallback */ }
 
     let context = `# ${projectName} — Complete Project Brief\n\n`;
     context += `**Project:** ${projectName}\n`;
@@ -210,15 +197,32 @@ export async function POST(request: NextRequest) {
     for (const doc of documents) {
       const label = DOC_LABELS[doc.docType] || doc.docType.toUpperCase();
       const docContent = doc.content || "(empty)";
-      // Truncate very long documents for the context (keep first 8000 chars of each doc)
       const truncatedContent = docContent.length > 8000
         ? docContent.slice(0, 8000) + "\n\n... (truncated)"
         : docContent;
-
       context += `## ${label} (v${doc.version})\n\n${truncatedContent}\n\n---\n\n`;
     }
 
-    // 7. Try to send context to z.ai via API
+    // Add ALL chat history
+    if (chatHistoryResult.rows.length > 0) {
+      context += `## KarmaSpace Chat History (${chatHistoryResult.rows.length} messages)\n\n`;
+      for (const msgRow of chatHistoryResult.rows) {
+        const role = msgRow.role as string;
+        const msgContent = (msgRow.content as string) || "";
+        const truncatedMsg = msgContent.length > 2000
+          ? msgContent.slice(0, 2000) + "\n\n... (truncated)"
+          : msgContent;
+        if (role === "user") {
+          context += `**User:** ${truncatedMsg}\n\n`;
+        } else {
+          context += `**Karma Space AI:** ${truncatedMsg}\n\n`;
+        }
+      }
+      context += `---\n\n`;
+    }
+
+    // 9. Send context to z.ai via API — create agentic chat with user's Karmaspace name
+    const chatName = `${userName}'s Karmaspace`;
     let aiResponse = "";
     try {
       const chatUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
@@ -234,16 +238,16 @@ export async function POST(request: NextRequest) {
           messages: [
             {
               role: "system",
-              content: `You are a senior full-stack developer AI assistant. You will receive a complete project brief below with all generated documentation (PRD, TRD, Flow, UX, Schema, Plan). Help the user build this project by understanding all the requirements and providing implementation guidance. The chat name is "${userName}'s Karmaspace".`,
+              content: `You are Super Z, an advanced agentic AI assistant built by Z.ai. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. You are now in agentic mode — proactively analyze the project, identify next steps, and help the user build this project. Start by acknowledging the project brief, summarizing key requirements, and proposing an implementation roadmap. The chat name is "${chatName}".`,
             },
             {
               role: "user",
-              content: context.slice(0, 120000), // Limit context to 120K chars (~30K tokens)
+              content: `Here is my complete project brief from KarmaBoard with all generated documents and the full chat history. Please review everything and help me build this project in agentic mode:\n\n${context.slice(0, 120000)}`,
             },
           ],
-          max_tokens: 2048,
+          max_tokens: 4096,
         }),
-        signal: AbortSignal.timeout(30000), // 30s timeout
+        signal: AbortSignal.timeout(30000),
       });
 
       if (response.ok) {
@@ -252,21 +256,37 @@ export async function POST(request: NextRequest) {
           aiResponse = data.choices[0].message.content;
         }
       } else {
-        console.error("[zai-bridge] API error:", response.status);
+        const errText = await response.text().catch(() => "");
+        console.error("[zai-bridge] API error:", response.status, errText);
       }
     } catch (err) {
       console.error("[zai-bridge] Failed to send to z.ai:", err);
-      // Non-blocking — still return context even if z.ai API fails
     }
 
-    // 8. Return response
+    // 10. Log activity
+    try {
+      const { logActivity, getClientIp } = await import("@/lib/api-auth");
+      await logActivity({
+        userId: user.id,
+        action: "ZAI_BRIDGE_LAUNCH",
+        details: `Launched Karmaspace Codex for project "${projectName}" (${documents.length} docs, ${chatHistoryResult.rows.length} chat messages)`,
+        entity: "ai_chat",
+        entityId: projectId,
+        ipAddress: getClientIp(request),
+        tursoClient: client,
+      });
+    } catch { /* non-critical */ }
+
+    // 11. Return response with chat URL
     return NextResponse.json({
       success: true,
       chatId,
-      chatUrl: "https://z.ai/chat",
+      chatUrl: `https://z.ai/chat/${chatId}`,
+      chatName,
       context,
       modelName: zaiModel,
       documentsFound: documents.length,
+      chatMessagesFound: chatHistoryResult.rows.length,
       isNewChat,
       aiResponse: aiResponse || undefined,
     });

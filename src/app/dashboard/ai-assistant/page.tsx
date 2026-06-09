@@ -185,6 +185,9 @@ export default function KarmaSpacePage() {
   const [projectModel, setProjectModel] = useState<string | null>(null);
   const [isModelLoading, setIsModelLoading] = useState(false);
 
+  // Karmaspace Codex bridge state
+  const [codexLoading, setCodexLoading] = useState(false);
+
   // Delete chat flow
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -426,19 +429,9 @@ export default function KarmaSpacePage() {
               toolExecutions: json.data.toolExecutions || undefined,
               modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
               documentInfo: json.data.documentInfo || undefined,
-              zaiBridge: json.data.zaiBridge || undefined,
             },
           ];
         });
-
-        // Auto-redirect to z.ai when bridge response received
-        if (json.data.zaiBridge?.chatUrl) {
-          const bridgeData = json.data.zaiBridge;
-          setTimeout(() => {
-            window.open(bridgeData.chatUrl, "_blank", "noopener,noreferrer");
-            toast.success(`${user?.name || "Your"}'s Workspace launched in z.ai!`);
-          }, 1000);
-        }
       } else {
         setError(json.error || "Failed to send message");
       }
@@ -508,19 +501,9 @@ export default function KarmaSpacePage() {
                   toolExecutions: json.data.toolExecutions || undefined,
                   modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
                   documentInfo: json.data.documentInfo || undefined,
-                  zaiBridge: json.data.zaiBridge || undefined,
                 },
               ];
             });
-
-            // Auto-redirect to z.ai when bridge response received
-            if (json.data.zaiBridge?.chatUrl) {
-              const bridgeData = json.data.zaiBridge;
-              setTimeout(() => {
-                window.open(bridgeData.chatUrl, "_blank", "noopener,noreferrer");
-                toast.success(`${user?.name || "Your"}'s Workspace launched in z.ai!`);
-              }, 1000);
-            }
           } else {
             setError(json.error || "Failed to send message");
           }
@@ -905,6 +888,32 @@ export default function KarmaSpacePage() {
     });
   };
 
+  // Start Karmaspace Codex — bridge to z.ai with all docs + chat history
+  const handleStartCodex = async () => {
+    if (!selectedProject || codexLoading) return;
+    setCodexLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/zai-bridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: selectedProject.id }),
+      });
+      const json = await res.json();
+      if (json.success && json.chatUrl) {
+        toast.success(`${json.chatName} launched in z.ai!`);
+        window.open(json.chatUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setError(json.error || "Failed to launch Karmaspace Codex. Ask your Super Admin to configure z.ai Bridge in Settings.");
+      }
+    } catch (err) {
+      console.error("[handleStartCodex] Error:", err);
+      setError("Network error launching Karmaspace Codex. Please try again.");
+    } finally {
+      setCodexLoading(false);
+    }
+  };
+
   // Handle z.ai bridge — auto-redirect to z.ai and copy context
   const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
   const [zaiRedirected, setZaiRedirected] = useState<string | null>(null);
@@ -1170,6 +1179,30 @@ export default function KarmaSpacePage() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{deleteRequests.length} chat delete request{deleteRequests.length > 1 ? "s" : ""} pending review</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Start Karmaspace Codex — bridge to z.ai */}
+            {selectedProject && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="gap-1.5 sm:gap-2 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground shadow-sm hover:shadow-md"
+                    onClick={handleStartCodex}
+                    disabled={codexLoading}
+                  >
+                    {codexLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Rocket className="h-4 w-4" />
+                    )}
+                    <span className="hidden sm:inline">Start Karmaspace Codex</span>
+                    <span className="sm:hidden">Codex</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Launch agentic AI coding session in z.ai with all project documents and chat context</TooltipContent>
               </Tooltip>
             )}
 
