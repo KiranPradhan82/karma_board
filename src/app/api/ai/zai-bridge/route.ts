@@ -179,69 +179,26 @@ export async function POST(request: NextRequest) {
       if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
     } catch { /* non-critical */ }
 
-    // 6. Fetch z.ai bridge login method + credentials
-    let loginMethod = "email";
+    // 6. Fetch z.ai API key
+    let bearerToken = "";
     try {
-      const methodResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
+      const apiKeyResult = await client.execute({
+        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
         args: [],
       });
-      if (methodResult.rows.length > 0 && methodResult.rows[0].value) {
-        loginMethod = methodResult.rows[0].value as string;
-      }
-    } catch { /* default to email */ }
-
-    let bearerToken = "";
-    if (loginMethod === "google") {
-      try {
-        const tokenResult = await client.execute({
-          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
-          args: [],
-        });
-        if (tokenResult.rows.length === 0 || !tokenResult.rows[0].value) {
-          return NextResponse.json({
-            success: false,
-            error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the Google login token in Settings.",
-          });
-        }
-        try { bearerToken = decrypt(tokenResult.rows[0].value as string); }
-        catch { bearerToken = tokenResult.rows[0].value as string; }
-      } catch (err) {
+      if (apiKeyResult.rows.length === 0 || !apiKeyResult.rows[0].value) {
         return NextResponse.json({
           success: false,
-          error: "Failed to read z.ai Bridge settings from database.",
+          error: "z.ai Bridge is not configured. Please ask your Super Admin to set the z.ai API key in Settings.",
         });
       }
-    } else {
-      try {
-        const emailResult = await client.execute({
-          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_EMAIL'`,
-          args: [],
-        });
-        const passwordResult = await client.execute({
-          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
-          args: [],
-        });
-        if (emailResult.rows.length === 0 || !emailResult.rows[0].value) {
-          return NextResponse.json({
-            success: false,
-            error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
-          });
-        }
-        if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
-          return NextResponse.json({
-            success: false,
-            error: "z.ai Bridge is not configured. Please ask your Super Admin to set up the z.ai login credentials in Settings.",
-          });
-        }
-        try { bearerToken = decrypt(passwordResult.rows[0].value as string); }
-        catch { bearerToken = passwordResult.rows[0].value as string; }
-      } catch (err) {
-        return NextResponse.json({
-          success: false,
-          error: "Failed to read z.ai Bridge settings from database.",
-        });
-      }
+      try { bearerToken = decrypt(apiKeyResult.rows[0].value as string); }
+      catch { bearerToken = apiKeyResult.rows[0].value as string; }
+    } catch (err) {
+      return NextResponse.json({
+        success: false,
+        error: "Failed to read z.ai Bridge settings from database.",
+      });
     }
 
     let baseUrl = "https://api.z.ai/api/paas/v4";

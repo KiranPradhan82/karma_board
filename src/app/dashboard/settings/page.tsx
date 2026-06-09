@@ -105,6 +105,10 @@ export default function SettingsPage() {
   // z.ai Bridge state
   const [zaiApiKey, setZaiApiKey] = useState("");
   const [zaiApiKeyChanged, setZaiApiKeyChanged] = useState(false);
+  const [zaiEmail, setZaiEmail] = useState("");
+  const [zaiEmailChanged, setZaiEmailChanged] = useState(false);
+  const [zaiPassword, setZaiPassword] = useState("");
+  const [zaiPasswordChanged, setZaiPasswordChanged] = useState(false);
   const [zaiBaseUrl, setZaiBaseUrl] = useState("https://api.z.ai/api/paas/v4");
   const [zaiModel, setZaiModel] = useState("glm-4.7-flash");
   const [zaiTestStatus, setZaiTestStatus] = useState<null | 'success' | 'error'>(null);
@@ -130,6 +134,8 @@ export default function SettingsPage() {
 
           // Load z.ai Bridge settings
           if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_EMAIL) setZaiEmail(data.ZAI_BRIDGE_EMAIL.value);
+          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
 
@@ -186,6 +192,8 @@ export default function SettingsPage() {
     try {
       const updateSettings: Record<string, string> = {};
       if (zaiApiKeyChanged && zaiApiKey) updateSettings.ZAI_BRIDGE_API_KEY = zaiApiKey;
+      if (zaiEmailChanged && zaiEmail) updateSettings.ZAI_BRIDGE_EMAIL = zaiEmail;
+      if (zaiPasswordChanged && zaiPassword) updateSettings.ZAI_BRIDGE_PASSWORD = zaiPassword;
       if (zaiBaseUrl !== (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4")) updateSettings.ZAI_BRIDGE_BASE_URL = zaiBaseUrl;
       if (zaiModel !== (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash")) updateSettings.ZAI_BRIDGE_MODEL = zaiModel;
 
@@ -198,6 +206,8 @@ export default function SettingsPage() {
       if (json.success) {
         toast.success("z.ai Bridge settings saved successfully");
         setZaiApiKeyChanged(false);
+        setZaiEmailChanged(false);
+        setZaiPasswordChanged(false);
         // Refresh settings
         const refreshRes = await fetch("/api/settings");
         const refreshJson = await refreshRes.json();
@@ -205,6 +215,8 @@ export default function SettingsPage() {
           setSettings(refreshJson.data);
           const data = refreshJson.data as Record<string, SettingItem>;
           if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+          if (data.ZAI_BRIDGE_EMAIL) setZaiEmail(data.ZAI_BRIDGE_EMAIL.value);
+          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
         }
@@ -599,150 +611,98 @@ export default function SettingsPage() {
           </CardTitle>
           <CardDescription>
             Connect KarmaBoard to z.ai so users can launch project context into z.ai agentic chat sessions.
-            When a user types <code className="text-xs bg-muted px-1 py-0.5 rounded">/init</code> in Karma Space, all 6 project documents are sent to z.ai and the browser auto-redirects to the z.ai chat.
+            When a user clicks <strong>Launch Codex</strong>, all project documents and chat history are sent to z.ai using the API key.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <Alert>
             <Zap className="h-4 w-4" />
             <AlertDescription>
-              When configured, typing <strong>/init</strong> in Karma Space will automatically send all 6 project documents to z.ai, create a chat session named after the user (e.g. "Kiran's Workspace"), and redirect the browser to z.ai. Default model <strong>glm-4.7-flash</strong> is completely free.
+              The <strong>API Key</strong> is used to call the z.ai API on your behalf (sending project docs, getting AI responses).
+              The <strong>Email + Password</strong> are used to redirect to z.ai web logged in. Default model <strong>glm-4.7-flash</strong> is completely free.
             </AlertDescription>
           </Alert>
 
           <Separator />
 
-          {/* Login Method Selector */}
+          {/* z.ai API Key */}
           <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5">
-              <Shield className="h-3.5 w-3.5" />
-              Login Method
+            <Label htmlFor="zai-api-key" className="flex items-center gap-1.5">
+              <Key className="h-3.5 w-3.5" />
+              z.ai API Key
             </Label>
-            <Select value={zaiLoginMethod} onValueChange={(v) => setZaiLoginMethod(v as "email" | "google")}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="email">
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-3.5 w-3.5" />
-                    <span>Email + Password</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="google">
-                  <div className="flex items-center gap-2">
-                    <Globe className="h-3.5 w-3.5" />
-                    <span>Google Login</span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <Input
+              id="zai-api-key"
+              type="password"
+              placeholder="Paste your z.ai API key here"
+              value={zaiApiKey}
+              onChange={(e) => {
+                setZaiApiKey(e.target.value);
+                setZaiApiKeyChanged(true);
+              }}
+            />
             <p className="text-xs text-muted-foreground">
-              Choose how KarmaBoard authenticates with z.ai on your behalf.
+              Your z.ai API key. Used to send project context to z.ai and receive AI responses. Stored encrypted.
             </p>
+            {settings.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged && (
+              <p className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> API key is configured
+              </p>
+            )}
           </div>
 
           <Separator />
 
-          {/* Conditional fields based on login method */}
-          {zaiLoginMethod === "email" ? (
-            <>
-              {/* Email + Password fields */}
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="zai-email" className="flex items-center gap-1.5">
-                    <User className="h-3.5 w-3.5" />
-                    z.ai Email
-                  </Label>
-                  <Input
-                    id="zai-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={zaiEmail}
-                    onChange={(e) => {
-                      setZaiEmail(e.target.value);
-                      setZaiEmailChanged(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    The email address you use to log into z.ai.
-                  </p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="zai-password" className="flex items-center gap-1.5">
-                    <Key className="h-3.5 w-3.5" />
-                    z.ai Password
-                  </Label>
-                  <Input
-                    id="zai-password"
-                    type="password"
-                    placeholder="Enter z.ai password"
-                    value={zaiPassword}
-                    onChange={(e) => {
-                      setZaiPassword(e.target.value);
-                      setZaiPasswordChanged(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Your z.ai password. Stored encrypted in the database.
-                  </p>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Google Login fields */}
-              <div className="space-y-4">
-                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-4 space-y-3">
-                  <div className="flex items-start gap-2">
-                    <Globe className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                    <div className="text-sm space-y-1">
-                      <p className="font-medium">How to connect via Google</p>
-                      <ol className="text-xs text-muted-foreground list-decimal list-inside space-y-1">
-                        <li>Click <strong>Sign in with Google</strong> below to open z.ai</li>
-                        <li>Log into z.ai using your Google account</li>
-                        <li>Go to z.ai Settings and copy your <strong>API Token</strong></li>
-                        <li>Paste the token in the field below</li>
-                      </ol>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => window.open("https://z.ai/login", "_blank", "noopener,noreferrer")}
-                  >
-                    <Globe className="h-3.5 w-3.5" />
-                    Sign in with Google on z.ai
-                  </Button>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="zai-google-token" className="flex items-center gap-1.5">
-                    <Key className="h-3.5 w-3.5" />
-                    z.ai API Token
-                  </Label>
-                  <Input
-                    id="zai-google-token"
-                    type="password"
-                    placeholder="Paste your z.ai API token here"
-                    value={zaiGoogleToken}
-                    onChange={(e) => {
-                      setZaiGoogleToken(e.target.value);
-                      setZaiGoogleTokenChanged(true);
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Your z.ai API token (found in z.ai Settings after Google login). Stored encrypted.
-                  </p>
-                  {settings.ZAI_BRIDGE_GOOGLE_TOKEN && !zaiGoogleTokenChanged && (
-                    <p className="text-xs text-emerald-600 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Google token is configured
-                    </p>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
+          {/* z.ai Login Credentials */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5" />
+              z.ai Login Credentials
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Used to redirect to z.ai web logged in. Get your API key from <a href="https://z.ai" target="_blank" rel="noopener noreferrer" className="underline text-primary">z.ai</a>.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="zai-email" className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" />
+                z.ai Email
+              </Label>
+              <Input
+                id="zai-email"
+                type="email"
+                placeholder="you@example.com"
+                value={zaiEmail}
+                onChange={(e) => {
+                  setZaiEmail(e.target.value);
+                  setZaiEmailChanged(true);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                The email you use to log into z.ai.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="zai-password" className="flex items-center gap-1.5">
+                <Key className="h-3.5 w-3.5" />
+                z.ai Password
+              </Label>
+              <Input
+                id="zai-password"
+                type="password"
+                placeholder="Enter z.ai password"
+                value={zaiPassword}
+                onChange={(e) => {
+                  setZaiPassword(e.target.value);
+                  setZaiPasswordChanged(true);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Your z.ai password. Stored encrypted.
+              </p>
+            </div>
+          </div>
 
           <Separator />
 
@@ -790,11 +750,7 @@ export default function SettingsPage() {
               variant="outline"
               size="sm"
               onClick={handleTestZai}
-              disabled={
-                zaiTesting ||
-                (zaiLoginMethod === "email" && (!settings.ZAI_BRIDGE_EMAIL || !settings.ZAI_BRIDGE_PASSWORD)) ||
-                (zaiLoginMethod === "google" && !settings.ZAI_BRIDGE_GOOGLE_TOKEN)
-              }
+              disabled={zaiTesting || !settings.ZAI_BRIDGE_API_KEY}
             >
               {zaiTesting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -810,8 +766,7 @@ export default function SettingsPage() {
               onClick={handleSaveZai}
               disabled={
                 zaiSaving ||
-                (!zaiEmailChanged && !zaiPasswordChanged && !zaiGoogleTokenChanged &&
-                  zaiLoginMethod === (settings.ZAI_BRIDGE_LOGIN_METHOD?.value || "email") &&
+                (!zaiApiKeyChanged && !zaiEmailChanged && !zaiPasswordChanged &&
                   zaiBaseUrl === (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4") &&
                   zaiModel === (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash"))
               }

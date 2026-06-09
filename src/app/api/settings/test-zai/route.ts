@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, requireRole, getTursoClient } from "@/lib/api-auth";
 import { decrypt } from "@/lib/encryption";
 
-// GET /api/settings/test-zai — Test z.ai API connection using stored credentials
+// GET /api/settings/test-zai — Test z.ai API connection using stored API key
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request);
@@ -15,46 +15,21 @@ export async function GET(request: NextRequest) {
 
     const client = getTursoClient();
 
-    // Fetch login method
-    const methodResult = await client.execute({
-      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_LOGIN_METHOD'`,
+    // Fetch API key (primary method)
+    const apiKeyResult = await client.execute({
+      sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
       args: [],
     });
-    const loginMethod = (methodResult.rows.length > 0 && methodResult.rows[0].value)
-      ? (methodResult.rows[0].value as string)
-      : "email";
 
-    // Fetch credentials based on login method
     let bearerToken = "";
-    if (loginMethod === "google") {
-      const tokenResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_GOOGLE_TOKEN'`,
-        args: [],
-      });
-      if (tokenResult.rows.length === 0 || !tokenResult.rows[0].value) {
-        return NextResponse.json({ success: false, error: "z.ai Google token not configured" });
-      }
-      try { bearerToken = decrypt(tokenResult.rows[0].value as string); }
-      catch { bearerToken = tokenResult.rows[0].value as string; }
+    if (apiKeyResult.rows.length > 0 && apiKeyResult.rows[0].value) {
+      try { bearerToken = decrypt(apiKeyResult.rows[0].value as string); }
+      catch { bearerToken = apiKeyResult.rows[0].value as string; }
     } else {
-      const emailResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_EMAIL'`,
-        args: [],
-      });
-      const passwordResult = await client.execute({
-        sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_PASSWORD'`,
-        args: [],
-      });
-      if (emailResult.rows.length === 0 || !emailResult.rows[0].value) {
-        return NextResponse.json({ success: false, error: "z.ai email not configured" });
-      }
-      if (passwordResult.rows.length === 0 || !passwordResult.rows[0].value) {
-        return NextResponse.json({ success: false, error: "z.ai password not configured" });
-      }
-      try { bearerToken = decrypt(passwordResult.rows[0].value as string); }
-      catch { bearerToken = passwordResult.rows[0].value as string; }
+      return NextResponse.json({ success: false, error: "z.ai API key not configured. Please set it in Settings → z.ai Bridge." });
     }
 
+    // Fetch base URL and model
     const baseUrlResult = await client.execute({
       sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
       args: [],
@@ -103,7 +78,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       model,
-      loginMethod,
     });
   } catch (error) {
     console.error("[GET /api/settings/test-zai] Error:", error);
