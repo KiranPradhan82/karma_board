@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser, getTursoClient } from "@/lib/api-auth";
+import { getAuthUser, getTursoClient, logActivity, getClientIp } from "@/lib/api-auth";
 import { decrypt } from "@/lib/encryption";
 
 /**
@@ -265,7 +265,6 @@ export async function POST(request: NextRequest) {
 
     // 10. Log activity
     try {
-      const { logActivity, getClientIp } = await import("@/lib/api-auth");
       await logActivity({
         userId: user.id,
         action: "ZAI_BRIDGE_LAUNCH",
@@ -275,7 +274,9 @@ export async function POST(request: NextRequest) {
         ipAddress: getClientIp(request),
         tursoClient: client,
       });
-    } catch { /* non-critical */ }
+    } catch (logErr) {
+      console.error("[zai-bridge] Activity log failed (non-critical):", logErr);
+    }
 
     // 11. Return response with chat URL
     return NextResponse.json({
@@ -292,6 +293,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[POST /api/ai/zai-bridge] Error:", error);
-    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Internal server error";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
