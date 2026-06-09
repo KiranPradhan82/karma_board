@@ -1083,36 +1083,6 @@ export default function KarmaSpacePage() {
             </Popover>
           </div>
 
-          {/* IDE Panel Toggles — hidden on mobile */}
-          <div className="hidden sm:flex items-center gap-0.5 border-l pl-2 ml-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 shrink-0 ${fileExplorerOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
-                  onClick={() => setFileExplorerOpen((prev) => !prev)}
-                >
-                  <FolderTree className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{fileExplorerOpen ? "Hide Files" : "Show Files"}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={`h-8 w-8 shrink-0 ${terminalOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
-                  onClick={() => setTerminalOpen((prev) => !prev)}
-                >
-                  <TerminalSquare className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{terminalOpen ? "Hide Terminal" : "Show Terminal"}</TooltipContent>
-            </Tooltip>
-          </div>
-
           {/* Right side: Model selector + Export PDF */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {isSuperAdmin && selectedProject && (
@@ -1840,6 +1810,38 @@ export default function KarmaSpacePage() {
         <div className="border-t px-4 py-3 bg-card shrink-0">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-end gap-2">
+              {/* IDE Panel Toggles — Files & Terminal */}
+              {selectedProject && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-10 w-10 ${fileExplorerOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+                        onClick={() => setFileExplorerOpen((prev) => !prev)}
+                      >
+                        <FolderTree className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{fileExplorerOpen ? "Hide Files" : "Show Files"}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-10 w-10 ${terminalOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+                        onClick={() => setTerminalOpen((prev) => !prev)}
+                      >
+                        <TerminalSquare className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{terminalOpen ? "Hide Terminal" : "Show Terminal"}</TooltipContent>
+                  </Tooltip>
+                </div>
+              )}
+
               {/* File Upload (hidden input) */}
               <input
                 type="file"
