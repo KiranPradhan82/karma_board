@@ -310,11 +310,11 @@ export async function POST(request: NextRequest) {
       console.error("[zai-bridge] Activity log failed (non-critical):", logErr);
     }
 
-    // 11. Return response with chat URL
+    // 11. Return response — AI response displayed in KarmaBoard chat (no redirect)
     return NextResponse.json({
       success: true,
       chatId,
-      chatUrl: `https://z.ai/chat/${chatId}`,
+      chatUrl: `https://z.ai`,
       chatName,
       context,
       modelName: zaiModel,

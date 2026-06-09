@@ -39,6 +39,7 @@ import {
   Globe,
   Copy,
   ExternalLink,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -124,6 +125,7 @@ interface ChatMessage {
     context: string;
     modelName: string;
     documentsFound: number;
+    chatMessagesFound?: number;
     isNewChat: boolean;
     aiResponse?: string;
   };
@@ -888,7 +890,7 @@ export default function KarmaSpacePage() {
     });
   };
 
-  // Start Karmaspace Codex — bridge to z.ai with all docs + chat history
+  // Launch Codex — bridge to z.ai API, display response in KarmaBoard chat
   const handleStartCodex = async () => {
     if (!selectedProject || codexLoading) return;
     setCodexLoading(true);
@@ -900,15 +902,32 @@ export default function KarmaSpacePage() {
         body: JSON.stringify({ projectId: selectedProject.id }),
       });
       const json = await res.json();
-      if (json.success && json.chatUrl) {
-        toast.success(`${json.chatName} launched in z.ai!`);
-        window.open(json.chatUrl, "_blank", "noopener,noreferrer");
+      if (json.success) {
+        toast.success(`${json.chatName} connected via z.ai!`);
+        // Add the z.ai Codex response as a message in the chat
+        const codexMsg: ChatMessage = {
+          id: `codex-${Date.now()}`,
+          role: "assistant",
+          content: json.aiResponse || `Project context sent to z.ai (${json.documentsFound} documents, ${json.chatMessagesFound} chat messages). The AI will use this context for all future responses in this session. Model: ${json.modelName}`,
+          timestamp: new Date().toISOString(),
+          userName: "z.ai Codex",
+          zaiBridge: {
+            chatId: json.chatId,
+            chatUrl: json.chatUrl,
+            context: json.context,
+            modelName: json.modelName,
+            documentsFound: json.documentsFound,
+            isNewChat: json.isNewChat,
+            aiResponse: json.aiResponse,
+          },
+        };
+        setMessages((prev) => [...prev, codexMsg]);
       } else {
-        setError(json.error || "Failed to launch Karmaspace Codex. Ask your Super Admin to configure z.ai Bridge in Settings.");
+        setError(json.error || "Failed to launch Codex. Ask your Super Admin to configure z.ai Bridge in Settings.");
       }
     } catch (err) {
       console.error("[handleStartCodex] Error:", err);
-      setError("Network error launching Karmaspace Codex. Please try again.");
+      setError("Network error launching Codex. Please try again.");
     } finally {
       setCodexLoading(false);
     }
@@ -1466,19 +1485,19 @@ export default function KarmaSpacePage() {
                         {/* Message Content */}
                         {message.role === "assistant" && message.zaiBridge ? (
                           <>
-                            {/* z.ai Bridge Card */}
+                            {/* z.ai Codex Card */}
                             <div className="w-full rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
                               <div className="flex items-center gap-3 px-4 py-3 bg-primary/10">
                                 <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
-                                  <Globe className="h-4 w-4 text-primary" />
+                                  <Zap className="h-4 w-4 text-primary" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm font-semibold text-primary">
-                                    {user?.name ? `${user.name}'s` : "Your"} Workspace
+                                    {user?.name ? `${user.name}'s` : "Your"} Karmaspace Codex
                                   </p>
                                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                                    All {message.zaiBridge.documentsFound} document{message.zaiBridge.documentsFound !== 1 ? "s" : ""} + chat context sent to z.ai
-                                    {message.zaiBridge.aiResponse ? " — AI responded" : ""}
+                                    {message.zaiBridge.documentsFound} document{message.zaiBridge.documentsFound !== 1 ? "s" : ""} + {message.zaiBridge.chatMessagesFound || 0} chat messages sent to z.ai
+                                    {message.zaiBridge.aiResponse ? " — AI responded" : " — awaiting response"}
                                   </p>
                                   <div className="flex items-center gap-2 mt-1">
                                     <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20">
@@ -1499,9 +1518,18 @@ export default function KarmaSpacePage() {
                                   </div>
                                 </div>
                                 <div className="shrink-0">
-                                  <ExternalLink className="h-4 w-4 text-primary" />
+                                  <Zap className="h-4 w-4 text-primary" />
                                 </div>
                               </div>
+                              {/* AI Response */}
+                              {message.zaiBridge.aiResponse && (
+                                <div className="px-4 py-3 border-t border-primary/10">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2">z.ai Codex Response</p>
+                                  <div className="text-sm text-foreground whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
+                                    {message.zaiBridge.aiResponse}
+                                  </div>
+                                </div>
+                              )}
                               <div className="flex items-center gap-2 px-4 py-3 border-t border-primary/10">
                                 <Button
                                   variant="default"
@@ -1510,7 +1538,7 @@ export default function KarmaSpacePage() {
                                   onClick={() => handleOpenZai(message)}
                                 >
                                   <Globe className="h-3.5 w-3.5" />
-                                  <span>Open in z.ai</span>
+                                  <span>Open z.ai</span>
                                 </Button>
                                 <Button
                                   variant="outline"
