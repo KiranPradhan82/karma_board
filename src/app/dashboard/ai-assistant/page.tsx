@@ -150,6 +150,17 @@ function safeContent(content: unknown): string {
   return typeof content === "string" ? content : content != null ? JSON.stringify(content) : "";
 }
 
+/** Ensure error is always a string — prevents React error #31 when API returns error objects like {code, id, message} */
+function safeError(err: unknown, fallback: string): string {
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.message === "string") return obj.message;
+    try { return JSON.stringify(err); } catch { /* fall through */ }
+  }
+  return fallback;
+}
+
 export default function KarmaSpacePage() {
   const { data: session } = useSession();
   const user = session?.user as { name?: string; role?: string } | undefined;
@@ -243,7 +254,7 @@ export default function KarmaSpacePage() {
         setDeletePassword("");
         setDeleteRequestStatus({ status: "PENDING", message: json.data.message });
       } else {
-        setDeleteError(json.error || "Failed to submit delete request.");
+        setDeleteError(safeError(json.error, "Failed to submit delete request."));
       }
     } catch {
       setDeleteError("Network error. Please try again.");
@@ -829,7 +840,7 @@ export default function KarmaSpacePage() {
       if (json.success) {
         setOnboardingPhase("complete");
       } else {
-        setError(json.error || "Failed to submit requirements.");
+        setError(safeError(json.error, "Failed to submit requirements."));
       }
     } catch {
       setError("Failed to submit. Please try again.");
@@ -940,7 +951,7 @@ export default function KarmaSpacePage() {
         };
         setMessages((prev) => [...prev, codexMsg]);
       } else {
-        setError(json.error || "Failed to launch Codex. Ask your Super Admin to configure z.ai Bridge in Settings.");
+        setError(safeError(json.error, "Failed to launch Codex. Ask your Super Admin to configure z.ai Bridge in Settings."));
       }
     } catch (err) {
       console.error("[handleStartCodex] Error:", err);
@@ -1515,6 +1526,11 @@ export default function KarmaSpacePage() {
                                 <div className="px-3 sm:px-4 py-3 border-t border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900/30">
                                   <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">z.ai Error</p>
                                   <p className="text-xs text-red-500 dark:text-red-300 leading-relaxed break-words">{message.zaiBridge.apiError}</p>
+                                  {message.zaiBridge.apiError.includes("401") && (
+                                    <p className="text-xs text-red-500 dark:text-red-300 mt-2 leading-relaxed">
+                                      The z.ai authentication token has expired. Please update the token in <strong>Settings → z.ai Bridge</strong> to continue using Codex.
+                                    </p>
+                                  )}
                                 </div>
                               )}
                               {/* AI Response */}

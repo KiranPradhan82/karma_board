@@ -224,3 +224,22 @@ Stage Summary:
 - No more 404 or login issues — user stays in KarmaBoard, z.ai response shown in-chat
 - "Open z.ai" button still available for manual z.ai access
 - ProjectDocument table auto-created on first use (runtime DDL)
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Fix React error #31 (safeError) + z.ai 401 token expired guidance
+
+Work Log:
+- Analyzed screenshot (IMG_5780.png): Shows z.ai 401 "token expired or incorrect" error in Codex card, web search failures, auto-route to DeepSeek
+- Root cause #1 (React #31 latent bug): 3 setError() calls in page.tsx passed json.error directly without typeof guard (lines 257, 843, 954). If API returns error object {code, id, message}, React throws "Objects are not valid as a React child"
+- Root cause #2 (z.ai 401): The bearer token stored in Settings (ZAI_BRIDGE_GOOGLE_TOKEN or ZAI_BRIDGE_PASSWORD) has expired
+- Fix 1: Added safeError() helper function that checks typeof, extracts .message from objects, falls back to JSON.stringify or fallback string
+- Fix 2: Wrapped all 3 vulnerable setError(json.error || ...) calls with safeError()
+- Fix 3: Added 401-specific guidance message in Codex card: "The z.ai authentication token has expired. Please update the token in Settings → z.ai Bridge to continue using Codex."
+- Build passes clean
+
+Stage Summary:
+- Modified: src/app/dashboard/ai-assistant/page.tsx
+- React error #31 fully prevented: all error states are now guaranteed to be strings
+- z.ai 401: User needs to update the token in Settings → z.ai Bridge (the stored Google token or email/password credentials have expired)
