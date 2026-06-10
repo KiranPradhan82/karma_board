@@ -21,8 +21,10 @@ const INTER_CHUNK_DELAY_MS = 6_000; // Delay between chunk API calls (increased 
 const INTER_CHUNK_MAX_TOKENS = 20; // AI just needs to say "Part X received" (reduced from 30)
 const FINAL_MAX_TOKENS = 2048; // Actual response on final chunk
 const REQUEST_TIMEOUT_MS = 45_000; // Per-request timeout (increased from 30s)
-const MAX_429_RETRIES = 4; // Max retries per chunk on 429 rate limit
-const BASE_429_DELAY_MS = 8_000; // Starting delay on first 429: 8s → 16s → 32s → 64s
+const PREFLIGHT_TIMEOUT_MS = 15_000; // Pre-flight ping timeout (short — it's just a ping)
+const PREFLIGHT_MAX_RETRIES = 1; // Max retries for pre-flight (keep it fast, don't block user)
+const MAX_429_RETRIES = 3; // Max retries per chunk on 429 rate limit (reduced from 4)
+const BASE_429_DELAY_MS = 8_000; // Starting delay on first 429: 8s → 16s → 32s
 
 export interface ChunkResult {
   /** Whether all chunks were sent and a final AI response was received */
@@ -124,8 +126,9 @@ export async function sendChunkedContext(params: {
   console.log(`[zai-chunker] Context: ${params.context.length} chars → ${totalChunks} chunks`);
 
   // Pre-flight check: send a tiny request to verify API is not rate-limited right now
+  // Uses a short timeout (15s) and only 1 retry — this is just a quick probe
   try {
-    console.log(`[zai-chunker] Pre-flight check: testing API availability...`);
+    console.log(`[zai-chunker] Pre-flight check: testing API availability (15s timeout, 1 retry)...`);
     const preflightRes = await fetchWithRetry(
       params.chatUrl,
       {
@@ -142,9 +145,9 @@ export async function sendChunkedContext(params: {
           ],
           max_tokens: 5,
         }),
-        signal: params.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: params.signal || AbortSignal.timeout(PREFLIGHT_TIMEOUT_MS),
       },
-      MAX_429_RETRIES,
+      PREFLIGHT_MAX_RETRIES,
     );
 
     if (!preflightRes.ok) {
@@ -154,7 +157,7 @@ export async function sendChunkedContext(params: {
         aiResponse: "",
         totalChunks,
         chunksSent: 0,
-        apiError: buildApiError(preflightRes.status, errText) + " Pre-flight check failed — the z.ai API may be temporarily overloaded. Please wait 60 seconds and try again, or use 'Copy Context' to paste your docs manually in z.ai.",
+        apiError: buildApiError(preflightRes.status, errText) + " Pre-flight check failed — the z.ai API may be temporarily overloaded or rate-limited. Please wait 60-120 seconds and try again, or use 'Copy Context' to paste your docs manually in z.ai.",
       };
     }
     console.log(`[zai-chunker] Pre-flight check passed`);
@@ -165,7 +168,7 @@ export async function sendChunkedContext(params: {
       aiResponse: "",
       totalChunks,
       chunksSent: 0,
-      apiError: `Network error during pre-flight check: ${msg}. Check your connection and try again.`,
+      apiError: `z.ai API is too slow or unreachable right now (timeout after pre-flight check). This is a z.ai free tier limitation. Wait 60-120 seconds and try again, or use 'Copy Context' to paste your docs directly into z.ai chat.`,
     };
   }
 
