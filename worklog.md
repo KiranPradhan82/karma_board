@@ -243,3 +243,29 @@ Stage Summary:
 - Modified: src/app/dashboard/ai-assistant/page.tsx
 - React error #31 fully prevented: all error states are now guaranteed to be strings
 - z.ai 401: User needs to update the token in Settings → z.ai Bridge (the stored Google token or email/password credentials have expired)
+
+---
+Task ID: 1
+Agent: Main Agent
+Task: Fix slow keyboard typing in KarmaSpace AI assistant + implement z.ai chat history persistence
+
+Work Log:
+- Diagnosed root cause: 37 useState hooks in a single 2,313-line component means every keystroke re-renders the entire component including all chat messages with ReactMarkdown parsing
+- Created /src/components/karma-space/chat-message-item.tsx with 4 React.memo sub-components:
+  - ChatMessageItem (main memoized wrapper)
+  - ZaiCodexCard (z.ai Codex bridge card with embedded chat)
+  - DocumentCard (auto-saved document cards)
+  - ToolExecutionCard (agentic tool execution display)
+- Extracted ~380 lines of inline JSX from page.tsx into the memoized component
+- Added messageCallbacks object for stable callback references
+- Fixed missing 'Check' lucide-react import, removed unused imports (PanelLeft, ExternalLink, Wrench)
+- Added ZaiChatMessage model to Prisma schema for chat persistence
+- Updated POST /api/ai/zai-chat to save both user messages and AI responses to DB
+- Added GET /api/ai/zai-chat?projectId=xxx to load saved chat history
+- Frontend loads history when Codex Chat panel is first expanded
+- Build passes cleanly, all changes pushed to GitHub
+
+Stage Summary:
+- Typing performance significantly improved — React.memo prevents message re-renders on keystroke
+- z.ai chat history now persists in database across page refreshes
+- Answered user question: z.ai chat from KarmaSpace CANNOT be found in z.ai's website (separate auth systems: API Bearer token vs Google OAuth)
