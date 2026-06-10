@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, getTursoClient } from "@/lib/api-auth";
 import { decrypt } from "@/lib/encryption";
+import { randomUUID } from "crypto";
 
 /**
  * Check if a user has access to a project.
@@ -24,9 +25,48 @@ interface ZaiChatMessage {
 }
 
 /**
+ * GET /api/ai/zai-chat?projectId=xxx — Load saved z.ai chat history for a project.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const user = await getAuthUser(request);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+    }
+
+    const projectId = request.nextUrl.searchParams.get("projectId");
+    if (!projectId) {
+      return NextResponse.json({ success: false, error: "projectId is required" }, { status: 400 });
+    }
+
+    const canAccess = await hasProjectAccess(user.id, user.role, projectId);
+    if (!canAccess) {
+      return NextResponse.json({ success: false, error: "You don't have access to this project" }, { status: 403 });
+    }
+
+    const client = getTursoClient();
+    const result = await client.execute({
+      sql: `SELECT id, role, content, createdAt FROM "ZaiChatMessage" WHERE "projectId" = ? ORDER BY "createdAt" ASC LIMIT 200`,
+      args: [projectId],
+    });
+
+    const messages = result.rows.map((row) => ({
+      role: row.role as string,
+      content: row.content as string,
+      createdAt: row.createdAt as string,
+    }));
+
+    return NextResponse.json({ success: true, messages });
+  } catch (error) {
+    console.error("[GET /api/ai/zai-chat] Error:", error);
+    const msg = error instanceof Error ? error.message : "Internal server error";
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+}
+
+/**
  * POST /api/ai/zai-chat — Proxy chat to z.ai API using stored API key.
- * This enables an embedded chat experience inside KarmaBoard without
- * requiring the user to log into z.ai's web UI separately.
+ * Saves both the user message and AI response to ZaiChatMessage for persistence.
  *
  * Body: { projectId, messages: ZaiChatMessage[], contextSummary?: string }
  */
@@ -112,6 +152,21 @@ export async function POST(request: NextRequest) {
       zaiMessages.push({ role: msg.role, content: msg.content });
     }
 
+    // Get the last user message for persistence (only the new one, not history)
+    const lastUserMessage = body.messages[body.messages.length - 1];
+
+    // Save user message to database (fire-and-forget style, but await for consistency)
+    if (lastUserMessage && lastUserMessage.role === "user") {
+      try {
+        await client.execute({
+          sql: `INSERT INTO "ZaiChatMessage" (id, "projectId", role, content, "createdAt") VALUES (?, ?, ?, ?, datetime('now'))`,
+          args: [randomUUID(), body.projectId, "user", lastUserMessage.content],
+        });
+      } catch (err) {
+        console.error("[zai-chat] Failed to save user message:", err);
+      }
+    }
+
     // Call z.ai API with retry on 429
     const chatUrl = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
     const MAX_RETRIES = 2;
@@ -173,6 +228,18 @@ export async function POST(request: NextRequest) {
 
         const data = await res.json();
         const aiContent = data.choices?.[0]?.message?.content || "";
+
+        // Save AI response to database
+        if (aiContent) {
+          try {
+            await client.execute({
+              sql: `INSERT INTO "ZaiChatMessage" (id, "projectId", role, content, "createdAt") VALUES (?, ?, ?, ?, datetime('now'))`,
+              args: [randomUUID(), body.projectId, "assistant", aiContent],
+            });
+          } catch (err) {
+            console.error("[zai-chat] Failed to save AI response:", err);
+          }
+        }
 
         return NextResponse.json({
           success: true,

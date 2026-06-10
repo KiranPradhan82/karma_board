@@ -162,6 +162,16 @@ model ProjectMember {
   @@unique([projectId, userId])
 }
 
+model ZaiChatMessage {
+  id        String   @id
+  projectId String
+  role      String
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
 model Settings {
   key       String   @id
   value     String

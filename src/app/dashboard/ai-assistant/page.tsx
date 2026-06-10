@@ -208,6 +208,7 @@ export default function KarmaSpacePage() {
   const [zaiChatInput, setZaiChatInput] = useState("");
   const [zaiChatLoading, setZaiChatLoading] = useState(false);
   const [zaiChatExpanded, setZaiChatExpanded] = useState(false);
+  const zaiChatHistoryLoaded = useRef(false);
 
   // Delete chat flow
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -326,7 +327,29 @@ export default function KarmaSpacePage() {
     setZaiChatInput("");
     setZaiChatExpanded(false);
     setZaiChatLoading(false);
+    zaiChatHistoryLoaded.current = false;
   }, [selectedProject?.id]);
+
+  // Load z.ai chat history when embedded chat is first expanded
+  useEffect(() => {
+    if (!zaiChatExpanded || !selectedProject || zaiChatHistoryLoaded.current) return;
+    zaiChatHistoryLoaded.current = true;
+    async function loadZaiChatHistory() {
+      try {
+        const res = await fetch(`/api/ai/zai-chat?projectId=${selectedProject.id}`);
+        const json = await res.json();
+        if (json.success && json.messages?.length > 0) {
+          setZaiChatMessages(json.messages.map((m: { role: string; content: string }) => ({
+            role: m.role === "user" ? "user" as const : "assistant" as const,
+            content: m.content,
+          })));
+        }
+      } catch {
+        // Silent — if history fails to load, chat starts fresh
+      }
+    }
+    loadZaiChatHistory();
+  }, [zaiChatExpanded, selectedProject]);
 
   // Load messages when project changes
   useEffect(() => {
