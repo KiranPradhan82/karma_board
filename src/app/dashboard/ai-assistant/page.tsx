@@ -971,10 +971,29 @@ export default function KarmaSpacePage() {
   const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
   const [errorCopied, setErrorCopied] = useState(false);
   const [zaiRedirected, setZaiRedirected] = useState<string | null>(null);
-  const handleOpenZai = (msg: ChatMessage) => {
+  const handleOpenZai = async (msg: ChatMessage) => {
     if (!msg.zaiBridge) return;
+    // Auto-copy context to clipboard first
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(msg.zaiBridge.context);
+      copied = true;
+    } catch {
+      // Clipboard API may fail in some browsers/contexts
+    }
+
     // Open z.ai chat in new tab
     window.open(msg.zaiBridge.chatUrl, "_blank", "noopener,noreferrer");
+
+    if (copied) {
+      toast.success("z.ai opened in new tab! Project context auto-copied — just paste it in the chat.", {
+        duration: 5000,
+      });
+    } else {
+      toast.info("z.ai opened in new tab. Use 'Copy Context' button to copy your project docs and paste them in z.ai.", {
+        duration: 5000,
+      });
+    }
   };
   const handleCopyZaiContext = async (msg: ChatMessage) => {
     if (!msg.zaiBridge) return;
