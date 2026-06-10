@@ -25,8 +25,8 @@ const DOC_LABELS: Record<string, string> = {
   plan: "Implementation Plan",
 };
 
-// 180 seconds — chunked sending with delays + pre-flight + exponential backoff retries needs more time
-export const maxDuration = 180;
+// 120 seconds — single API call with 429 retry (10s→20s→40s) + 60s timeout needs headroom
+export const maxDuration = 120;
 
 // POST /api/ai/zai-bridge — Build project context and launch z.ai chat
 export async function POST(request: NextRequest) {
