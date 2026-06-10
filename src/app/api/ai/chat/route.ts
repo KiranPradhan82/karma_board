@@ -9,6 +9,7 @@ import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
 import type { AiMessage } from "@/lib/ai-client";
 import { pushFile, pushBinaryFile } from "@/lib/github-client";
 import { decrypt } from "@/lib/encryption";
+import { sendChunkedContext } from "@/lib/zai-chunker";
 
 // ===== Document type mapping =====
 const DOC_TYPE_MAP: Record<string, string> = {
@@ -1094,60 +1095,17 @@ export async function POST(request: NextRequest) {
             context += `---\n\n`;
           }
 
-          // Send context to z.ai API — create/resume chat session
-          let aiResponse = "";
-          let apiError = "";
-          try {
-            const chatApiUrl = `${zaiBaseUrl.replace(/\/+$/, "")}/chat/completions`;
-            const zaiResponse = await fetch(chatApiUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${zaiBearerToken}`,
-              },
-              body: JSON.stringify({
-                model: zaiModel,
-                messages: [
-                  {
-                    role: "system",
-                    content: `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`,
-                  },
-                  {
-                    role: "user",
-                    content: `Here is my complete project brief from KarmaBoard with all generated documents and the full chat history. Please review everything and help me build this project:\n\n${context.slice(0, 120000)}`,
-                  },
-                ],
-                max_tokens: 2048,
-              }),
-              signal: AbortSignal.timeout(45000),
-            });
+          // Send context to z.ai API — chunked iteration for free tier
+          const chatApiUrl = `${zaiBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+          const systemPrompt = `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`;
 
-            if (zaiResponse.ok) {
-              const data = await zaiResponse.json();
-              if (data.choices && data.choices[0]?.message?.content) {
-                aiResponse = data.choices[0].message.content;
-              }
-            } else {
-              const errText = await zaiResponse.text().catch(() => "");
-              console.error("[Chat] z.ai API error:", zaiResponse.status, errText);
-              let detailMsg = errText.slice(0, 300);
-              try {
-                const errJson = JSON.parse(errText);
-                if (errJson.error?.message) detailMsg = errJson.error.message;
-              } catch { /* keep raw */ }
-              if (zaiResponse.status === 429) {
-                apiError = `z.ai API rate limited (429). The free tier has usage limits. Wait 30-60 seconds and try again.`;
-              } else if (zaiResponse.status === 401) {
-                apiError = `z.ai API auth failed (401). Your API key may be expired. Check Settings → z.ai Bridge.`;
-              } else {
-                apiError = `z.ai API error (${zaiResponse.status}): ${detailMsg}`;
-              }
-            }
-          } catch (apiErr) {
-            const msg = apiErr instanceof Error ? apiErr.message : String(apiErr);
-            console.error("[Chat] z.ai API call failed (non-fatal):", msg);
-            apiError = `Network error: ${msg}`;
-          }
+          const chunkResult = await sendChunkedContext({
+            context: context.slice(0, 120000),
+            systemPrompt,
+            chatUrl: chatApiUrl,
+            bearerToken: zaiBearerToken,
+            model: zaiModel,
+          });
 
           zaiBridge = {
             chatId,
@@ -1156,13 +1114,16 @@ export async function POST(request: NextRequest) {
             modelName: zaiModel,
             documentsFound: docsCount,
             isNewChat,
-            aiResponse: aiResponse || undefined,
-            apiError: apiError || undefined,
+            aiResponse: chunkResult.aiResponse || undefined,
+            apiError: chunkResult.apiError || undefined,
             chatMessagesFound,
             docsSource: "projectDocument",
+            chunksTotal: chunkResult.totalChunks,
+            chunksSent: chunkResult.chunksSent,
+            chunkProgress: chunkResult.progress,
           };
 
-          console.log(`[Chat] z.ai Bridge: ${docsCount} docs + ${chatMessagesFound} chat msgs sent, chatId=${chatId}, isNew=${isNewChat}, aiResponse=${!!aiResponse}, apiError=${!!apiError}`);
+          console.log(`[Chat] z.ai Bridge: ${docsCount} docs + ${chatMessagesFound} chat msgs → ${chunkResult.totalChunks} chunks, ${chunkResult.chunksSent} sent, aiResponse=${!!chunkResult.aiResponse}, apiError=${!!chunkResult.apiError}`);
         }
       } catch (bridgeErr) {
         console.error("[Chat] z.ai Bridge check error (non-fatal):", bridgeErr);

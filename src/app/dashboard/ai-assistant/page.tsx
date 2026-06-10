@@ -130,6 +130,9 @@ interface ChatMessage {
     isNewChat: boolean;
     aiResponse?: string;
     apiError?: string;
+    chunksTotal?: number;
+    chunksSent?: number;
+    chunkProgress?: string;
   };
 }
 
@@ -947,6 +950,9 @@ export default function KarmaSpacePage() {
             isNewChat: json.isNewChat,
             aiResponse: json.aiResponse,
             apiError: json.apiError,
+            chunksTotal: json.chunksTotal,
+            chunksSent: json.chunksSent,
+            chunkProgress: json.chunkProgress,
           },
         };
         setMessages((prev) => [...prev, codexMsg]);
@@ -1514,6 +1520,11 @@ export default function KarmaSpacePage() {
                                     ) : (
                                       <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-300 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-700">
                                         Resumed
+                                      </Badge>
+                                    )}
+                                    {message.zaiBridge.chunksTotal && message.zaiBridge.chunksTotal > 1 && (
+                                      <Badge variant="outline" className="text-[10px] text-purple-600 border-purple-300 bg-purple-50 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-700">
+                                        {message.zaiBridge.chunksSent}/{message.zaiBridge.chunksTotal} parts
                                       </Badge>
                                     )}
                                   </div>
