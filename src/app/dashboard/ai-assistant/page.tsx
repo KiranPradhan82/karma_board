@@ -1529,9 +1529,17 @@ export default function KarmaSpacePage() {
                                   <p className="text-xs text-red-500 dark:text-red-300 leading-relaxed break-words">{message.zaiBridge.apiError}</p>
                                   {message.zaiBridge.apiError.includes("401") && (
                                     <p className="text-xs text-red-500 dark:text-red-300 mt-2 leading-relaxed">
-                                      The z.ai authentication token has expired. Please update the token in <strong>Settings → z.ai Bridge</strong> to continue using Codex.
+                                      The z.ai API key has expired. Please update it in <strong>Settings → z.ai Bridge</strong> to continue using Codex.
                                     </p>
                                   )}
+                                  {message.zaiBridge.apiError.includes("429") && (
+                                    <p className="text-xs text-red-500 dark:text-red-300 mt-2 leading-relaxed">
+                                      z.ai free tier rate limit reached. Wait 30-60 seconds and try again, or use "Copy Context" to paste your docs manually in z.ai.
+                                    </p>
+                                  )}
+                                  <p className="text-[10px] text-muted-foreground mt-2">
+                                    Your documents were still prepared — use "Copy Context" below to paste them in z.ai manually.
+                                  </p>
                                 </div>
                               )}
                               {/* AI Response */}
