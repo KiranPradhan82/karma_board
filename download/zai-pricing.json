@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://docs.z.ai/guides/overview/pricing",
+    "name": "Pricing - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "Coding Plan · Released Notes · Terms and Policy · Help Center. Get Started. Quick ... GLM-5.1, $1.4, $0.26, Limited-time Free, $4.4. GLM-5, $1, $0.2, Limited-time ...",
+    "host_name": "docs.z.ai",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/devpack/overview",
+    "name": "Overview - Z.AI DEVELOPER DOCUMENT - Z.AI Docs",
+    "snippet": "The GLM Coding Plan is a subscription package designed specifically for AI-powered coding. ... The monthly available quota is converted based on API pricing ...",
+    "host_name": "docs.z.ai",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/devpack/faq",
+    "name": "FAQ - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "The GLM Coding Plan is strictly limited to use within officially supported tools and products. A specific baseurl address must be configured to use it: API ...",
+    "host_name": "docs.z.ai",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/guides/overview/quick-start",
+    "name": "Quick Start - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "Tired of limits? GLM Coding Plan — monthly access to world-class models, compatible with top coding tools like Claude Code and Cline.",
+    "host_name": "docs.z.ai",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/guides/llm/glm-4.5",
+    "name": "GLM-4.5 - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "Beyond performance optimization, the GLM-4.5 series also achieves breakthroughs in cost and efficiency, resulting in pricing far lower than mainstream models: ...",
+    "host_name": "docs.z.ai",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/guides/develop/http/introduction",
+    "name": "HTTP API Calls - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "Note: When using the GLM Coding Plan, you need to configure the dedicated. Coding endpoint - https://api.z.ai/api/coding/paas/v4",
+    "host_name": "docs.z.ai",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/legal-agreement/subscription-terms",
+    "name": "Subscriptions, Fees, and Payment - Overview - Z.AI Docs",
+    "snippet": "The GLM Coding Plan subscription is tied to a single account and is licensed only to the individual natural person associated with such account. You shall not ...",
+    "host_name": "docs.z.ai",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/guides/llm/glm-4.6",
+    "name": "GLM-4.6 - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "Overview. GLM-4.6 achieves comprehensive enhancements across multiple domains, including real-world coding, long-context processing, reasoning, searching, ...",
+    "host_name": "docs.z.ai",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/guides/llm/glm-4.7",
+    "name": "GLM-4.7 - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "GLM-4.7 Series are Z.AI's models, featuring upgrades in two key areas: enhanced programming capabilities and more stable multi-step reasoning ...",
+    "host_name": "docs.z.ai",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://docs.z.ai/api-reference/api-code",
+    "name": "Errors - Overview - Z.AI DEVELOPER DOCUMENT",
+    "snippet": "API Reference · Scenario Example · Coding Plan · Released Notes · Terms and Policy · Help Center. Using the APIs. Introduction · Errors · Rate Limits. Model API.",
+    "host_name": "docs.z.ai",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]
