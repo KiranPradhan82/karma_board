@@ -6,19 +6,23 @@
  * conversation so the AI builds understanding across all parts.
  *
  * Key design decisions:
- * - 14,000 chars per chunk (~4K tokens) — well within any free tier per-request limit
+ * - 10,000 chars per chunk (~3K tokens) — well within any free tier per-request limit
  * - Smart splitting at markdown boundaries (---, ##, \n\n) for clean breaks
- * - 3-second delay between chunks to avoid 429 rate limits
- * - Acknowledgment-only responses for intermediate chunks (max_tokens: 30)
+ * - 6-second delay between chunks (increased from 3s to avoid 429 on free tier)
+ * - Exponential backoff on 429: 8s → 16s → 32s → 64s (up to 4 retries per chunk)
+ * - Pre-flight check: sends a tiny test request first to verify API availability
+ * - Acknowledgment-only responses for intermediate chunks (max_tokens: 20)
  * - Full response requested only on the final chunk
  * - Graceful degradation: if a chunk fails, logs error and continues with next
  */
 
-const MAX_CHARS_PER_CHUNK = 14_000; // ~4K tokens (conservative for free tier)
-const INTER_CHUNK_DELAY_MS = 3_000; // Delay between chunk API calls
-const INTER_CHUNK_MAX_TOKENS = 30; // AI just needs to say "Part X received"
+const MAX_CHARS_PER_CHUNK = 10_000; // ~3K tokens (conservative for free tier, reduced from 14K)
+const INTER_CHUNK_DELAY_MS = 6_000; // Delay between chunk API calls (increased from 3s)
+const INTER_CHUNK_MAX_TOKENS = 20; // AI just needs to say "Part X received" (reduced from 30)
 const FINAL_MAX_TOKENS = 2048; // Actual response on final chunk
-const REQUEST_TIMEOUT_MS = 30_000; // Per-request timeout
+const REQUEST_TIMEOUT_MS = 45_000; // Per-request timeout (increased from 30s)
+const MAX_429_RETRIES = 4; // Max retries per chunk on 429 rate limit
+const BASE_429_DELAY_MS = 8_000; // Starting delay on first 429: 8s → 16s → 32s → 64s
 
 export interface ChunkResult {
   /** Whether all chunks were sent and a final AI response was received */
@@ -119,6 +123,52 @@ export async function sendChunkedContext(params: {
 
   console.log(`[zai-chunker] Context: ${params.context.length} chars → ${totalChunks} chunks`);
 
+  // Pre-flight check: send a tiny request to verify API is not rate-limited right now
+  try {
+    console.log(`[zai-chunker] Pre-flight check: testing API availability...`);
+    const preflightRes = await fetchWithRetry(
+      params.chatUrl,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${params.bearerToken}`,
+        },
+        body: JSON.stringify({
+          model: params.model,
+          messages: [
+            { role: "system", content: "You are a helpful assistant." },
+            { role: "user", content: "ping" },
+          ],
+          max_tokens: 5,
+        }),
+        signal: params.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
+      MAX_429_RETRIES,
+    );
+
+    if (!preflightRes.ok) {
+      const errText = await preflightRes.text().catch(() => "");
+      return {
+        success: false,
+        aiResponse: "",
+        totalChunks,
+        chunksSent: 0,
+        apiError: buildApiError(preflightRes.status, errText) + " Pre-flight check failed — the z.ai API may be temporarily overloaded. Please wait 60 seconds and try again, or use 'Copy Context' to paste your docs manually in z.ai.",
+      };
+    }
+    console.log(`[zai-chunker] Pre-flight check passed`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      success: false,
+      aiResponse: "",
+      totalChunks,
+      chunksSent: 0,
+      apiError: `Network error during pre-flight check: ${msg}. Check your connection and try again.`,
+    };
+  }
+
   // If only 1 chunk, send it directly (no iteration needed)
   if (totalChunks === 1) {
     const messages: Message[] = [
@@ -127,15 +177,19 @@ export async function sendChunkedContext(params: {
     ];
 
     try {
-      const res = await fetch(params.chatUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${params.bearerToken}`,
+      const res = await fetchWithRetry(
+        params.chatUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${params.bearerToken}`,
+          },
+          body: JSON.stringify({ model: params.model, messages, max_tokens: FINAL_MAX_TOKENS }),
+          signal: params.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         },
-        body: JSON.stringify({ model: params.model, messages, max_tokens: FINAL_MAX_TOKENS }),
-        signal: params.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+        MAX_429_RETRIES,
+      );
 
       if (res.ok) {
         const data = await res.json();
@@ -197,19 +251,23 @@ export async function sendChunkedContext(params: {
     });
 
     try {
-      const res = await fetch(params.chatUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${params.bearerToken}`,
+      const res = await fetchWithRetry(
+        params.chatUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${params.bearerToken}`,
+          },
+          body: JSON.stringify({
+            model: params.model,
+            messages,
+            max_tokens: isLast ? FINAL_MAX_TOKENS : INTER_CHUNK_MAX_TOKENS,
+          }),
+          signal: params.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         },
-        body: JSON.stringify({
-          model: params.model,
-          messages,
-          max_tokens: isLast ? FINAL_MAX_TOKENS : INTER_CHUNK_MAX_TOKENS,
-        }),
-        signal: params.signal || AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+        MAX_429_RETRIES,
+      );
 
       if (res.ok) {
         chunksSent++;
@@ -223,26 +281,20 @@ export async function sendChunkedContext(params: {
       } else {
         chunksSent++;
         const errText = await res.text().catch(() => "");
-        console.error(`[zai-chunker] Chunk ${i + 1}/${totalChunks} error:`, res.status, errText);
+        console.error(`[zai-chunker] Chunk ${i + 1}/${totalChunks} error after retries:`, res.status, errText);
 
-        if (res.status === 429 && !isLast) {
-          // Rate limited mid-stream — wait longer before next chunk
-          console.log(`[zai-chunker] Rate limited at chunk ${i + 1}, waiting 8s...`);
-          await new Promise((r) => setTimeout(r, 8000));
-          // Add a fake acknowledgment and continue
-          messages.push({ role: "assistant", content: `Part ${i + 1} of ${totalChunks} received.` });
-        } else if (isLast) {
+        if (isLast) {
           // Final chunk failed — this is the critical one
           return {
             success: false,
             aiResponse: "",
             totalChunks,
             chunksSent,
-            apiError: buildApiError(res.status, errText),
-            progress: `Sent ${chunksSent}/${totalChunks} parts (final chunk failed)`,
+            apiError: buildApiError(res.status, errText) + " All retries exhausted. Please wait 60-120 seconds and try again, or use 'Copy Context' to paste your docs manually in z.ai.",
+            progress: `Sent ${chunksSent}/${totalChunks} parts (final chunk failed after retries)`,
           };
         } else {
-          // Intermediate chunk failed — add fake ack and continue
+          // Intermediate chunk failed after retries — add fake ack and continue
           messages.push({ role: "assistant", content: `Part ${i + 1} of ${totalChunks} received.` });
         }
       }
@@ -256,7 +308,7 @@ export async function sendChunkedContext(params: {
           aiResponse: "",
           totalChunks,
           chunksSent,
-          apiError: `Network error on final chunk: ${msg}`,
+          apiError: `Network error on final chunk: ${msg}. Please check your connection and try again.`,
           progress: `Sent ${chunksSent}/${totalChunks} parts (final chunk network error)`,
         };
       }
@@ -295,6 +347,37 @@ export async function sendChunkedContext(params: {
 }
 
 /**
+ * Fetch with exponential backoff retry for 429 rate limits.
+ * On 429, waits 2^attempt * BASE_429_DELAY_MS before retrying.
+ * On other errors, returns immediately (no retry).
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number,
+): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status !== 429 || attempt === maxRetries) {
+        return res;
+      }
+      // Rate limited — wait with exponential backoff
+      const delay = Math.min(BASE_429_DELAY_MS * Math.pow(2, attempt), 120_000);
+      console.log(`[zai-chunker] 429 rate limit on attempt ${attempt + 1}/${maxRetries + 1}, waiting ${delay / 1000}s before retry...`);
+      await new Promise((r) => setTimeout(r, delay));
+    } catch (err) {
+      // Network errors (timeout, DNS, etc.) — retry once then give up
+      if (attempt === maxRetries) throw err;
+      console.log(`[zai-chunker] Network error on attempt ${attempt + 1}, retrying in 5s...`);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+  // Should not reach here, but just in case
+  return fetch(url, options);
+}
+
+/**
  * Build a human-readable API error string from status + response body.
  */
 function buildApiError(status: number, body: string): string {
@@ -305,7 +388,7 @@ function buildApiError(status: number, body: string): string {
   } catch { /* keep raw */ }
 
   if (status === 429) {
-    return `z.ai rate limited (429): ${detail}. Free tier limit reached. Wait 60 seconds and try again.`;
+    return `z.ai rate limited (429): ${detail}. Free tier limit reached after multiple retries. Wait 60-120 seconds and try again, or use 'Copy Context' to paste docs manually.`;
   }
   if (status === 401) {
     return `z.ai auth failed (401): ${detail}. Your API key may be expired. Check Settings → z.ai Bridge.`;

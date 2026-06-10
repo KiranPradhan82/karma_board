@@ -1219,12 +1219,18 @@ export default function KarmaSpacePage() {
                     disabled={codexLoading}
                   >
                     {codexLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="hidden sm:inline">Sending to z.ai...</span>
+                        <span className="sm:hidden">Sending...</span>
+                      </>
                     ) : (
-                      <Rocket className="h-4 w-4" />
+                      <>
+                        <Rocket className="h-4 w-4" />
+                        <span className="hidden sm:inline">Launch Codex</span>
+                        <span className="sm:hidden">Codex</span>
+                      </>
                     )}
-                    <span className="hidden sm:inline">Launch Codex</span>
-                    <span className="sm:hidden">Codex</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Launch agentic AI coding session in z.ai with all project documents and chat context</TooltipContent>
@@ -1545,7 +1551,7 @@ export default function KarmaSpacePage() {
                                   )}
                                   {message.zaiBridge.apiError.includes("429") && (
                                     <p className="text-xs text-red-500 dark:text-red-300 mt-2 leading-relaxed">
-                                      z.ai free tier rate limit reached. Wait 30-60 seconds and try again, or use "Copy Context" to paste your docs manually in z.ai.
+                                      z.ai free tier rate limit reached even after automatic retries. This is a z.ai limitation — not a KarmaBoard bug. <strong>Wait 60-120 seconds</strong> and try the Launch Codex button again, or use <strong>"Copy Context"</strong> below to paste your project docs directly into z.ai.
                                     </p>
                                   )}
                                   <p className="text-[10px] text-muted-foreground mt-2">
