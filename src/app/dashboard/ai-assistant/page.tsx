@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useDeferredValue } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from "react";
 import { useSession } from "next-auth/react";
 import {
   Bot,
@@ -185,7 +185,6 @@ export default function KarmaSpacePage() {
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null); // message ID being exported
   const [downloadingDocPdf, setDownloadingDocPdf] = useState<string | null>(null); // document ID being downloaded
   const [isExportingAll, setIsExportingAll] = useState(false);
-  const [hasDocuments, setHasDocuments] = useState(false);
   const [onboardingPhase, setOnboardingPhase] = useState<"idle" | "requirements" | "complete">("idle");
   const [onboardingTab, setOnboardingTab] = useState<"upload" | "write">("write");
   const [onboardingText, setOnboardingText] = useState("");
@@ -736,13 +735,9 @@ export default function KarmaSpacePage() {
     }
   };
 
-  // Check if project has generated documents (for "Download All" button)
-  // Uses the same keyword-signature detection as the backend export-all-docs endpoint
-  useEffect(() => {
-    if (!selectedProject || messages.length === 0) {
-      setHasDocuments(false);
-      return;
-    }
+  // Check if project has generated documents (for "Download All" button) — useMemo instead of useEffect
+  const hasDocuments = useMemo(() => {
+    if (!selectedProject || messages.length === 0) return false;
 
     const DOC_SIGNATURES = [
       ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements"],
@@ -761,8 +756,7 @@ export default function KarmaSpacePage() {
       );
     };
 
-    const docCount = messages.filter(m => m.role === "assistant" && isDocument(m.content)).length;
-    setHasDocuments(docCount >= 1);
+    return messages.some(m => m.role === "assistant" && isDocument(m.content));
   }, [messages, selectedProject]);
 
   // Check if project has ProjectDocument records for onboarding
@@ -943,14 +937,14 @@ export default function KarmaSpacePage() {
   };
 
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
-  const toggleDocExpand = (id: string) => {
+  const toggleDocExpand = useCallback((id: string) => {
     setExpandedDocs((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
   // Launch Codex — bridge to z.ai API, display response in KarmaBoard chat
   const handleStartCodex = async () => {
@@ -1090,8 +1084,10 @@ export default function KarmaSpacePage() {
     }
   };
 
-  // Stable callback refs for memoized ChatMessageItem
-  const messageCallbacks: ChatMessageCallbacks = {
+  // Stable callback refs for memoized ChatMessageItem — useMemo prevents
+  // ALL messages from re-rendering on every keystroke (inputValue changes).
+  // Only re-create when these specific states actually change.
+  const messageCallbacks: ChatMessageCallbacks = useMemo(() => ({
     isMobile,
     downloadingPdf,
     downloadingDocPdf,
@@ -1107,14 +1103,15 @@ export default function KarmaSpacePage() {
     onCopyZaiContext: handleCopyZaiContext,
     onToggleZaiChat: () => setZaiChatExpanded((prev) => !prev),
     onSendZaiChat: handleSendZaiChat,
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [isMobile, downloadingPdf, downloadingDocPdf, expandedDocs, zaiCopiedId, zaiChatExpanded, zaiChatMessages, zaiChatLoading]);
 
-  const filteredProjects = projects.filter(
+  const filteredProjects = useMemo(() => projects.filter(
     (p) =>
       p.status !== "ARCHIVED" &&
       (p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
         p.description?.toLowerCase().includes(projectSearch.toLowerCase()))
-  );
+  ), [projects, projectSearch]);
 
   return (
     <TooltipProvider>
