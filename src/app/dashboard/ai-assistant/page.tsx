@@ -206,6 +206,20 @@ export default function KarmaSpacePage() {
   // Karmaspace Codex bridge state
   const [codexLoading, setCodexLoading] = useState(false);
 
+  // Embedded z.ai Codex chat state
+  const [zaiChatMessages, setZaiChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const [zaiChatInput, setZaiChatInput] = useState("");
+  const [zaiChatLoading, setZaiChatLoading] = useState(false);
+  const [zaiChatExpanded, setZaiChatExpanded] = useState(false);
+  const zaiChatEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll embedded chat to bottom on new messages
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      zaiChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  }, [zaiChatMessages]);
+
   // Delete chat flow
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -316,6 +330,14 @@ export default function KarmaSpacePage() {
     }
     fetchProjects();
   }, []);
+
+  // Clear embedded z.ai chat when project changes
+  useEffect(() => {
+    setZaiChatMessages([]);
+    setZaiChatInput("");
+    setZaiChatExpanded(false);
+    setZaiChatLoading(false);
+  }, [selectedProject?.id]);
 
   // Load messages when project changes
   useEffect(() => {
@@ -967,6 +989,55 @@ export default function KarmaSpacePage() {
     }
   };
 
+  // Send message to embedded z.ai Codex chat
+  const handleSendZaiChat = async (codexMsg: ChatMessage) => {
+    if (!selectedProject || !zaiChatInput.trim() || zaiChatLoading) return;
+    const userContent = zaiChatInput.trim();
+    setZaiChatInput("");
+    setZaiChatLoading(true);
+    setZaiChatExpanded(true);
+
+    // Add user message
+    setZaiChatMessages((prev) => [...prev, { role: "user", content: userContent }]);
+
+    try {
+      const messagesToSend = [
+        // Include the initial Codex AI response as context
+        ...(codexMsg.zaiBridge?.aiResponse ? [{ role: "assistant" as const, content: codexMsg.zaiBridge.aiResponse }] : []),
+        // Include previous chat messages
+        ...zaiChatMessages,
+        { role: "user" as const, content: userContent },
+      ];
+
+      const res = await fetch("/api/ai/zai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          messages: messagesToSend,
+          contextSummary: codexMsg.zaiBridge?.context?.slice(0, 2000) || undefined,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        setZaiChatMessages((prev) => [...prev, { role: "assistant", content: json.content }]);
+      } else {
+        setZaiChatMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${json.error || "Failed to get response from z.ai"}` },
+        ]);
+      }
+    } catch (err) {
+      setZaiChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `Network error: ${err instanceof Error ? err.message : "Please try again"}` },
+      ]);
+    } finally {
+      setZaiChatLoading(false);
+    }
+  };
+
   // Handle z.ai bridge — auto-redirect to z.ai and copy context
   const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
   const [errorCopied, setErrorCopied] = useState(false);
@@ -1587,6 +1658,85 @@ export default function KarmaSpacePage() {
                                   </div>
                                 </div>
                               )}
+                              {/* Embedded z.ai Chat */}
+                              <div className="border-t border-primary/10">
+                                <button
+                                  className="w-full flex items-center gap-2 px-3 sm:px-4 py-2.5 text-left hover:bg-primary/5 transition-colors"
+                                  onClick={() => setZaiChatExpanded((prev) => !prev)}
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5 text-primary" />
+                                  <span className="text-xs font-medium text-primary">Codex Chat</span>
+                                  <span className="text-[10px] text-muted-foreground">— chat with z.ai directly</span>
+                                  <ChevronDown className={`h-3 w-3 ml-auto text-muted-foreground transition-transform ${zaiChatExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                                {zaiChatExpanded && (
+                                  <div className="border-t border-primary/10">
+                                    {/* Chat messages */}
+                                    <div className="max-h-60 overflow-y-auto px-3 sm:px-4 py-2 space-y-3">
+                                      {zaiChatMessages.length === 0 && (
+                                        <p className="text-[11px] text-muted-foreground text-center py-4">
+                                          Ask z.ai anything about your project. No redirect needed — it uses your stored API key.
+                                        </p>
+                                      )}
+                                      {zaiChatMessages.map((chatMsg, idx) => (
+                                        <div key={idx} className={`flex gap-2 ${chatMsg.role === "user" ? "justify-end" : "justify-start"}`}>
+                                          {chatMsg.role === "assistant" && (
+                                            <div className="h-5 w-5 rounded bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                                              <Zap className="h-3 w-3 text-primary" />
+                                            </div>
+                                          )}
+                                          <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words ${
+                                            chatMsg.role === "user"
+                                              ? "bg-primary text-primary-foreground"
+                                              : chatMsg.content.startsWith("Error:")
+                                                ? "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800"
+                                                : "bg-muted text-foreground"
+                                          }`}>
+                                            {chatMsg.content}
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {zaiChatLoading && (
+                                        <div className="flex gap-2 justify-start">
+                                          <div className="h-5 w-5 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                                            <Zap className="h-3 w-3 text-primary" />
+                                          </div>
+                                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                            <span>z.ai is thinking...</span>
+                                          </div>
+                                        </div>
+                                      )}
+                                      <div ref={zaiChatEndRef} />
+                                    </div>
+                                    {/* Chat input */}
+                                    <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-t border-primary/10">
+                                      <input
+                                        type="text"
+                                        className="flex-1 h-8 text-xs bg-background border border-input rounded-md px-3 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                        placeholder="Ask about your project..."
+                                        value={zaiChatInput}
+                                        onChange={(e) => setZaiChatInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSendZaiChat(message);
+                                          }
+                                        }}
+                                        disabled={zaiChatLoading}
+                                      />
+                                      <Button
+                                        size="sm"
+                                        className="h-8 w-8 p-0 bg-primary text-primary-foreground shrink-0"
+                                        disabled={zaiChatLoading || !zaiChatInput.trim()}
+                                        onClick={() => handleSendZaiChat(message)}
+                                      >
+                                        <Send className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 px-3 sm:px-4 py-3 border-t border-primary/10">
                                 <Button
                                   variant="default"
