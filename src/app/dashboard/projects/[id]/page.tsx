@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ProjectTodos } from "@/components/project-todos";
 
 const priorityConfig: Record<string, { label: string; className: string }> = {
   HIGH: { label: "High", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
@@ -730,6 +731,14 @@ export default function ProjectDetailPage() {
           </Card>
         )}
       </div>
+
+      {/* Project Todos */}
+      <ProjectTodos
+        projectId={projectId}
+        team={team}
+        isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
+      />
 
       {/* Edit Project Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

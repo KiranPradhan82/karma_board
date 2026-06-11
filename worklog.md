@@ -314,3 +314,23 @@ Work Log:
 
 Stage Summary:
 - All 3 features implemented: inactivity logout, time tracking removal, user activity panel
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix dashboard loading error for superadmin (hoursToday.formatted undefined)
+
+Work Log:
+- Analyzed error screenshot: `undefined is not an object (evaluating 'o.hoursToday.formatted')`
+- Discovered stale `(dashboard)` route group at `src/app/(dashboard)/` with old code conflicting with active `dashboard/` folder
+- The stale `(dashboard)/page.tsx` still had "Hours Today" and "Active Sessions" cards
+- The stale `(dashboard)/layout.tsx` still had "Time Tracker" in ICON_MAP
+- Deleted entire `src/app/(dashboard)/` folder (layout, page, error, loading)
+- Fixed memory leak in `useInactivityTimer` hook — all timer refs now properly cleaned up on unmount
+- Verified all time tracking references removed from src/
+- Pushed fix to GitHub
+
+Stage Summary:
+- Removed stale `(dashboard)` route group that was causing build/deployment conflict
+- Fixed inactivity timer memory leak
+- Dashboard error should be resolved after Vercel redeployment

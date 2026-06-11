@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import {
   LogOut,
   User,
@@ -15,7 +14,8 @@ import {
   Hammer,
   Settings,
   Bell,
-  Loader2,
+  ListTodo,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,9 @@ interface ClientProject {
   deadline: string | null;
   color: string | null;
   description: string | null;
+  totalTodos: number;
+  doneTodos: number;
+  completionPercent: number;
 }
 
 interface Activity {
@@ -58,15 +61,6 @@ const statusConfig: Record<string, { label: string; className: string; color: st
   ON_HOLD: { label: "On Hold", className: "bg-yellow-100 text-yellow-700", color: "bg-yellow-500" },
   ARCHIVED: { label: "Archived", className: "bg-gray-100 text-gray-600", color: "bg-gray-500" },
 };
-
-function getStatusProgress(status: string) {
-  switch (status) {
-    case "COMPLETED": return 100;
-    case "ACTIVE": return 65;
-    case "ON_HOLD": return 30;
-    default: return 0;
-  }
-}
 
 function getDaysRemaining(deadline: string | null, status: string) {
   if (!deadline || status === "COMPLETED") return null;
@@ -97,6 +91,18 @@ export default function ClientPortalPage() {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to load client data', errMsg, 'URL: /api/clients/me');
     }
+  }, [showError]);
+
+  const fetchProjects = useCallback(async () => {
+    try {
+      const res = await fetch("/api/clients/me/projects");
+      const data = await res.json();
+      if (data.success) {
+        setProjects(data.data.projects || []);
+      }
+    } catch {
+      // ignore — projects are secondary
+    }
   }, []);
 
   const fetchActivities = useCallback(async () => {
@@ -113,27 +119,14 @@ export default function ClientPortalPage() {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to load activities', errMsg, 'URL: /api/clients/me/activities');
     }
-  }, []);
-
-  const fetchProjects = useCallback(async () => {
-    try {
-      // We get projects from the client profile's linked projects
-      const res = await fetch("/api/clients/me");
-      const data = await res.json();
-      if (data.success) {
-        setClientData(data.data);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
+  }, [showError]);
 
   useEffect(() => {
     if (authStatus === "authenticated") {
       setLoading(true);
-      Promise.all([fetchClientData(), fetchActivities()]).finally(() => setLoading(false));
+      Promise.all([fetchClientData(), fetchProjects(), fetchActivities()]).finally(() => setLoading(false));
     }
-  }, [authStatus, fetchClientData, fetchActivities]);
+  }, [authStatus, fetchClientData, fetchProjects, fetchActivities]);
 
   if (authStatus === "loading" || loading) {
     return (
@@ -249,7 +242,6 @@ export default function ClientPortalPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projects.map((project) => {
                 const status = statusConfig[project.status] || statusConfig.ACTIVE;
-                const progress = getStatusProgress(project.status);
                 const daysRemaining = getDaysRemaining(project.deadline, project.status);
 
                 return (
@@ -266,13 +258,16 @@ export default function ClientPortalPage() {
                         <Badge className={status.className}>{status.label}</Badge>
                       </div>
 
-                      {/* Progress */}
+                      {/* Todo Progress */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Progress</span>
-                          <span>{progress}%</span>
+                          <span className="flex items-center gap-1">
+                            <ListTodo className="h-3 w-3" />
+                            Tasks
+                          </span>
+                          <span>{project.doneTodos}/{project.totalTodos} done ({project.completionPercent}%)</span>
                         </div>
-                        <Progress value={progress} className="h-2" />
+                        <Progress value={project.completionPercent} className="h-2" />
                       </div>
 
                       {/* Deadline */}
@@ -287,6 +282,15 @@ export default function ClientPortalPage() {
                           )}
                         </div>
                       )}
+
+                      {/* View Tasks Link */}
+                      <Button variant="outline" size="sm" className="w-full" asChild>
+                        <Link href={`/client/portal/projects/${project.id}`}>
+                          <ListTodo className="h-4 w-4 mr-1.5" />
+                          View Tasks
+                          <ArrowRight className="h-4 w-4 ml-auto" />
+                        </Link>
+                      </Button>
                     </CardContent>
                   </Card>
                 );

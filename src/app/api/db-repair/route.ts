@@ -118,6 +118,26 @@ const TABLE_CREATE_SQL: Record<string, string> = {
     "entityId" TEXT,
     "ipAddress" TEXT
   )`,
+  ProjectTodo: `CREATE TABLE IF NOT EXISTS "ProjectTodo" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "projectId" TEXT NOT NULL,
+    "assigneeId" TEXT,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
+    "dueDate" DATETIME,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdBy" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+};
+
+const INDEX_SQL: Record<string, string> = {
+  ProjectTodo_projectId_sortOrder: `CREATE INDEX IF NOT EXISTS "ProjectTodo_projectId_sortOrder_idx" ON "ProjectTodo" ("projectId", "sortOrder")`,
+  ProjectTodo_assigneeId: `CREATE INDEX IF NOT EXISTS "ProjectTodo_assigneeId_idx" ON "ProjectTodo" ("assigneeId")`,
+  ProjectTodo_projectId_status: `CREATE INDEX IF NOT EXISTS "ProjectTodo_projectId_status_idx" ON "ProjectTodo" ("projectId", "status")`,
 };
 
 export async function POST() {
@@ -165,7 +185,17 @@ export async function POST() {
     }
   }
 
-  // 2. Add missing columns to existing tables
+  // 2.5. Create missing indexes
+  for (const [indexName, indexSQL] of Object.entries(INDEX_SQL)) {
+    try {
+      await client.execute(indexSQL);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      results.errors.push(`Failed to create index ${indexName}: ${msg}`);
+    }
+  }
+
+  // 3. Add missing columns to existing tables
   for (const [tableName, columns] of Object.entries(COLUMN_DEFS)) {
     // Check if table exists
     try {
