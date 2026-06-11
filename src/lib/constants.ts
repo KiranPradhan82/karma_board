@@ -2,10 +2,10 @@ import {
   LayoutDashboard,
   Users,
   FolderKanban,
-  Clock,
   Bot,
   Settings,
   Briefcase,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -53,14 +53,15 @@ export const NAV_ITEMS: NavItem[] = [
     icon: FolderKanban,
   },
   {
-    label: "Time Tracker",
-    href: "/dashboard/time-tracker",
-    icon: Clock,
-  },
-  {
     label: "Karma Space",
     href: "/dashboard/ai-assistant",
     icon: Bot,
+  },
+  {
+    label: "User Activity",
+    href: "/dashboard/activity",
+    icon: Activity,
+    minRole: "SUPERADMIN",
   },
   {
     label: "Settings",

@@ -127,6 +127,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
+  // User activity - SUPERADMIN only
+  if (
+    pathname.startsWith("/dashboard/activity") &&
+    token.role !== "SUPERADMIN"
+  ) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
   return NextResponse.next();
 }
 

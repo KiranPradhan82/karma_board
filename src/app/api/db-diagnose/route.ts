@@ -12,7 +12,7 @@ const EXPECTED_TABLES: Record<string, string[]> = {
   User: [
     "id", "name", "email", "password", "role", "avatar", "isActive",
     "jobTitle", "phone", "skills", "status", "mustChangePassword",
-    "deletedAt", "joinDate", "createdAt", "updatedAt"
+    "deletedAt", "joinDate", "lastLoginAt", "lastActivityAt", "createdAt", "updatedAt"
   ],
   Client: [
     "id", "name", "email", "password", "company", "address", "phone",
@@ -52,8 +52,8 @@ const EXPECTED_TABLES: Record<string, string[]> = {
   Settings: [
     "key", "value", "updatedAt"
   ],
-  TimeLog: [
-    "id", "userId", "projectId", "clockIn", "clockOut", "duration", "notes", "createdAt"
+  UserSession: [
+    "id", "userId", "lastSeen", "ipAddress", "userAgent"
   ],
 };
 
@@ -68,6 +68,8 @@ const COLUMN_DEFS: Record<string, Record<string, { type: string; default: string
     jobTitle: { type: "TEXT", default: null },
     phone: { type: "TEXT", default: null },
     avatar: { type: "TEXT", default: null },
+    lastLoginAt: { type: "DATETIME", default: null },
+    lastActivityAt: { type: "DATETIME", default: null },
   },
   Client: {
     status: { type: "TEXT", default: "'ACTIVE'" },

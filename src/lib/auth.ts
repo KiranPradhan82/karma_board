@@ -100,7 +100,21 @@ async function findClientByEmail(email: string): Promise<{
   };
 }
 
-export { findClientByEmail };
+async function updateLastLogin(userId: string): Promise<void> {
+  const tursoUrl = process.env.TURSO_DATABASE_URL;
+  const tursoToken = process.env.TURSO_AUTH_TOKEN;
+  if (tursoUrl && tursoToken) {
+    const { createClient } = await import("@libsql/client");
+    const cleanUrl = tursoUrl.split('?')[0];
+    const client = createClient({ url: cleanUrl, authToken: tursoToken });
+    await client.execute({
+      sql: 'UPDATE "User" SET "lastLoginAt" = datetime(\'now\'), "updatedAt" = datetime(\'now\') WHERE id = ?',
+      args: [userId],
+    });
+  }
+}
+
+export { findClientByEmail, updateLastLogin };
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -142,6 +156,8 @@ export const authOptions: NextAuthOptions = {
             }
 
             console.log("[Auth] Login successful (team):", credentials.email, "role:", user.role, "mustChangePassword:", user.mustChangePassword);
+            // Log last login (fire and forget — don't block login)
+            updateLastLogin(user.id).catch(console.error);
             return {
               id: user.id,
               name: user.name,
@@ -169,6 +185,8 @@ export const authOptions: NextAuthOptions = {
             }
 
             console.log("[Auth] Login successful (client):", credentials.email, "mustChangePassword:", client.mustChangePassword);
+            // Log last login for client (fire and forget)
+            updateLastLogin(client.id).catch(console.error);
             return {
               id: client.id,
               name: client.name,

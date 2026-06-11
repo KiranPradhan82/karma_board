@@ -130,7 +130,19 @@ model Project {
   Client             Client?              @relation(fields: [clientId], references: [id])
   ProjectDocument    ProjectDocument[]
   ProjectMember      ProjectMember[]
-  TimeLog            TimeLog[]
+}
+
+model UserSession {
+  id        String   @id
+  userId    String
+  lastSeen  DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([lastSeen])
 }
 
 model ProjectDocument {
@@ -178,19 +190,6 @@ model Settings {
   updatedAt DateTime
 }
 
-model TimeLog {
-  id        String    @id
-  userId    String
-  projectId String
-  clockIn   DateTime  @default(now())
-  clockOut  DateTime?
-  duration  Int?
-  notes     String?
-  createdAt DateTime  @default(now())
-  Project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 model Notification {
   id        String   @id
   userId    String
@@ -221,6 +220,8 @@ model User {
   mustChangePassword Boolean             @default(false)
   deletedAt          DateTime?
   joinDate           DateTime?
+  lastLoginAt        DateTime?
+  lastActivityAt     DateTime?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime
   ActivityLog        ActivityLog[]
@@ -228,5 +229,5 @@ model User {
   ChatDeleteRequest  ChatDeleteRequest[]
   Notification       Notification[]
   ProjectMember      ProjectMember[]
-  TimeLog            TimeLog[]
+  UserSession        UserSession[]
 }

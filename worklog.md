@@ -292,3 +292,25 @@ Stage Summary:
 - All 3 requirements implemented: auto-assign creator, auto-assign super admin, super admin controls team lead/members
 - Backend enforces: SUPERADMIN cannot be removed from projects, only SUPERADMIN can change roles
 - Files modified: src/app/api/projects/route.ts, src/app/api/projects/[id]/team/route.ts, src/app/api/projects/[id]/team/[userId]/role/route.ts, src/app/dashboard/projects/[id]/page.tsx
+
+---
+Task ID: 1
+Agent: fullstack-developer
+Task: Implement inactivity auto-logout, remove time tracking, add user activity tracking
+
+Work Log:
+- Created useInactivityTimer hook with 5-min timeout and warning at 4:30
+- Created useHeartbeat hook for periodic presence tracking
+- Created /api/auth/heartbeat endpoint for session management
+- Created /api/members/activity endpoint for super admin user activity view
+- Created /dashboard/activity page for super admin with online status, last login
+- Removed TimeLog model from Prisma schema
+- Removed Time Tracker nav item and dashboard stat cards
+- Removed time-log validation file
+- Added lastLoginAt, lastActivityAt to User model
+- Added UserSession model for presence tracking
+- Updated auth login flow to record lastLoginAt
+- Updated middleware, db-repair, and constants
+
+Stage Summary:
+- All 3 features implemented: inactivity logout, time tracking removal, user activity panel

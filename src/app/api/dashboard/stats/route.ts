@@ -32,23 +32,6 @@ export async function GET(request: NextRequest) {
     });
     const activeMembers = Number(membersResult.rows[0].total);
 
-    // Hours Today (sum of durations for today's completed time logs)
-    const today = new Date().toISOString().split('T')[0];
-    const hoursResult = await client.execute({
-      sql: `SELECT COALESCE(SUM(duration), 0) as totalSeconds FROM "TimeLog" WHERE date("clockIn") = ? AND "clockOut" IS NOT NULL`,
-      args: [today],
-    });
-    const totalSeconds = Number(hoursResult.rows[0].totalSeconds) || 0;
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-    // Active Sessions (time logs without clockOut, i.e. currently tracking)
-    const sessionsResult = await client.execute({
-      sql: `SELECT COUNT(*) as total FROM "TimeLog" WHERE "clockOut" IS NULL`,
-      args: [],
-    });
-    const activeSessions = Number(sessionsResult.rows[0].total);
-
     // Recent Activity (last 20 activity logs with user info)
     const activityResult = await client.execute({
       sql: `SELECT a.id, a.action, a.details, a.entity, a."entityId", a.timestamp, u.name as userName, u.avatar as userAvatar
@@ -84,8 +67,6 @@ export async function GET(request: NextRequest) {
       data: {
         totalProjects,
         activeMembers,
-        hoursToday: { hours, minutes, formatted: `${hours}h ${minutes}m` },
-        activeSessions,
         recentActivity,
         projectStatusBreakdown,
       },

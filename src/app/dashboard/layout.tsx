@@ -8,7 +8,6 @@ import {
   LayoutDashboard,
   Users,
   FolderKanban,
-  Clock,
   Bot,
   Settings,
   LogOut,
@@ -16,22 +15,33 @@ import {
   Menu,
   Hammer,
   Briefcase,
+  Activity,
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { NAV_ITEMS, hasMinimumRole } from "@/lib/constants";
 import type { NavItem } from "@/lib/constants";
+import { useInactivityTimer } from "@/hooks/use-inactivity-timer";
+import { useHeartbeat } from "@/hooks/use-heartbeat";
 
 const ICON_MAP: Record<string, NavItem["icon"]> = {
   Dashboard: LayoutDashboard,
   Team: Users,
   Clients: Briefcase,
   Projects: FolderKanban,
-  "Time Tracker": Clock,
   "Karma Space": Bot,
+  "User Activity": Activity,
   Settings: Settings,
 };
 
@@ -200,6 +210,8 @@ export default function DashboardLayout({
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { showWarning, stayActive } = useInactivityTimer();
+  useHeartbeat(60000);
 
   return (
     <div className="min-h-screen">
@@ -253,6 +265,21 @@ export default function DashboardLayout({
       >
         <div className="p-4 pb-6 sm:p-6 lg:p-8">{children}</div>
       </main>
+
+      {/* Inactivity Warning Dialog */}
+      <Dialog open={showWarning} onOpenChange={() => stayActive()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Session Expiring</DialogTitle>
+            <DialogDescription>
+              You will be logged out due to inactivity. Click the button below to stay active.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={stayActive}>Stay Active</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

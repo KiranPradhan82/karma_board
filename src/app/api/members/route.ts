@@ -155,7 +155,6 @@ export async function POST(request: NextRequest) {
         await client.execute({ sql: `DELETE FROM "Invitation" WHERE email = ?`, args: [email] });
         await client.execute({ sql: `DELETE FROM "AiChat" WHERE "userId" = ?`, args: [oldId] });
         await client.execute({ sql: `DELETE FROM "ProjectMember" WHERE "userId" = ?`, args: [oldId] });
-        await client.execute({ sql: `DELETE FROM "TimeLog" WHERE "userId" = ?`, args: [oldId] });
         await client.execute({ sql: `DELETE FROM "ActivityLog" WHERE "userId" = ?`, args: [oldId] });
         await client.execute({ sql: `DELETE FROM "User" WHERE id = ?`, args: [oldId] });
         console.log(`[POST /api/members] Hard-deleted previously soft-deleted user ${oldId} to free email ${email}`);

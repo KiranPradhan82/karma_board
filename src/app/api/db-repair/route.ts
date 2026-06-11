@@ -17,6 +17,8 @@ const COLUMN_DEFS: Record<string, Record<string, { type: string; default: string
     jobTitle: { type: "TEXT", default: null },
     phone: { type: "TEXT", default: null },
     avatar: { type: "TEXT", default: null },
+    lastLoginAt: { type: "DATETIME", default: null },
+    lastActivityAt: { type: "DATETIME", default: null },
   },
   Client: {
     status: { type: "TEXT", default: "'ACTIVE'" },
@@ -99,15 +101,12 @@ const TABLE_CREATE_SQL: Record<string, string> = {
     "updatedAt" DATETIME NOT NULL,
     UNIQUE("projectId", "docType")
   )`,
-  TimeLog: `CREATE TABLE IF NOT EXISTS "TimeLog" (
+  UserSession: `CREATE TABLE IF NOT EXISTS "UserSession" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
-    "projectId" TEXT NOT NULL,
-    "clockIn" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "clockOut" DATETIME,
-    "duration" INTEGER,
-    "notes" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    "lastSeen" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "ipAddress" TEXT,
+    "userAgent" TEXT
   )`,
   ActivityLog: `CREATE TABLE IF NOT EXISTS "ActivityLog" (
     "id" TEXT NOT NULL PRIMARY KEY,

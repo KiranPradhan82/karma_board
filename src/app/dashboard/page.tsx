@@ -5,7 +5,6 @@ import { useEffect, useState, useCallback } from "react";
 import {
   FolderKanban,
   Users,
-  Clock,
   Activity,
   Plus,
   UserPlus,
@@ -38,8 +37,6 @@ interface ActivityItem {
 interface DashboardStats {
   totalProjects: number;
   activeMembers: number;
-  hoursToday: { hours: number; minutes: number; formatted: string };
-  activeSessions: number;
   recentActivity: ActivityItem[];
   projectStatusBreakdown: Record<string, number>;
 }
@@ -133,28 +130,14 @@ export default function DashboardPage() {
       icon: Users,
       color: "text-emerald-600 bg-emerald-100",
     },
-    {
-      title: "Hours Today",
-      value: stats ? stats.hoursToday.formatted : "0h 0m",
-      description: "Tracked today",
-      icon: Clock,
-      color: "text-amber-600 bg-amber-100",
-    },
-    {
-      title: "Active Sessions",
-      value: stats ? String(stats.activeSessions) : "0",
-      description: "Tracking time",
-      icon: Activity,
-      color: "text-rose-600 bg-rose-100",
-    },
   ];
 
   if (status === "loading" || loading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-2">
+          {[...Array(2)].map((_, i) => (
             <Skeleton key={i} className="h-28 sm:h-32 rounded-lg" />
           ))}
         </div>
@@ -176,7 +159,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-2">
         {cards.map((stat) => {
           const Icon = stat.icon;
           return (
@@ -246,7 +229,7 @@ export default function DashboardPage() {
                 No recent activity to display.
               </p>
               <p className="text-xs text-muted-foreground/70 mt-1">
-                Start by creating a project or tracking some time.
+                Start by creating a project or managing your team.
               </p>
             </div>
           )}
