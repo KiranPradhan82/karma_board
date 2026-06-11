@@ -876,16 +876,18 @@ export default function ProjectDetailPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* LEAD only available if selected user is ADMIN/SUPERADMIN */}
+                  {/* LEAD only available for SUPERADMIN, and only if selected user is ADMIN/SUPERADMIN */}
                   {(() => {
                     const selected = availableMembers.find((m) => m.id === selectedUserId);
-                    const canBeLead = selected && (selected.role === "ADMIN" || selected.role === "SUPERADMIN");
+                    const canBeLead = isSuperAdmin && selected && (selected.role === "ADMIN" || selected.role === "SUPERADMIN");
                     return (
                       <>
-                        <SelectItem value="LEAD" disabled={!canBeLead}>
-                          {projectRoleLabels.LEAD}
-                          {!canBeLead && " (Admins only)"}
-                        </SelectItem>
+                        {isSuperAdmin && (
+                          <SelectItem value="LEAD" disabled={!canBeLead}>
+                            {projectRoleLabels.LEAD}
+                            {!canBeLead && " (Admins only)"}
+                          </SelectItem>
+                        )}
                         <SelectItem value="DEVELOPER">{projectRoleLabels.DEVELOPER}</SelectItem>
                         <SelectItem value="MARKETER">{projectRoleLabels.MARKETER}</SelectItem>
                         <SelectItem value="VIEWER">{projectRoleLabels.VIEWER}</SelectItem>

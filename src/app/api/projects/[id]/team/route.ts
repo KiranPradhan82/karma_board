@@ -113,8 +113,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const { userId, role } = result.data;
 
-    // Enforce: Only ADMIN/SUPERADMIN global role can be assigned as LEAD
+    // Enforce: Only SUPERADMIN can assign someone as LEAD
     if (role === 'LEAD') {
+      if (user.role !== 'SUPERADMIN') {
+        return NextResponse.json({ success: false, error: 'Only super admin can assign or change the team lead' }, { status: 403 });
+      }
       const targetUser = await client.execute({
         sql: 'SELECT role FROM "User" WHERE id = ? AND "deletedAt" IS NULL',
         args: [userId],
