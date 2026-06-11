@@ -44,6 +44,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -608,7 +609,7 @@ export default function ProjectDetailPage() {
               // We determine this from the availableMembers data, but since we may not have it loaded,
               // we show the option for all and let the backend reject
               return (
-              <Card key={member.id} className="group">
+              <Card key={member.id}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
@@ -630,11 +631,7 @@ export default function ProjectDetailPage() {
                     {isSuperAdmin && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100"
-                          >
+                          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -642,8 +639,8 @@ export default function ProjectDetailPage() {
                           <DropdownMenuItem
                             onClick={() => handlePromoteToLead(member)}
                           >
-                            <Crown className="mr-2 h-4 w-4" />
-                            Promote to Lead
+                            <Crown className="mr-2 h-4 w-4 text-purple-600" />
+                            <span className="text-purple-600 font-medium">Promote to Lead</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleChangeRole(member, "DEVELOPER")}
@@ -665,24 +662,48 @@ export default function ProjectDetailPage() {
                           >
                             Change to Member
                           </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => handleRemoveMember(member)}
                           >
                             <X className="mr-2 h-4 w-4" />
-                            Remove
+                            Remove from Project
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )}
                   </div>
-                  <div className="mt-3">
+                  <div className="mt-3 flex items-center gap-2">
                     <Badge
                       variant="secondary"
                       className={`text-[10px] px-1.5 py-0 ${projectRoleColors[member.role] || ""}`}
                     >
                       {projectRoleLabels[member.role] || member.role}
                     </Badge>
+                    {isSuperAdmin && (
+                      <Select
+                        value={member.role}
+                        onValueChange={(newRole) => {
+                          if (newRole === "LEAD") {
+                            handlePromoteToLead(member);
+                          } else {
+                            handleChangeRole(member, newRole);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-6 w-auto min-w-[100px] text-[10px] border-dashed">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="LEAD">Team Lead</SelectItem>
+                          <SelectItem value="DEVELOPER">Developer</SelectItem>
+                          <SelectItem value="MARKETER">Marketer</SelectItem>
+                          <SelectItem value="VIEWER">Viewer</SelectItem>
+                          <SelectItem value="MEMBER">Member</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 </CardContent>
               </Card>
