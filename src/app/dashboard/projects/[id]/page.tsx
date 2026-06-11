@@ -318,12 +318,11 @@ export default function ProjectDetailPage() {
     if (newRole === "LEAD") {
       const existingLead = team.find((m) => m.role === "LEAD" && m.userId !== member.userId);
       if (existingLead) {
-        toast.error("This project already has a team lead. Remove the current lead first.");
+        toast.error("This project already has a team lead. Use 'Demote to Member' on the current lead first, or use 'Promote to Lead' on another member.");
         return;
       }
     }
     // Only ADMIN+ global role can be LEAD in a project
-    // Fetch the user's global role from the server (availableMembers may not be loaded)
     try {
       const memberRes = await fetch(`/api/members/${member.userId}`);
       const memberData = await memberRes.json();
@@ -348,6 +347,7 @@ export default function ProjectDetailPage() {
       if (data.success) {
         toast.success("Role updated");
         fetchTeam();
+        fetchProject(); // Refresh member count in header
       } else {
         errorToast({ error: data.error, title: "Failed to change role" });
       }
@@ -414,6 +414,23 @@ export default function ProjectDetailPage() {
   const status = statusConfig[project.status] || statusConfig.ACTIVE;
   const lead = team.find((m) => m.role === "LEAD");
   const otherMembers = team.filter((m) => m.role !== "LEAD");
+
+  const handlePromoteToLead = async (member: TeamMember) => {
+    // Demote current lead first if one exists
+    if (lead) {
+      try {
+        await fetch(`/api/projects/${projectId}/team/${lead.userId}/role`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "MEMBER" }),
+        });
+      } catch {
+        // Continue even if demotion fails
+      }
+    }
+    // Then promote the new lead
+    await handleChangeRole(member, "LEAD");
+  };
 
   return (
     <div className="space-y-6">
@@ -522,6 +539,11 @@ export default function ProjectDetailPage() {
               Add Member
             </Button>
           )}
+          {isSuperAdmin && (
+            <p className="text-xs text-muted-foreground">
+              Super admin is auto-assigned to all projects.
+            </p>
+          )}
         </div>
 
         {/* Team Lead */}
@@ -560,11 +582,10 @@ export default function ProjectDetailPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={() => handleRemoveMember(lead)}
+                        onClick={() => handleChangeRole(lead, "MEMBER")}
                       >
-                        <X className="mr-2 h-4 w-4" />
-                        Remove Lead
+                        <Shield className="mr-2 h-4 w-4" />
+                        Demote to Member
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -573,7 +594,7 @@ export default function ProjectDetailPage() {
             ) : (
               <p className="text-sm text-muted-foreground">
                 No team lead assigned.
-                {isAdmin && " Add a lead from the available members below."}
+                {isSuperAdmin && " Promote a member below or add a lead."}
               </p>
             )}
           </CardContent>
@@ -582,7 +603,11 @@ export default function ProjectDetailPage() {
         {/* Team Members */}
         {otherMembers.length > 0 ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {otherMembers.map((member) => (
+            {otherMembers.map((member) => {
+              // Check if this member can be promoted to lead (must be ADMIN/SUPERADMIN globally)
+              // We determine this from the availableMembers data, but since we may not have it loaded,
+              // we show the option for all and let the backend reject
+              return (
               <Card key={member.id} className="group">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -602,7 +627,7 @@ export default function ProjectDetailPage() {
                         <p className="text-xs text-muted-foreground truncate">{member.user.email}</p>
                       </div>
                     </div>
-                    {isAdmin && (
+                    {isSuperAdmin && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -614,15 +639,39 @@ export default function ProjectDetailPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {isSuperAdmin && (
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => handleRemoveMember(member)}
-                            >
-                              <X className="mr-2 h-4 w-4" />
-                              Remove
-                            </DropdownMenuItem>
-                          )}
+                          <DropdownMenuItem
+                            onClick={() => handlePromoteToLead(member)}
+                          >
+                            <Crown className="mr-2 h-4 w-4" />
+                            Promote to Lead
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(member, "DEVELOPER")}
+                          >
+                            Change to Developer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(member, "MARKETER")}
+                          >
+                            Change to Marketer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(member, "VIEWER")}
+                          >
+                            Change to Viewer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(member, "MEMBER")}
+                          >
+                            Change to Member
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => handleRemoveMember(member)}
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Remove
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )}
@@ -637,7 +686,8 @@ export default function ProjectDetailPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <Card>

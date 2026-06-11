@@ -219,6 +219,42 @@ export async function POST(request: NextRequest) {
       args: [id, name, description || null, priority, clientName || null, finalClientId, color || null, deadline || null],
     });
 
+    // Auto-assign project creator as a team member
+    const now = new Date().toISOString();
+    // Check if creator is already assigned (shouldn't be for new project, but safety check)
+    const creatorExists = await client.execute({
+      sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ?',
+      args: [id, user.id],
+    });
+    if (creatorExists.rows.length === 0) {
+      await client.execute({
+        sql: `INSERT INTO "ProjectMember" (id, "projectId", "userId", role, "joinedAt", "assignedBy")
+              VALUES (?, ?, ?, 'MEMBER', ?, ?)`,
+        args: [crypto.randomUUID(), id, user.id, now, user.id],
+      });
+    }
+
+    // Auto-assign all SUPERADMIN users to the project
+    const superAdmins = await client.execute({
+      sql: 'SELECT id FROM "User" WHERE role = ? AND "deletedAt" IS NULL',
+      args: ["SUPERADMIN"],
+    });
+    for (const sa of superAdmins.rows) {
+      const saId = sa.id as string;
+      if (saId === user.id) continue; // Creator already added above
+      const saExists = await client.execute({
+        sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ?',
+        args: [id, saId],
+      });
+      if (saExists.rows.length === 0) {
+        await client.execute({
+          sql: `INSERT INTO "ProjectMember" (id, "projectId", "userId", role, "joinedAt", "assignedBy")
+                VALUES (?, ?, ?, 'MEMBER', ?, ?)`,
+          args: [crypto.randomUUID(), id, saId, now, user.id],
+        });
+      }
+    }
+
     // Audit log
     await logActivity({
       userId: user.id,

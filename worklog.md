@@ -269,3 +269,26 @@ Stage Summary:
 - Typing performance significantly improved — React.memo prevents message re-renders on keystroke
 - z.ai chat history now persists in database across page refreshes
 - Answered user question: z.ai chat from KarmaSpace CANNOT be found in z.ai's website (separate auth systems: API Bearer token vs Google OAuth)
+---
+Task ID: 1
+Agent: Main Agent
+Task: Auto-assign project creator and super admin on project creation; restrict team management to super admin
+
+Work Log:
+- Modified POST /api/projects (src/app/api/projects/route.ts) to auto-assign:
+  - The project creator as a MEMBER immediately after project creation
+  - All SUPERADMIN users as MEMBERS (skipping creator if already added)
+- Modified DELETE /api/projects/[id]/team to prevent removal of SUPERADMIN users from projects
+- Modified PATCH /api/projects/[id]/team/[userId]/role to restrict role changes to SUPERADMIN only
+- Updated project detail page UI (src/app/dashboard/projects/[id]/page.tsx):
+  - Added "Promote to Lead" action in member dropdown menu (auto-demotes current lead first)
+  - Added "Change to Developer/Marketer/Viewer/Member" role change options
+  - Replaced "Remove Lead" with "Demote to Member" for lead management
+  - Added helper text "Super admin is auto-assigned to all projects"
+  - Role change dropdown only visible to super admin
+- Build verified: all routes compile successfully
+
+Stage Summary:
+- All 3 requirements implemented: auto-assign creator, auto-assign super admin, super admin controls team lead/members
+- Backend enforces: SUPERADMIN cannot be removed from projects, only SUPERADMIN can change roles
+- Files modified: src/app/api/projects/route.ts, src/app/api/projects/[id]/team/route.ts, src/app/api/projects/[id]/team/[userId]/role/route.ts, src/app/dashboard/projects/[id]/page.tsx

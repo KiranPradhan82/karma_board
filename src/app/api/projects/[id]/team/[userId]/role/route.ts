@@ -18,15 +18,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const client = getTursoClient();
     const ip = getClientIp(request);
 
-    // Check user is ADMIN, SUPERADMIN, or Project LEAD
-    if (user.role !== 'ADMIN' && user.role !== 'SUPERADMIN') {
-      const leadCheck = await client.execute({
-        sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND role = ? AND "removedAt" IS NULL',
-        args: [id, user.id, 'LEAD'],
-      });
-      if (leadCheck.rows.length === 0) {
-        return NextResponse.json({ success: false, error: 'Only admins or project leads can change roles' }, { status: 403 });
-      }
+    // Only SUPERADMIN can change project roles
+    if (user.role !== 'SUPERADMIN') {
+      return NextResponse.json({ success: false, error: 'Only super admin can change project roles' }, { status: 403 });
     }
 
     const body = await request.json();

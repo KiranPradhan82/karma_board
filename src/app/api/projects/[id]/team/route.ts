@@ -255,6 +255,15 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'userId is required' }, { status: 400 });
     }
 
+    // Prevent removal of SUPERADMIN users — they are always auto-assigned
+    const targetUserForDelete = await client.execute({
+      sql: 'SELECT role FROM "User" WHERE id = ? AND "deletedAt" IS NULL',
+      args: [userId],
+    });
+    if (targetUserForDelete.rows.length > 0 && targetUserForDelete.rows[0].role === "SUPERADMIN") {
+      return NextResponse.json({ success: false, error: 'Super admin cannot be removed from a project' }, { status: 403 });
+    }
+
     // Check membership exists
     const membership = await client.execute({
       sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL',
