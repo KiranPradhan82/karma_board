@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from '@/lib/api-auth';
 import { changeProjectRoleSchema } from '@/lib/validations/member';
+import { notifyRoleChanged } from '@/lib/notify';
 
 interface RouteContext {
   params: Promise<{ id: string; userId: string }>;
@@ -52,13 +53,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     // Check membership exists
     const membership = await client.execute({
-      sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL',
+      sql: 'SELECT id, role FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL',
       args: [id, userId],
     });
 
     if (membership.rows.length === 0) {
       return NextResponse.json({ success: false, error: 'User is not a member of this project' }, { status: 404 });
     }
+
+    // Capture old role before updating
+    const oldRole = (membership.rows[0].role as string) || 'MEMBER';
 
     // Update role
     await client.execute({
@@ -72,6 +76,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       args: [userId],
     });
 
+    // Get project name
+    const projectResult = await client.execute({
+      sql: 'SELECT name FROM "Project" WHERE id = ?',
+      args: [id],
+    });
+
     // Audit log
     await logActivity({
       userId: user.id,
@@ -81,6 +91,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       entityId: id,
       ipAddress: ip,
       tursoClient: client,
+    });
+
+    // Notify user about role change (fire-and-forget)
+    const projectName = projectResult.rows[0]?.name as string;
+    notifyRoleChanged({
+      userId,
+      projectName,
+      projectId: id,
+      oldRole,
+      newRole: role,
+      changedByName: user.name || "Admin",
     });
 
     return NextResponse.json({

@@ -191,6 +191,21 @@ model TimeLog {
   User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model Notification {
+  id        String   @id
+  userId    String
+  type      String
+  title     String
+  message   String?
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, read])
+}
+
 model User {
   id                 String              @id
   name               String
@@ -211,6 +226,7 @@ model User {
   ActivityLog        ActivityLog[]
   AiChat             AiChat[]
   ChatDeleteRequest  ChatDeleteRequest[]
+  Notification       Notification[]
   ProjectMember      ProjectMember[]
   TimeLog            TimeLog[]
 }

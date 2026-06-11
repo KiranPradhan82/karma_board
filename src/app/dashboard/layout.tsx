@@ -17,6 +17,7 @@ import {
   Hammer,
   Briefcase,
 } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -232,11 +233,21 @@ export default function DashboardLayout({
             KarmaBoard
           </span>
         </Link>
+        <div className="ml-auto">
+          <NotificationBell />
+        </div>
+      </header>
+
+      {/* Desktop top bar with notification bell */}
+      <header className="hidden lg:flex fixed top-0 right-0 z-30 h-14 items-center px-6" style={{ left: sidebarCollapsed ? '4rem' : '16rem' }}>
+        <div className="ml-auto">
+          <NotificationBell />
+        </div>
       </header>
 
       {/* Main content area */}
       <main
-        className={`min-h-screen transition-all duration-300 pt-14 lg:pt-0 ${
+        className={`min-h-screen transition-all duration-300 pt-14 lg:pt-14 ${
           sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"
         }`}
       >

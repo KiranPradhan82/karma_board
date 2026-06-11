@@ -3,6 +3,7 @@ import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } fr
 import { createProjectSchema } from "@/lib/validations/project";
 import { hashPassword } from "@/lib/auth-utils";
 import { sendClientWelcomeEmail } from "@/lib/email";
+import { notifyNewProject, notifyUsers } from "@/lib/notify";
 
 // GET /api/projects — List all projects with search/filter/pagination
 export async function GET(request: NextRequest) {
@@ -264,6 +265,27 @@ export async function POST(request: NextRequest) {
           args: [id, saId],
         });
       }
+    }
+
+    // Send in-app notifications (fire-and-forget)
+    // Notify each super admin about the new project (skip creator — they know)
+    const notifyPromises: ReturnType<typeof notifyNewProject>[] = [];
+    for (const sa of superAdmins.rows) {
+      const saId = sa.id as string;
+      if (saId !== user.id) {
+        notifyPromises.push(
+          notifyNewProject({
+            userId: saId,
+            projectName: name,
+            projectId: id,
+            role: "LEAD",
+            creatorName: user.name || "Admin",
+          })
+        );
+      }
+    }
+    if (notifyPromises.length > 0) {
+      notifyUsers(notifyPromises);
     }
 
     // Audit log

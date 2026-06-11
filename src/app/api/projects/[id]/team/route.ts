@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from '@/lib/api-auth';
 import { assignTeamMemberSchema } from '@/lib/validations/member';
+import { notifyProjectAssigned, notifyRemovedFromProject } from '@/lib/notify';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -196,6 +197,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
       args: [id, userId],
     });
 
+    // Send notification to the assigned member (fire-and-forget)
+    const projectName = project.rows[0].name as string;
+    notifyProjectAssigned({
+      userId,
+      projectName,
+      projectId: id,
+      role,
+      assignedByName: user.name || "Admin",
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -291,6 +302,14 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       entityId: id,
       ipAddress: ip,
       tursoClient: client,
+    });
+
+    // Notify removed member (fire-and-forget)
+    const removedProjectName = project.rows[0].name as string;
+    notifyRemovedFromProject({
+      userId,
+      projectName: removedProjectName,
+      removedByName: user.name || "Admin",
     });
 
     return NextResponse.json({ success: true, message: 'Member removed from project' });
