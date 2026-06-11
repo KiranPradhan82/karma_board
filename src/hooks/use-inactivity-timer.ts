@@ -21,85 +21,86 @@ const STORAGE_KEY = "karmaboard_last_activity";
 export function useInactivityTimer() {
   const { data: session, status } = useSession();
   const [showWarning, setShowWarning] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastActivityRef = useRef<number>(0);
+  const initTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearAllTimers = useCallback(() => {
+    if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+    if (initTimerRef.current) clearTimeout(initTimerRef.current);
+    logoutTimerRef.current = null;
+    warningTimerRef.current = null;
+    initTimerRef.current = null;
+  }, []);
 
   const handleLogout = useCallback(() => {
     sessionStorage.removeItem(STORAGE_KEY);
     signOut({ callbackUrl: "/login" });
   }, []);
 
-  // Core timer logic — all state updates happen inside setTimeout callbacks
-  const startTimers = useCallback((warningDelay: number, logoutDelay: number) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+  const scheduleLogout = useCallback((warningDelay: number, logoutDelay: number) => {
+    clearAllTimers();
 
     warningTimerRef.current = setTimeout(() => {
       setShowWarning(true);
     }, warningDelay);
 
-    timerRef.current = setTimeout(() => {
+    logoutTimerRef.current = setTimeout(() => {
       setShowWarning(false);
       handleLogout();
     }, logoutDelay);
-  }, [handleLogout]);
+  }, [clearAllTimers, handleLogout]);
 
   const resetTimer = useCallback(() => {
     const now = Date.now();
-    lastActivityRef.current = now;
     sessionStorage.setItem(STORAGE_KEY, String(now));
-
-    // Hide warning if visible — this is called from event handlers, not effects
     setShowWarning(false);
-
-    startTimers(WARNING_AT_MS, INACTIVITY_TIMEOUT_MS);
-  }, [startTimers]);
+    scheduleLogout(WARNING_AT_MS, INACTIVITY_TIMEOUT_MS);
+  }, [scheduleLogout]);
 
   const stayActive = useCallback(() => {
     resetTimer();
   }, [resetTimer]);
 
   useEffect(() => {
-    if (status !== "authenticated" || !session) return;
+    if (status !== "authenticated" || !session) {
+      clearAllTimers();
+      return;
+    }
 
     // Check sessionStorage for last activity timestamp
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
       const storedTime = parseInt(stored, 10);
       const elapsed = Date.now() - storedTime;
+
       if (elapsed >= INACTIVITY_TIMEOUT_MS) {
         handleLogout();
         return;
       }
-      lastActivityRef.current = storedTime;
 
       if (elapsed >= WARNING_AT_MS) {
-        // Already past warning threshold — defer to setTimeout
-        const remaining = INACTIVITY_TIMEOUT_MS - elapsed;
-        const initTimer = setTimeout(() => {
+        // Already past warning threshold — show warning immediately, then logout after remaining time
+        const remainingLogout = INACTIVITY_TIMEOUT_MS - elapsed;
+        initTimerRef.current = setTimeout(() => {
           setShowWarning(true);
-          timerRef.current = setTimeout(() => {
+          logoutTimerRef.current = setTimeout(() => {
             setShowWarning(false);
             handleLogout();
-          }, remaining);
+          }, remainingLogout);
         }, 0);
-        warningTimerRef.current = initTimer;
       } else {
-        // Still within safe zone — defer timer start to avoid sync setState
-        const resumeTimer = setTimeout(() => {
-          startTimers(WARNING_AT_MS - elapsed, INACTIVITY_TIMEOUT_MS - elapsed);
+        // Resume timers from where we left off
+        initTimerRef.current = setTimeout(() => {
+          scheduleLogout(WARNING_AT_MS - elapsed, INACTIVITY_TIMEOUT_MS - elapsed);
         }, 0);
-        // Store in a separate ref so cleanup works
-        const resumeRef = { current: resumeTimer as unknown as number | null };
-        // We'll clean it up below
       }
     } else {
-      // No stored timestamp — defer start to setTimeout
-      const initTimer = setTimeout(() => {
-        startTimers(WARNING_AT_MS, INACTIVITY_TIMEOUT_MS);
+      // No stored timestamp — start fresh
+      initTimerRef.current = setTimeout(() => {
+        scheduleLogout(WARNING_AT_MS, INACTIVITY_TIMEOUT_MS);
       }, 0);
-      warningTimerRef.current = initTimer;
     }
 
     // Listen for user activity
@@ -115,10 +116,9 @@ export function useInactivityTimer() {
       for (const event of ACTIVITY_EVENTS) {
         window.removeEventListener(event, handleActivity);
       }
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+      clearAllTimers();
     };
-  }, [status, session, startTimers, handleLogout, resetTimer]);
+  }, [status, session, scheduleLogout, handleLogout, resetTimer, clearAllTimers]);
 
   return { showWarning, stayActive };
 }
