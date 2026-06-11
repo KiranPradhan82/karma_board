@@ -315,14 +315,7 @@ export default function ProjectDetailPage() {
   };
 
   const handleChangeRole = async (member: TeamMember, newRole: string) => {
-    // When assigning LEAD, check if there's already a lead
-    if (newRole === "LEAD") {
-      const existingLead = team.find((m) => m.role === "LEAD" && m.userId !== member.userId);
-      if (existingLead) {
-        toast.error("This project already has a team lead. Use 'Demote to Member' on the current lead first, or use 'Promote to Lead' on another member.");
-        return;
-      }
-    }
+    // Multiple LEADs allowed — no need to check for existing lead
     // Only ADMIN+ global role can be LEAD in a project
     try {
       const memberRes = await fetch(`/api/members/${member.userId}`);
@@ -413,23 +406,11 @@ export default function ProjectDetailPage() {
   const overdue = isOverdue();
   const priority = priorityConfig[project.priority] || priorityConfig.MEDIUM;
   const status = statusConfig[project.status] || statusConfig.ACTIVE;
-  const lead = team.find((m) => m.role === "LEAD");
+  const leads = team.filter((m) => m.role === "LEAD");
   const otherMembers = team.filter((m) => m.role !== "LEAD");
 
   const handlePromoteToLead = async (member: TeamMember) => {
-    // Demote current lead first if one exists
-    if (lead) {
-      try {
-        await fetch(`/api/projects/${projectId}/team/${lead.userId}/role`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: "MEMBER" }),
-        });
-      } catch {
-        // Continue even if demotion fails
-      }
-    }
-    // Then promote the new lead
+    // Multiple leads allowed — just promote directly
     await handleChangeRole(member, "LEAD");
   };
 
@@ -547,54 +528,76 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
-        {/* Team Lead */}
+        {/* Team Leads */}
         <Card className="mb-4 border-purple-200 dark:border-purple-800/40">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Crown className="h-4 w-4 text-purple-600" />
-              Team Lead
+              Team Leads
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            {lead ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-                      {lead.user.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
-                        .toUpperCase()
-                        .slice(0, 2)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium">{lead.user.name}</p>
-                    <p className="text-xs text-muted-foreground">{lead.user.email}</p>
+            {leads.length > 0 ? (
+              <div className="space-y-3">
+                {leads.map((leadMember) => (
+                  <div key={leadMember.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback className="text-xs bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                          {leadMember.user.name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .toUpperCase()
+                            .slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="text-sm font-medium">{leadMember.user.name}</p>
+                        <p className="text-xs text-muted-foreground">{leadMember.user.email}</p>
+                      </div>
+                    </div>
+                    {isSuperAdmin && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(leadMember, "MEMBER")}
+                          >
+                            <Shield className="mr-2 h-4 w-4" />
+                            Demote to Member
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(leadMember, "DEVELOPER")}
+                          >
+                            Change to Developer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleChangeRole(leadMember, "VIEWER")}
+                          >
+                            Change to Viewer
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => handleRemoveMember(leadMember)}
+                          >
+                            <X className="mr-2 h-4 w-4" />
+                            Remove from Project
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
-                </div>
-                {isSuperAdmin && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => handleChangeRole(lead, "MEMBER")}
-                      >
-                        <Shield className="mr-2 h-4 w-4" />
-                        Demote to Member
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                ))}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No team lead assigned.
+                No team leads assigned.
                 {isSuperAdmin && " Promote a member below or add a lead."}
               </p>
             )}
@@ -919,7 +922,7 @@ export default function ProjectDetailPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Only one team lead per project. Leads must be admins.
+                Multiple team leads are allowed. Leads must be admins.
               </p>
             </div>
           </div>

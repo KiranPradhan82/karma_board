@@ -47,14 +47,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       if (targetUser.rows[0].role !== 'ADMIN' && targetUser.rows[0].role !== 'SUPERADMIN') {
         return NextResponse.json({ success: false, error: 'Only admins can be assigned as Team Lead' }, { status: 400 });
       }
-      // Enforce: Only one LEAD per project
-      const existingLead = await client.execute({
-        sql: 'SELECT id, "userId" FROM "ProjectMember" WHERE "projectId" = ? AND role = ? AND "removedAt" IS NULL',
-        args: [id, 'LEAD'],
-      });
-      if (existingLead.rows.length > 0 && existingLead.rows[0].userId !== userId) {
-        return NextResponse.json({ success: false, error: 'This project already has a team lead. Remove the current lead first.' }, { status: 409 });
-      }
+      // Multiple LEADs allowed — no restriction
     }
 
     // Check membership exists

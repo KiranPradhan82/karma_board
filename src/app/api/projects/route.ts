@@ -219,9 +219,8 @@ export async function POST(request: NextRequest) {
       args: [id, name, description || null, priority, clientName || null, finalClientId, color || null, deadline || null],
     });
 
-    // Auto-assign project creator as a team member
+    // Auto-assign project creator as Team Leader
     const now = new Date().toISOString();
-    // Check if creator is already assigned (shouldn't be for new project, but safety check)
     const creatorExists = await client.execute({
       sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ?',
       args: [id, user.id],
@@ -229,28 +228,40 @@ export async function POST(request: NextRequest) {
     if (creatorExists.rows.length === 0) {
       await client.execute({
         sql: `INSERT INTO "ProjectMember" (id, "projectId", "userId", role, "joinedAt", "assignedBy")
-              VALUES (?, ?, ?, 'MEMBER', ?, ?)`,
+              VALUES (?, ?, ?, 'LEAD', ?, ?)`,
         args: [crypto.randomUUID(), id, user.id, now, user.id],
+      });
+    } else {
+      // Ensure creator has LEAD role even if somehow pre-existing
+      await client.execute({
+        sql: `UPDATE "ProjectMember" SET role = 'LEAD' WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL`,
+        args: [id, user.id],
       });
     }
 
-    // Auto-assign all SUPERADMIN users to the project
+    // Auto-assign all SUPERADMIN users as Team Leaders
     const superAdmins = await client.execute({
       sql: 'SELECT id FROM "User" WHERE role = ? AND "deletedAt" IS NULL',
       args: ["SUPERADMIN"],
     });
     for (const sa of superAdmins.rows) {
       const saId = sa.id as string;
-      if (saId === user.id) continue; // Creator already added above
+      if (saId === user.id) continue; // Creator already added as LEAD above
       const saExists = await client.execute({
-        sql: 'SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ?',
+        sql: 'SELECT id, "removedAt" FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ?',
         args: [id, saId],
       });
       if (saExists.rows.length === 0) {
         await client.execute({
           sql: `INSERT INTO "ProjectMember" (id, "projectId", "userId", role, "joinedAt", "assignedBy")
-                VALUES (?, ?, ?, 'MEMBER', ?, ?)`,
+                VALUES (?, ?, ?, 'LEAD', ?, ?)`,
           args: [crypto.randomUUID(), id, saId, now, user.id],
+        });
+      } else {
+        // Re-activate and set as LEAD if previously removed
+        await client.execute({
+          sql: `UPDATE "ProjectMember" SET role = 'LEAD', "removedAt" = NULL WHERE "projectId" = ? AND "userId" = ?`,
+          args: [id, saId],
         });
       }
     }
