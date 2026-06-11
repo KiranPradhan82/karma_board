@@ -718,7 +718,7 @@ export default function ProjectDetailPage() {
             <CardContent className="flex flex-col items-center py-8">
               <Users className="h-8 w-8 text-muted-foreground mb-2" />
               <p className="text-sm text-muted-foreground">
-                {lead ? "No other team members" : "No team members yet"}
+                {leads.length > 0 ? "No other team members" : "No team members yet"}
               </p>
               {isAdmin && (
                 <Button size="sm" variant="outline" className="mt-3" onClick={openAddMemberDialog}>
