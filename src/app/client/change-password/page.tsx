@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useSession, signIn } from 'next-auth/react';
+import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { errorToast } from '@/lib/error-toast';
@@ -56,11 +56,9 @@ export default function ClientChangePasswordPage() {
       const json = await res.json();
 
       if (json.success) {
-        toast.success('Password changed successfully! Redirecting to portal...');
-        await updateSession({ mustChangePassword: false });
-        setTimeout(() => {
-          router.push('/client/portal');
-        }, 1000);
+        toast.success('Password set successfully! Please log in with your new password.');
+        await signOut({ callbackUrl: '/client/login', redirect: false });
+        router.push('/client/login');
       } else {
         errorToast({ error: json.error || 'Failed to change password', title: 'Change Password' });
       }
