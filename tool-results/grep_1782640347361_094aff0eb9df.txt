@@ -1,0 +1,172 @@
+/home/z/my-project/worklog.md:210:Task: Fix Launch Codex 404 redirect + display z.ai response in KarmaBoard chat
+/home/z/my-project/worklog.md:223:- Launch Codex button now works end-to-end: sends project context to z.ai API, displays AI response directly in KarmaBoard chat
+/home/z/my-project/worklog.md:224:- No more 404 or login issues — user stays in KarmaBoard, z.ai response shown in-chat
+/home/z/my-project/docs/database-schema.md:1:# KarmaBoard — Database Schema Reference
+/home/z/my-project/docs/contributing.md:1:# KarmaBoard — Contributing Guide
+/home/z/my-project/docs/contributing.md:5:This guide outlines how to contribute to KarmaBoard. Whether you are an AI agent (like GLM, Claude, or Super Z) or a human developer, follow these rules.
+/home/z/my-project/docs/deployment-guide.md:1:# KarmaBoard — Deployment Guide
+/home/z/my-project/docs/deployment-guide.md:139:    "from": "KarmaBoard <noreply@yourdomain.com>",
+/home/z/my-project/docs/deployment-guide.md:142:    "html": "<p>Email from KarmaBoard</p>"
+/home/z/my-project/docs/api-reference.md:1:# KarmaBoard — API Reference
+/home/z/my-project/docs/architecture.md:1:# KarmaBoard — Architecture Documentation
+/home/z/my-project/docs/architecture.md:5:KarmaBoard is a full-stack web application built with Next.js following the App Router architecture pattern. It uses a monolithic design with clear separation between server and client code, leveraging Next.js server components and API routes for all backend operations.
+/home/z/my-project/tool-results/read_1781186965833_6ea9e39fc6e2.txt:426:   426→            Configure how KarmaBoard sends emails (welcome emails, notifications).
+/home/z/my-project/tool-results/read_1781186965833_6ea9e39fc6e2.txt:473:   473→              placeholder="KarmaBoard"
+/home/z/my-project/tool-results/read_1781186965833_6ea9e39fc6e2.txt:618:   618→            Connect KarmaBoard to z.ai so users can launch project context into z.ai agentic chat sessions.
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:2:"""Generate PRD (Product Requirements Document) for KarmaBoard"""
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:128:OUTPUT = '/home/z/my-project/download/pre-coding-docs/KarmaBoard_PRD.pdf'
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:130:doc.add_metadata({'/Title': 'KarmaBoard Product Requirements Document', '/Author': 'Z.ai', '/Creator': 'Z.ai'})
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:136:story.append(Paragraph('<b>KarmaBoard</b>', title_style))
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:146:    [Paragraph('<b>Product</b>', cell_center), Paragraph('KarmaBoard v0.2.0', cell_center)],
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:175:    'KarmaBoard is a full-stack project management SaaS platform designed to streamline team collaboration, project lifecycle management, and client communication within a single unified application. Built on a modern technology stack comprising Next.js 16, React 19, TypeScript, Tailwind CSS 4, and Prisma ORM with Turso SQLite as the database backend, KarmaBoard delivers a responsive, performant, and visually polished experience across all device form factors.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:179:    'The platform addresses a critical gap in the project management landscape by providing an integrated AI assistant (Karma Space) that leverages agentic tool-calling capabilities to automate project workflows directly from natural language conversations. Unlike traditional project management tools that require manual data entry and navigation through multiple screens, KarmaBoard allows users to create projects, manage team assignments, and generate comprehensive documentation through conversational AI interactions. The system supports up to five concurrent tool-calling rounds, enabling complex multi-step operations within a single user request.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:183:    'KarmaBoard implements a comprehensive Role-Based Access Control (RBAC) system with three organizational roles (SUPERADMIN, ADMIN, MEMBER) and five project-specific roles (LEAD, DEVELOPER, MARKETER, VIEWER, MEMBER), ensuring that sensitive operations remain restricted to authorized personnel. The platform also includes a dedicated Client Portal that provides external stakeholders with controlled visibility into project progress, notifications, and activity logs without exposing internal team dynamics or administrative interfaces.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:187:    'Key differentiators of KarmaBoard include its dual email provider architecture supporting both Gmail SMTP for development and Resend for production deployments, AES-256-GCM encryption for sensitive configuration values, per-project AI model customization, and a documentation generation system that can produce professional-grade PDF reports directly from project data. The platform is deployed on Vercel with Turso as the cloud database provider, ensuring scalable, serverless-compatible operation.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:197:    'KarmaBoard aims to become the definitive project management platform for small to mid-size development agencies and in-house product teams by combining traditional project management capabilities with an intelligent AI assistant that understands project context, enforces organizational policies, and automates repetitive workflows through natural language interaction. The vision centers on reducing the friction between planning and execution by embedding AI directly into the project workflow rather than treating it as a separate add-on feature.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:230:    'The primary target audience for KarmaBoard consists of small to mid-size web development agencies (5-50 team members) that manage multiple client projects simultaneously. These agencies typically struggle with tool fragmentation, using separate applications for project tracking, team communication, client reporting, and documentation. KarmaBoard addresses this by consolidating all these functions into a single platform with a consistent interface and shared data model. Agency owners and project managers benefit from the SUPERADMIN and ADMIN roles, which provide full control over team management, client relationships, and system configuration.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:242:    'Clients of development agencies represent the third user category, interacting with KarmaBoard exclusively through the Client Portal. This dedicated interface provides a simplified view of project progress, notifications for status changes (STARTED, UPDATE, COMPLETED), and self-service profile management. Clients cannot access team details, internal communications, AI features, or administrative functions, ensuring that sensitive internal information remains protected while maintaining transparent client communication.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:278:    'Projects form the core organizational unit of KarmaBoard. Each project supports a comprehensive lifecycle from creation through completion, with rich metadata including priority levels (HIGH, MEDIUM, LOW), status tracking (ACTIVE, COMPLETED, ON_HOLD, ARCHIVED), color coding, deadline management, and optional client association. The system supports inline client creation during project setup, allowing users to create a new client record simultaneously without navigating to a separate client management screen.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:327:    'Karma Space represents the most distinctive feature of KarmaBoard, providing an agentic AI assistant integrated directly into the project context. Unlike simple chatbots, Karma Space implements a tool-calling loop (maximum 5 rounds) that allows the AI to execute real operations on the project data: creating projects, listing and filtering projects, retrieving detailed project information, updating project properties, and adding team members. The system supports multiple AI model providers through an OpenAI-compatible HTTP client, with per-project model customization available to SUPERADMIN users.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:439:    'The following assumptions underpin the product requirements and architecture decisions made during the design of KarmaBoard. First, the target deployment environment is Vercel with Turso as the cloud database provider, which constrains certain architectural choices (no long-lived database connections, serverless function timeouts). Second, the initial user base is expected to be small (under 100 users), which allows the use of SQLite via Turso rather than a traditional multi-tenant PostgreSQL setup. Third, AI API costs are assumed to be manageable within a reasonable budget given the expected usage patterns (occasional AI interactions rather than continuous streaming). Fourth, all users are expected to have modern browsers with JavaScript enabled, as the application relies heavily on client-side rendering.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:448:    'The following acceptance criteria define the minimum requirements for considering KarmaBoard v1.0 production-ready. Each criterion must be verified through manual testing or automated test suites before the product can be released to end users. These criteria serve as the gate between development and deployment, ensuring that critical functionality operates correctly under expected conditions.',
+/home/z/my-project/download/pre-coding-docs/generate_prd.py:477:    [Paragraph('Karma Space', cell_style), Paragraph('The AI assistant module within KarmaBoard, providing conversational project management capabilities.', cell_style)],
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:50:    50→      let fromName = process.env.EMAIL_FROM_NAME || "KarmaBoard";
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:134:   134→    fromName: process.env.EMAIL_FROM_NAME || "KarmaBoard",
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:235:   235→  const subject = `Welcome to KarmaBoard, ${name}! — Your Account is Ready`;
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:243:   243→        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:252:   252→        Your account has been created and you're now part of the team! You can log in to KarmaBoard to start managing projects and collaborating with your team.
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:280:   280→          Log In to KarmaBoard
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:290:   290→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:328:   328→  const subject = `Welcome to KarmaBoard — Your Client Portal is Ready`;
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:335:   335→        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:373:   373→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:453:   453→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:510:   510→        When this token expires, KarmaBoard will lose access to ${tokenType === "GitHub PAT" ? "GitHub operations such as pushing code, managing repositories, and running CI/CD pipelines" : "the project database, which may disrupt active development and data synchronization"}. To prevent service interruption, please regenerate your token and update it in KarmaBoard.
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:518:   518→          <li>Go to KarmaBoard and provide the new token when prompted by Karma Space, or update it in Settings</li>
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:524:   524→          Go to KarmaBoard
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:530:   530→          This is an automated reminder from KarmaBoard. You will receive this email on the token expiry date.
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:533:   533→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:598:   598→          <li>Log in to KarmaBoard</li>
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:613:   613→          This is an automated notification from KarmaBoard.
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:616:   616→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:684:   684→          Go to KarmaBoard
+/home/z/my-project/tool-results/read_1782638958572_ef0f1ce31045.txt:690:   690→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/download/docs/database-schema.md:1:# KarmaBoard — Database Schema Reference
+/home/z/my-project/download/docs/contributing.md:1:# KarmaBoard — Contributing Guide
+/home/z/my-project/download/docs/contributing.md:5:This guide outlines how to contribute to KarmaBoard. Whether you are an AI agent (like GLM, Claude, or Super Z) or a human developer, follow these rules.
+/home/z/my-project/download/docs/deployment-guide.md:1:# KarmaBoard — Deployment Guide
+/home/z/my-project/download/docs/deployment-guide.md:139:    "from": "KarmaBoard <noreply@yourdomain.com>",
+/home/z/my-project/download/docs/deployment-guide.md:142:    "html": "<p>Email from KarmaBoard</p>"
+/home/z/my-project/download/docs/api-reference.md:1:# KarmaBoard — API Reference
+/home/z/my-project/download/docs/architecture.md:1:# KarmaBoard — Architecture Documentation
+/home/z/my-project/download/docs/architecture.md:5:KarmaBoard is a full-stack web application built with Next.js following the App Router architecture pattern. It uses a monolithic design with clear separation between server and client code, leveraging Next.js server components and API routes for all backend operations.
+/home/z/my-project/AGENT.md:9:### Project Name: KarmaBoard
+/home/z/my-project/tool-results/read_1782216235147_4a120bff886b.txt:786:   786→        const otherProjectPattern = /(?:(?:the|a|an)\s+)?(?:Share\s+Sathi|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+application)(?!\s+(?:project|in\s+KarmaBoard))/g;
+/home/z/my-project/tool-results/read_1782216235147_4a120bff886b.txt:1100:  1100→          const systemPrompt = `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`;
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:50:    50→    50→      let fromName = process.env.EMAIL_FROM_NAME || "KarmaBoard";
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:134:   134→   134→    fromName: process.env.EMAIL_FROM_NAME || "KarmaBoard",
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:235:   235→   235→  const subject = `Welcome to KarmaBoard, ${name}! — Your Account is Ready`;
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:243:   243→   243→        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:252:   252→   252→        Your account has been created and you're now part of the team! You can log in to KarmaBoard to start managing projects and collaborating with your team.
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:280:   280→   280→          Log In to KarmaBoard
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:290:   290→   290→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:328:   328→   328→  const subject = `Welcome to KarmaBoard — Your Client Portal is Ready`;
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:335:   335→   335→        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:373:   373→   373→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:453:   453→   453→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:510:   510→   510→        When this token expires, KarmaBoard will lose access to ${tokenType === "GitHub PAT" ? "GitHub operations such as pushing code, managing repositories, and running CI/CD pipelines" : "the project database, which may disrupt active development and data synchronization"}. To prevent service interruption, please regenerate your token and update it in KarmaBoard.
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:518:   518→   518→          <li>Go to KarmaBoard and provide the new token when prompted by Karma Space, or update it in Settings</li>
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:524:   524→   524→          Go to KarmaBoard
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:530:   530→   530→          This is an automated reminder from KarmaBoard. You will receive this email on the token expiry date.
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:533:   533→   533→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:598:   598→   598→          <li>Log in to KarmaBoard</li>
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:613:   613→   613→          This is an automated notification from KarmaBoard.
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:616:   616→   616→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:684:   684→   684→          Go to KarmaBoard
+/home/z/my-project/tool-results/read_1782638964615_9313de970317.txt:690:   690→   690→          KarmaBoard — Project Management Made Simple
+/home/z/my-project/tool-results/read_1781186970061_7478a6e4de26.txt:426:   426→   426→            Configure how KarmaBoard sends emails (welcome emails, notifications).
+/home/z/my-project/tool-results/read_1781186970061_7478a6e4de26.txt:473:   473→   473→              placeholder="KarmaBoard"
+/home/z/my-project/tool-results/read_1781186970061_7478a6e4de26.txt:618:   618→   618→            Connect KarmaBoard to z.ai so users can launch project context into z.ai agentic chat sessions.
+/home/z/my-project/download/AGENT.md:9:### Project Name: KarmaBoard
+/home/z/my-project/src/app/layout.tsx:18:  title: "KarmaBoard - Project Management",
+/home/z/my-project/src/lib/email.ts:50:      let fromName = process.env.EMAIL_FROM_NAME || "KarmaBoard";
+/home/z/my-project/src/lib/email.ts:134:    fromName: process.env.EMAIL_FROM_NAME || "KarmaBoard",
+/home/z/my-project/src/lib/email.ts:235:  const subject = `Welcome to KarmaBoard, ${name}! — Your Account is Ready`;
+/home/z/my-project/src/lib/email.ts:243:        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+/home/z/my-project/src/lib/email.ts:252:        Your account has been created and you're now part of the team! You can log in to KarmaBoard to start managing projects and collaborating with your team.
+/home/z/my-project/src/lib/email.ts:280:          Log In to KarmaBoard
+/home/z/my-project/src/lib/email.ts:290:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/lib/email.ts:328:  const subject = `Welcome to KarmaBoard — Your Client Portal is Ready`;
+/home/z/my-project/src/lib/email.ts:335:        <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #111827;">Welcome to KarmaBoard!</h1>
+/home/z/my-project/src/lib/email.ts:373:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/lib/email.ts:453:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/lib/email.ts:510:        When this token expires, KarmaBoard will lose access to ${tokenType === "GitHub PAT" ? "GitHub operations such as pushing code, managing repositories, and running CI/CD pipelines" : "the project database, which may disrupt active development and data synchronization"}. To prevent service interruption, please regenerate your token and update it in KarmaBoard.
+/home/z/my-project/src/lib/email.ts:518:          <li>Go to KarmaBoard and provide the new token when prompted by Karma Space, or update it in Settings</li>
+/home/z/my-project/src/lib/email.ts:524:          Go to KarmaBoard
+/home/z/my-project/src/lib/email.ts:530:          This is an automated reminder from KarmaBoard. You will receive this email on the token expiry date.
+/home/z/my-project/src/lib/email.ts:533:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/lib/email.ts:598:          <li>Log in to KarmaBoard</li>
+/home/z/my-project/src/lib/email.ts:613:          This is an automated notification from KarmaBoard.
+/home/z/my-project/src/lib/email.ts:616:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/lib/email.ts:684:          Go to KarmaBoard
+/home/z/my-project/src/lib/email.ts:690:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/app/(auth)/setup/page.tsx:184:              Welcome to KarmaBoard
+/home/z/my-project/src/lib/ai-prompts.ts:595:// ===== KarmaBoard Knowledge Base =====
+/home/z/my-project/src/lib/ai-prompts.ts:598:## About KarmaBoard
+/home/z/my-project/src/lib/ai-prompts.ts:599:KarmaBoard is a full-stack project management application built for teams. The name "Karma" relates to the concept of action and result — tracking work and their outcomes. It is NOT related to spirituality, religion, or metaphysics.
+/home/z/my-project/src/lib/ai-prompts.ts:727:You are **Karma Space**, the AI assistant inside **KarmaBoard** — a project management application. You are NOT a spiritual guide, life coach, or metaphysical advisor. "Karma" in KarmaBoard refers to the concept of tracking work actions and their outcomes.
+/home/z/my-project/src/lib/ai-prompts.ts:738:Karma Space is an **agentic AI assistant** within KarmaBoard that can:
+/home/z/my-project/src/lib/ai-prompts.ts:750:You have access to **tools** that let you perform real actions in KarmaBoard. When a user asks you to do something, you can use these tools to execute it directly rather than just describing how to do it.
+/home/z/my-project/src/lib/ai-prompts.ts:791:5. **Never** make up features that don't exist in KarmaBoard
+/home/z/my-project/src/lib/ai-prompts.ts:810:    - **NEVER discuss projects other than the current KarmaBoard project.** If the user asks about any other project, say: "I can only help with the current KarmaBoard project. Let's focus on that."
+/home/z/my-project/src/lib/ai-prompts.ts:813:15. **ANTI-HALLUCINATION**: You must ONLY report actions that actually happened via tool calls. If you did NOT call a tool, you did NOT perform the action. Never fabricate git commits, deployments, file creations, command executions, web searches, or any other actions. Never mention projects, applications, or codebases other than the one currently selected in KarmaBoard. Every action you claim to have performed MUST correspond to a real tool call that was executed.`;
+/home/z/my-project/src/lib/ai-prompts.ts:853:You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+/home/z/my-project/src/lib/ai-prompts.ts:966:You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+/home/z/my-project/src/lib/ai-prompts.ts:1024:You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+/home/z/my-project/src/lib/ai-prompts.ts:1056:   - This is critical — when the expiry date arrives, KarmaBoard will automatically send you an **email notification** reminding you to regenerate the token and provide a new one
+/home/z/my-project/src/lib/ai-prompts.ts:1076:   - When this date arrives, KarmaBoard will automatically send you an **email notification** reminding you to regenerate the token and provide a new one
+/home/z/my-project/src/lib/github-client.ts:38:    "User-Agent": "KarmaBoard/1.0",
+/home/z/my-project/src/lib/ai-tools.ts:5: * to autonomously perform actions in KarmaBoard (create projects, update status, etc.)
+/home/z/my-project/src/lib/ai-tools.ts:48:        "Create a new project in KarmaBoard. Use this when the user asks you to create, set up, or start a new project. Collect all details from the user first (name, description, priority, deadline, color, client info) before calling.",
+/home/z/my-project/src/app/(auth)/register/page.tsx:82:            Join KarmaBoard to start managing your projects
+/home/z/my-project/download/generate_analysis_report.py:327:    '"Karma Space is an agentic AI assistant within KarmaBoard" and "Karma in KarmaBoard refers to the concept of tracking work actions '
+/home/z/my-project/download/generate_analysis_report.py:328:    'and their outcomes." The correct answer should have been: "Karma Space is the AI assistant within KarmaBoard that helps you generate '
+/home/z/my-project/download/generate_analysis_report.py:516:    '("metaphysical", "spiritual", "karma space is", "energetic realm") and replaces them with a redirect to the correct KarmaBoard '
+/home/z/my-project/src/lib/generate-pdf.ts:2: * Reusable PDF generation library for KarmaBoard.
+/home/z/my-project/src/lib/generate-pdf.ts:150:  doc.info["Producer"] = "KarmaBoard - Karma Space AI";
+/home/z/my-project/src/lib/generate-pdf.ts:181:    .text("Generated by KarmaBoard AI  |  " + generatedDate + (author ? "  |  Prepared by " + author : ""), MARGIN, 58, { width: CONTENT_WIDTH });
+/home/z/my-project/src/app/(auth)/login/page.tsx:85:              KarmaBoard
+/home/z/my-project/src/lib/ai-tool-executor.ts:4: * Executes tool calls from the AI against the KarmaBoard database.
+/home/z/my-project/src/lib/ai-tool-executor.ts:758:      "User-Agent": "KarmaBoard/1.0",
+/home/z/my-project/src/lib/ai-tool-executor.ts:1100:      "User-Agent": "KarmaBoard/1.0",
+/home/z/my-project/src/lib/ai-tool-executor.ts:1298:    "User-Agent": "KarmaBoard/1.0",
+/home/z/my-project/src/lib/ai-tool-executor.ts:2236:        "User-Agent": "KarmaBoard/1.0 (compatible; bot)",
+/home/z/my-project/src/components/karma-space/chat-message-item.tsx:211:              z.ai free tier rate limit reached even after automatic retries. This is a z.ai limitation — not a KarmaBoard bug. <strong>Wait 60-120 seconds</strong> and try the Launch Codex button again, or use <strong>"Copy Context"</strong> below to paste your project docs directly into z.ai.
+/home/z/my-project/src/app/dashboard/settings/page.tsx:426:            Configure how KarmaBoard sends emails (welcome emails, notifications).
+/home/z/my-project/src/app/dashboard/settings/page.tsx:473:              placeholder="KarmaBoard"
+/home/z/my-project/src/app/dashboard/settings/page.tsx:618:            Connect KarmaBoard to z.ai so users can launch project context into z.ai agentic chat sessions.
+/home/z/my-project/src/app/dashboard/ai-assistant/page.tsx:949:  // Launch Codex — bridge to z.ai API, display response in KarmaBoard chat
+/home/z/my-project/src/app/dashboard/layout.tsx:74:              KarmaBoard
+/home/z/my-project/src/app/dashboard/layout.tsx:245:            KarmaBoard
+/home/z/my-project/src/app/client/portal/page.tsx:158:            <span className="font-semibold text-lg tracking-tight hidden sm:inline">KarmaBoard</span>
+/home/z/my-project/src/app/client/portal/page.tsx:346:        KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/app/client/profile/page.tsx:131:            <span className="font-semibold tracking-tight">KarmaBoard</span>
+/home/z/my-project/src/app/client/change-password/page.tsx:198:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/app/api/ai/export-all-docs/route.ts:489:  doc.info["Producer"] = "KarmaBoard - Karma Space AI";
+/home/z/my-project/src/app/api/ai/export-all-docs/route.ts:520:  doc.text("Powered by KarmaBoard", MARGIN, 215, { width: CONTENT_WIDTH });
+/home/z/my-project/src/app/api/ai/export-all-docs/route.ts:588:        ? `Prepared by ${superAdminName}  |  KarmaBoard`
+/home/z/my-project/src/app/api/ai/export-all-docs/route.ts:589:        : "Generated by KarmaBoard";
+/home/z/my-project/src/app/api/ai/export-pdf/route.ts:201:  doc.info["Producer"] = "KarmaBoard - Karma Space AI";
+/home/z/my-project/src/app/api/ai/export-pdf/route.ts:237:    .text(`Generated by KarmaBoard AI  |  ${generatedDate}${superAdminName ? `  |  Prepared by ${superAdminName}` : ""}`, MARGIN, 58, { width: CONTENT_WIDTH });
+/home/z/my-project/src/app/api/ai/export-pdf/route.ts:581:      // "KarmaBoard" + superadmin watermark at bottom right
+/home/z/my-project/src/app/api/ai/export-pdf/route.ts:583:        ? `Prepared by ${superAdminName}  |  KarmaBoard`
+/home/z/my-project/src/app/api/ai/export-pdf/route.ts:584:        : "Generated by KarmaBoard";
+/home/z/my-project/src/app/client/projects/[id]/page.tsx:170:              <span className="font-semibold text-lg tracking-tight hidden sm:inline">KarmaBoard</span>
+/home/z/my-project/src/app/client/projects/[id]/page.tsx:203:            <span className="font-semibold text-lg tracking-tight hidden sm:inline">KarmaBoard</span>
+/home/z/my-project/src/app/client/projects/[id]/page.tsx:425:        KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/app/api/ai/chat/route.ts:786:        const otherProjectPattern = /(?:(?:the|a|an)\s+)?(?:Share\s+Sathi|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+application)(?!\s+(?:project|in\s+KarmaBoard))/g;
+/home/z/my-project/src/app/api/ai/chat/route.ts:1100:          const systemPrompt = `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`;
+/home/z/my-project/src/app/client/login/page.tsx:73:              KarmaBoard
+/home/z/my-project/src/app/client/login/page.tsx:118:          KarmaBoard — Project Management Made Simple
+/home/z/my-project/src/app/api/ai/push-docs/route.ts:173:    const result = await pushMultipleFiles(githubConfig, files, "docs: sync pre-coding documentation from KarmaBoard");
+/home/z/my-project/src/app/api/ai/project-pdf/route.ts:199:    doc.fontSize(8).font("Helvetica").fillColor("#999999").text("Generated by KarmaBoard — Karma Space AI", { align: "center" });
