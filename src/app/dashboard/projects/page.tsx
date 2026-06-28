@@ -117,7 +117,7 @@ export default function ProjectsPage() {
   // Fetch clients for dropdown
   const fetchClients = useCallback(async () => {
     try {
-      const res = await fetch('/api/clients?limit=100');
+      const res = await fetch('/api/clients?limit=100&status=ACTIVE');
       const data = await res.json();
       if (data.success) {
         setClients(data.data.clients);
