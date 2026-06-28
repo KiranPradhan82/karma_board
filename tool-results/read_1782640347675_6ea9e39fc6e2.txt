@@ -1,0 +1,1107 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect } from "react";
+     4→import { useSession } from "next-auth/react";
+     5→import { toast } from "sonner";
+     6→import { errorToast } from "@/lib/error-toast";
+     7→import {
+     8→  Mail,
+     9→  Key,
+    10→  User,
+    11→  Save,
+    12→  Loader2,
+    13→  Shield,
+    14→  CheckCircle2,
+    15→  AlertTriangle,
+    16→  Palette,
+    17→  Globe,
+    18→  Zap,
+    19→  XCircle,
+    20→} from "lucide-react";
+    21→
+    22→import { Button } from "@/components/ui/button";
+    23→import { Input } from "@/components/ui/input";
+    24→import { Label } from "@/components/ui/label";
+    25→import {
+    26→  Card,
+    27→  CardContent,
+    28→  CardDescription,
+    29→  CardHeader,
+    30→  CardTitle,
+    31→} from "@/components/ui/card";
+    32→import { Skeleton } from "@/components/ui/skeleton";
+    33→import { Separator } from "@/components/ui/separator";
+    34→import { Alert, AlertDescription } from "@/components/ui/alert";
+    35→import {
+    36→  Select,
+    37→  SelectContent,
+    38→  SelectItem,
+    39→  SelectTrigger,
+    40→  SelectValue,
+    41→} from "@/components/ui/select";
+    42→
+    43→/* ------------------------------------------------------------------ */
+    44→/*  Types                                                              */
+    45→/* ------------------------------------------------------------------ */
+    46→
+    47→interface SettingItem {
+    48→  value: string;
+    49→  masked: boolean;
+    50→  updatedAt: string | null;
+    51→}
+    52→
+    53→/* ------------------------------------------------------------------ */
+    54→/*  Skeleton                                                           */
+    55→/* ------------------------------------------------------------------ */
+    56→
+    57→function SettingsSkeleton() {
+    58→  return (
+    59→    <div className="space-y-6">
+    60→      <Skeleton className="h-10 w-64" />
+    61→      <div className="space-y-4">
+    62→        {Array.from({ length: 3 }).map((_, i) => (
+    63→          <Skeleton key={i} className="h-32 w-full rounded-lg" />
+    64→        ))}
+    65→      </div>
+    66→    </div>
+    67→  );
+    68→}
+    69→
+    70→/* ------------------------------------------------------------------ */
+    71→/*  Settings Page                                                      */
+    72→/* ------------------------------------------------------------------ */
+    73→
+    74→export default function SettingsPage() {
+    75→  const { data: session } = useSession();
+    76→  const userRole = (session?.user as { role?: string })?.role || "MEMBER";
+    77→
+    78→  const [settings, setSettings] = useState<Record<string, SettingItem>>({});
+    79→  const [loading, setLoading] = useState(true);
+    80→  const [saving, setSaving] = useState(false);
+    81→
+    82→  // Form state
+    83→  const [emailProvider, setEmailProvider] = useState<string>("gmail-smtp");
+    84→  const [resendApiKey, setResendApiKey] = useState("");
+    85→  const [fromEmail, setFromEmail] = useState("");
+    86→  const [fromName, setFromName] = useState("");
+    87→  const [smtpUser, setSmtpUser] = useState("");
+    88→  const [smtpPassword, setSmtpPassword] = useState("");
+    89→
+    90→  // Track changes to sensitive fields
+    91→  const [resendKeyChanged, setResendKeyChanged] = useState(false);
+    92→  const [smtpPassChanged, setSmtpPassChanged] = useState(false);
+    93→
+    94→  // PDF Theme state
+    95→  const [pdfThemePrimary, setPdfThemePrimary] = useState("#1E40AF");
+    96→  const [pdfThemePrimaryLight, setPdfThemePrimaryLight] = useState("#3B82F6");
+    97→  const [pdfThemePrimaryBg, setPdfThemePrimaryBg] = useState("#EFF6FF");
+    98→  const [pdfThemeAltRowBg, setPdfThemeAltRowBg] = useState("#F9FAFB");
+    99→  const [pdfThemeCoverTop, setPdfThemeCoverTop] = useState("#1E3A8A");
+   100→  const [pdfThemeAccent, setPdfThemeAccent] = useState("#059669");
+   101→  const [pdfThemeWarning, setPdfThemeWarning] = useState("#D97706");
+   102→  const [pdfThemeDanger, setPdfThemeDanger] = useState("#DC2626");
+   103→  const [pdfThemeHasChanges, setPdfThemeHasChanges] = useState(false);
+   104→  const [pdfThemeSaving, setPdfThemeSaving] = useState(false);
+   105→
+   106→  // z.ai Bridge state
+   107→  const [zaiApiKey, setZaiApiKey] = useState("");
+   108→  const [zaiApiKeyChanged, setZaiApiKeyChanged] = useState(false);
+   109→  const [zaiEmail, setZaiEmail] = useState("");
+   110→  const [zaiEmailChanged, setZaiEmailChanged] = useState(false);
+   111→  const [zaiPassword, setZaiPassword] = useState("");
+   112→  const [zaiPasswordChanged, setZaiPasswordChanged] = useState(false);
+   113→  const [zaiBaseUrl, setZaiBaseUrl] = useState("https://api.z.ai/api/paas/v4");
+   114→  const [zaiModel, setZaiModel] = useState("glm-4.7-flash");
+   115→  const [zaiTestStatus, setZaiTestStatus] = useState<null | 'success' | 'error'>(null);
+   116→  const [zaiTesting, setZaiTesting] = useState(false);
+   117→  const [zaiSaving, setZaiSaving] = useState(false);
+   118→
+   119→  // Fetch settings
+   120→  useEffect(() => {
+   121→    async function fetchSettings() {
+   122→      try {
+   123→        const res = await fetch("/api/settings");
+   124→        const json = await res.json();
+   125→        if (json.success) {
+   126→          setSettings(json.data);
+   127→          const data = json.data as Record<string, SettingItem>;
+   128→
+   129→          if (data.EMAIL_PROVIDER) setEmailProvider(data.EMAIL_PROVIDER.value);
+   130→          if (data.RESEND_API_KEY) setResendApiKey(data.RESEND_API_KEY.value);
+   131→          if (data.RESEND_FROM_EMAIL) setFromEmail(data.RESEND_FROM_EMAIL.value);
+   132→          if (data.RESEND_FROM_NAME) setFromName(data.RESEND_FROM_NAME.value);
+   133→          if (data.SMTP_USER) setSmtpUser(data.SMTP_USER.value);
+   134→          if (data.SMTP_PASSWORD) setSmtpPassword(data.SMTP_PASSWORD.value);
+   135→
+   136→          // Load z.ai Bridge settings
+   137→          if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+   138→          if (data.ZAI_BRIDGE_EMAIL) setZaiEmail(data.ZAI_BRIDGE_EMAIL.value);
+   139→          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
+   140→          if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
+   141→          if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
+   142→
+   143→          // Load PDF theme
+   144→          if (data.PDF_THEME) {
+   145→            try {
+   146→              const theme = JSON.parse(data.PDF_THEME.value);
+   147→              if (theme.primary) setPdfThemePrimary(theme.primary);
+   148→              if (theme.primaryLight) setPdfThemePrimaryLight(theme.primaryLight);
+   149→              if (theme.primaryBg) setPdfThemePrimaryBg(theme.primaryBg);
+   150→              if (theme.altRowBg) setPdfThemeAltRowBg(theme.altRowBg);
+   151→              if (theme.coverGradientTop) setPdfThemeCoverTop(theme.coverGradientTop);
+   152→              if (theme.accent) setPdfThemeAccent(theme.accent);
+   153→              if (theme.warning) setPdfThemeWarning(theme.warning);
+   154→              if (theme.danger) setPdfThemeDanger(theme.danger);
+   155→            } catch { /* ignore invalid JSON */ }
+   156→          }
+   157→        } else {
+   158→          errorToast({ error: json.error, title: "Failed to load settings" });
+   159→        }
+   160→      } catch {
+   161→        errorToast({ error: "Failed to load settings" });
+   162→      } finally {
+   163→        setLoading(false);
+   164→      }
+   165→    }
+   166→    if (userRole === "SUPERADMIN") fetchSettings();
+   167→  }, [userRole]);
+   168→
+   169→  // Test z.ai connection — sends the form's current API key (even if not saved yet)
+   170→  async function handleTestZai() {
+   171→    setZaiTesting(true);
+   172→    setZaiTestStatus(null);
+   173→    try {
+   174→      const res = await fetch("/api/settings/test-zai", {
+   175→        method: "POST",
+   176→        headers: { "Content-Type": "application/json" },
+   177→        body: JSON.stringify({ apiKey: zaiApiKey }),
+   178→      });
+   179→      const json = await res.json();
+   180→      setZaiTestStatus(json.success ? "success" : "error");
+   181→      if (json.success) {
+   182→        toast.success("z.ai connection successful! Model: " + (json.model || "OK"));
+   183→      } else {
+   184→        errorToast({ error: json.error, title: "Connection failed" });
+   185→      }
+   186→    } catch (err) {
+   187→      setZaiTestStatus("error");
+   188→      errorToast({ error: err, title: "Connection test failed" });
+   189→    } finally {
+   190→      setZaiTesting(false);
+   191→    }
+   192→  }
+   193→
+   194→  // Save z.ai bridge settings
+   195→  async function handleSaveZai() {
+   196→    setZaiSaving(true);
+   197→    try {
+   198→      const updateSettings: Record<string, string> = {};
+   199→      if (zaiApiKeyChanged && zaiApiKey) updateSettings.ZAI_BRIDGE_API_KEY = zaiApiKey;
+   200→      if (zaiEmailChanged && zaiEmail) updateSettings.ZAI_BRIDGE_EMAIL = zaiEmail;
+   201→      if (zaiPasswordChanged && zaiPassword) updateSettings.ZAI_BRIDGE_PASSWORD = zaiPassword;
+   202→      if (zaiBaseUrl !== (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4")) updateSettings.ZAI_BRIDGE_BASE_URL = zaiBaseUrl;
+   203→      if (zaiModel !== (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash")) updateSettings.ZAI_BRIDGE_MODEL = zaiModel;
+   204→
+   205→      const res = await fetch("/api/settings", {
+   206→        method: "PUT",
+   207→        headers: { "Content-Type": "application/json" },
+   208→        body: JSON.stringify({ settings: updateSettings }),
+   209→      });
+   210→      const json = await res.json();
+   211→      if (json.success) {
+   212→        toast.success("z.ai Bridge settings saved successfully");
+   213→        setZaiApiKeyChanged(false);
+   214→        setZaiEmailChanged(false);
+   215→        setZaiPasswordChanged(false);
+   216→        // Refresh settings
+   217→        const refreshRes = await fetch("/api/settings");
+   218→        const refreshJson = await refreshRes.json();
+   219→        if (refreshJson.success) {
+   220→          setSettings(refreshJson.data);
+   221→          const data = refreshJson.data as Record<string, SettingItem>;
+   222→          if (data.ZAI_BRIDGE_API_KEY) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+   223→          if (data.ZAI_BRIDGE_EMAIL) setZaiEmail(data.ZAI_BRIDGE_EMAIL.value);
+   224→          if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
+   225→          if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
+   226→          if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
+   227→        }
+   228→      } else {
+   229→        errorToast({ error: json.error, title: "Failed to save z.ai settings" });
+   230→      }
+   231→    } catch (err) {
+   232→      errorToast({ error: err, title: "Save z.ai settings failed" });
+   233→    } finally {
+   234→      setZaiSaving(false);
+   235→    }
+   236→  }
+   237→
+   238→  // Save settings
+   239→  async function handleSave() {
+   240→    setSaving(true);
+   241→    try {
+   242→      const updateSettings: Record<string, string> = {};
+   243→
+   244→      if (emailProvider !== (settings.EMAIL_PROVIDER?.value || "")) {
+   245→        updateSettings.EMAIL_PROVIDER = emailProvider;
+   246→      }
+   247→      if (resendKeyChanged && resendApiKey) {
+   248→        updateSettings.RESEND_API_KEY = resendApiKey;
+   249→      }
+   250→      if (fromEmail !== (settings.RESEND_FROM_EMAIL?.value || "")) {
+   251→        updateSettings.RESEND_FROM_EMAIL = fromEmail;
+   252→      }
+   253→      if (fromName !== (settings.RESEND_FROM_NAME?.value || "")) {
+   254→        updateSettings.RESEND_FROM_NAME = fromName;
+   255→      }
+   256→      if (smtpUser !== (settings.SMTP_USER?.value || "")) {
+   257→        updateSettings.SMTP_USER = smtpUser;
+   258→      }
+   259→      if (smtpPassChanged && smtpPassword) {
+   260→        updateSettings.SMTP_PASSWORD = smtpPassword;
+   261→      }
+   262→
+   263→      if (Object.keys(updateSettings).length === 0) {
+   264→        toast.info("No changes to save");
+   265→        setSaving(false);
+   266→        return;
+   267→      }
+   268→
+   269→      const res = await fetch("/api/settings", {
+   270→        method: "PUT",
+   271→        headers: { "Content-Type": "application/json" },
+   272→        body: JSON.stringify({ settings: updateSettings }),
+   273→      });
+   274→      const json = await res.json();
+   275→
+   276→      if (json.success) {
+   277→        toast.success(json.message || "Settings saved successfully");
+   278→        setResendKeyChanged(false);
+   279→        setSmtpPassChanged(false);
+   280→
+   281→        // Refresh settings
+   282→        const refreshRes = await fetch("/api/settings");
+   283→        const refreshJson = await refreshRes.json();
+   284→        if (refreshJson.success) {
+   285→          setSettings(refreshJson.data);
+   286→          const data = refreshJson.data as Record<string, SettingItem>;
+   287→          if (data.RESEND_API_KEY && !resendKeyChanged) setResendApiKey(data.RESEND_API_KEY.value);
+   288→          if (data.RESEND_FROM_EMAIL) setFromEmail(data.RESEND_FROM_EMAIL.value);
+   289→          if (data.RESEND_FROM_NAME) setFromName(data.RESEND_FROM_NAME.value);
+   290→          if (data.EMAIL_PROVIDER) setEmailProvider(data.EMAIL_PROVIDER.value);
+   291→          if (data.SMTP_USER) setSmtpUser(data.SMTP_USER.value);
+   292→          if (data.SMTP_PASSWORD && !smtpPassChanged) setSmtpPassword(data.SMTP_PASSWORD.value);
+   293→          if (data.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged) setZaiApiKey(data.ZAI_BRIDGE_API_KEY.value);
+   294→          if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
+   295→          if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
+   296→        }
+   297→      } else {
+   298→        errorToast({ error: json.error, title: "Failed to save settings" });
+   299→      }
+   300→    } catch (err) {
+   301→      errorToast({ error: err, title: "Save settings failed" });
+   302→    } finally {
+   303→      setSaving(false);
+   304→    }
+   305→  }
+   306→
+   307→  function hasChanges(): boolean {
+   308→    return (
+   309→      emailProvider !== (settings.EMAIL_PROVIDER?.value || "") ||
+   310→      resendKeyChanged ||
+   311→      fromEmail !== (settings.RESEND_FROM_EMAIL?.value || "") ||
+   312→      fromName !== (settings.RESEND_FROM_NAME?.value || "") ||
+   313→      smtpUser !== (settings.SMTP_USER?.value || "") ||
+   314→      smtpPassChanged
+   315→    );
+   316→  }
+   317→
+   318→  // Save PDF theme separately
+   319→  async function handleSavePdfTheme() {
+   320→    setPdfThemeSaving(true);
+   321→    try {
+   322→      const themeObj = {
+   323→        primary: pdfThemePrimary,
+   324→        primaryLight: pdfThemePrimaryLight,
+   325→        primaryBg: pdfThemePrimaryBg,
+   326→        altRowBg: pdfThemeAltRowBg,
+   327→        coverGradientTop: pdfThemeCoverTop,
+   328→        coverGradientBottom: pdfThemePrimary,
+   329→        accent: pdfThemeAccent,
+   330→        warning: pdfThemeWarning,
+   331→        danger: pdfThemeDanger,
+   332→      };
+   333→
+   334→      const res = await fetch("/api/settings", {
+   335→        method: "PUT",
+   336→        headers: { "Content-Type": "application/json" },
+   337→        body: JSON.stringify({ settings: { PDF_THEME: JSON.stringify(themeObj) } }),
+   338→      });
+   339→      const json = await res.json();
+   340→
+   341→      if (json.success) {
+   342→        toast.success("PDF theme saved successfully");
+   343→        setPdfThemeHasChanges(false);
+   344→        // Refresh settings
+   345→        const refreshRes = await fetch("/api/settings");
+   346→        const refreshJson = await refreshRes.json();
+   347→        if (refreshJson.success) {
+   348→          setSettings(refreshJson.data);
+   349→          const data = refreshJson.data as Record<string, SettingItem>;
+   350→          if (data.PDF_THEME) {
+   351→            const theme = JSON.parse(data.PDF_THEME.value);
+   352→            if (theme.primary) setPdfThemePrimary(theme.primary);
+   353→            if (theme.primaryLight) setPdfThemePrimaryLight(theme.primaryLight);
+   354→            if (theme.primaryBg) setPdfThemePrimaryBg(theme.primaryBg);
+   355→            if (theme.altRowBg) setPdfThemeAltRowBg(theme.altRowBg);
+   356→            if (theme.coverGradientTop) setPdfThemeCoverTop(theme.coverGradientTop);
+   357→            if (theme.accent) setPdfThemeAccent(theme.accent);
+   358→            if (theme.warning) setPdfThemeWarning(theme.warning);
+   359→            if (theme.danger) setPdfThemeDanger(theme.danger);
+   360→          }
+   361→        }
+   362→      } else {
+   363→        errorToast({ error: json.error, title: "Failed to save PDF theme" });
+   364→      }
+   365→    } catch (err) {
+   366→      errorToast({ error: err, title: "Save PDF theme failed" });
+   367→    } finally {
+   368→      setPdfThemeSaving(false);
+   369→    }
+   370→  }
+   371→
+   372→  // Track PDF theme changes
+   373→  useEffect(() => {
+   374→    const saved = settings.PDF_THEME?.value;
+   375→    if (!saved) return;
+   376→    try {
+   377→      const theme = JSON.parse(saved);
+   378→      const changed = (
+   379→        pdfThemePrimary !== (theme.primary || "#1E40AF") ||
+   380→        pdfThemePrimaryLight !== (theme.primaryLight || "#3B82F6") ||
+   381→        pdfThemePrimaryBg !== (theme.primaryBg || "#EFF6FF") ||
+   382→        pdfThemeAltRowBg !== (theme.altRowBg || "#F9FAFB") ||
+   383→        pdfThemeCoverTop !== (theme.coverGradientTop || "#1E3A8A") ||
+   384→        pdfThemeAccent !== (theme.accent || "#059669") ||
+   385→        pdfThemeWarning !== (theme.warning || "#D97706") ||
+   386→        pdfThemeDanger !== (theme.danger || "#DC2626")
+   387→      );
+   388→      setPdfThemeHasChanges(changed);
+   389→    } catch { setPdfThemeHasChanges(true); }
+   390→  }, [pdfThemePrimary, pdfThemePrimaryLight, pdfThemePrimaryBg, pdfThemeAltRowBg, pdfThemeCoverTop, pdfThemeAccent, pdfThemeWarning, pdfThemeDanger, settings.PDF_THEME]);
+   391→
+   392→  if (userRole !== "SUPERADMIN") {
+   393→    return (
+   394→      <div className="flex flex-col items-center justify-center py-16 text-center">
+   395→        <Shield className="h-12 w-12 text-muted-foreground mb-4" />
+   396→        <h2 className="text-lg font-semibold">Access Denied</h2>
+   397→        <p className="text-sm text-muted-foreground mt-1">
+   398→          Only superadmins can access application settings.
+   399→        </p>
+   400→      </div>
+   401→    );
+   402→  }
+   403→
+   404→  if (loading) return <SettingsSkeleton />;
+   405→
+   406→  const isGmail = emailProvider === "gmail-smtp";
+   407→
+   408→  return (
+   409→    <div className="space-y-6 max-w-3xl">
+   410→      {/* Header */}
+   411→      <div>
+   412→        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+   413→        <p className="text-muted-foreground text-sm mt-1">
+   414→          Manage application configuration and email service settings.
+   415→        </p>
+   416→      </div>
+   417→
+   418→      {/* Email Configuration */}
+   419→      <Card>
+   420→        <CardHeader>
+   421→          <CardTitle className="text-lg flex items-center gap-2">
+   422→            <Mail className="h-5 w-5" />
+   423→            Email Service
+   424→          </CardTitle>
+   425→          <CardDescription>
+   426→            Configure how KarmaBoard sends emails (welcome emails, notifications).
+   427→            Settings are stored encrypted in the database and take effect immediately.
+   428→          </CardDescription>
+   429→        </CardHeader>
+   430→        <CardContent className="space-y-5">
+   431→          {/* Info alert */}
+   432→          <Alert>
+   433→            <AlertTriangle className="h-4 w-4" />
+   434→            <AlertDescription>
+   435→              Changes take effect immediately for the next member creation. No redeployment needed.
+   436→            </AlertDescription>
+   437→          </Alert>
+   438→
+   439→          <Separator />
+   440→
+   441→          {/* Provider Selector */}
+   442→          <div className="space-y-1.5">
+   443→            <Label>Email Provider</Label>
+   444→            <Select value={emailProvider} onValueChange={setEmailProvider}>
+   445→              <SelectTrigger className="w-full">
+   446→                <SelectValue />
+   447→              </SelectTrigger>
+   448→              <SelectContent>
+   449→                <SelectItem value="gmail-smtp">
+   450→                  Gmail SMTP (testing — no domain needed)
+   451→                </SelectItem>
+   452→                <SelectItem value="resend">
+   453→                  Resend (production — requires a domain)
+   454→                </SelectItem>
+   455→              </SelectContent>
+   456→            </Select>
+   457→            <p className="text-xs text-muted-foreground">
+   458→              Use <strong>Gmail SMTP</strong> for testing with your Gmail account.
+   459→              Switch to <strong>Resend</strong> when you have a custom domain.
+   460→            </p>
+   461→          </div>
+   462→
+   463→          <Separator />
+   464→
+   465→          {/* From Name — shared by both providers */}
+   466→          <div className="space-y-1.5">
+   467→            <Label htmlFor="from-name">
+   468→              <User className="h-3.5 w-3.5 inline mr-1" />
+   469→              From Name
+   470→            </Label>
+   471→            <Input
+   472→              id="from-name"
+   473→              placeholder="KarmaBoard"
+   474→              value={fromName}
+   475→              onChange={(e) => setFromName(e.target.value)}
+   476→            />
+   477→            <p className="text-xs text-muted-foreground">
+   478→              The display name shown in the &quot;From&quot; field of sent emails.
+   479→            </p>
+   480→          </div>
+   481→
+   482→          {isGmail ? (
+   483→            /* ========== Gmail SMTP Fields ========== */
+   484→            <>
+   485→              {/* Gmail Address */}
+   486→              <div className="space-y-1.5">
+   487→                <Label htmlFor="smtp-user" className="flex items-center gap-1.5">
+   488→                  <Mail className="h-3.5 w-3.5" />
+   489→                  Gmail Address
+   490→                </Label>
+   491→                <Input
+   492→                  id="smtp-user"
+   493→                  type="email"
+   494→                  placeholder="yourname@gmail.com"
+   495→                  value={smtpUser}
+   496→                  onChange={(e) => setSmtpUser(e.target.value)}
+   497→                />
+   498→                <p className="text-xs text-muted-foreground">
+   499→                  Your Gmail address. This will be both the sender and SMTP login.
+   500→                </p>
+   501→              </div>
+   502→
+   503→              {/* App Password */}
+   504→              <div className="space-y-1.5">
+   505→                <Label htmlFor="smtp-password" className="flex items-center gap-1.5">
+   506→                  <Key className="h-3.5 w-3.5" />
+   507→                  Gmail App Password
+   508→                </Label>
+   509→                <Input
+   510→                  id="smtp-password"
+   511→                  type="password"
+   512→                  placeholder="xxxx xxxx xxxx xxxx"
+   513→                  value={smtpPassword}
+   514→                  onChange={(e) => {
+   515→                    setSmtpPassword(e.target.value);
+   516→                    setSmtpPassChanged(true);
+   517→                  }}
+   518→                />
+   519→                <p className="text-xs text-muted-foreground">
+   520→                  Create one at{" "}
+   521→                  <a
+   522→                    href="https://myaccount.google.com/apppasswords"
+   523→                    target="_blank"
+   524→                    rel="noopener noreferrer"
+   525→                    className="underline text-primary"
+   526→                  >
+   527→                    Google App Passwords
+   528→                  </a>
+   529→                  . Use the 16-character code (remove spaces). This is encrypted in the database.
+   530→                  {settings.SMTP_PASSWORD?.updatedAt && (
+   531→                    <span className="block mt-1">
+   532→                      Last updated:{" "}
+   533→                      {new Date(settings.SMTP_PASSWORD.updatedAt).toLocaleString()}
+   534→                    </span>
+   535→                  )}
+   536→                </p>
+   537→                {settings.SMTP_PASSWORD && !smtpPassChanged && (
+   538→                  <p className="text-xs text-emerald-600 flex items-center gap-1">
+   539→                    <CheckCircle2 className="h-3 w-3" /> App password is configured
+   540→                  </p>
+   541→                )}
+   542→              </div>
+   543→            </>
+   544→          ) : (
+   545→            /* ========== Resend Fields ========== */
+   546→            <>
+   547→              {/* Resend API Key */}
+   548→              <div className="space-y-1.5">
+   549→                <Label htmlFor="resend-key" className="flex items-center gap-1.5">
+   550→                  <Key className="h-3.5 w-3.5" />
+   551→                  Resend API Key
+   552→                </Label>
+   553→                <Input
+   554→                  id="resend-key"
+   555→                  type="password"
+   556→                  placeholder="re_xxxxxxxxxxxx"
+   557→                  value={resendApiKey}
+   558→                  onChange={(e) => {
+   559→                    setResendApiKey(e.target.value);
+   560→                    setResendKeyChanged(true);
+   561→                  }}
+   562→                />
+   563→                <p className="text-xs text-muted-foreground">
+   564→                  Your Resend API key. Encrypted in the database.
+   565→                  {settings.RESEND_API_KEY?.updatedAt && (
+   566→                    <span className="block mt-1">
+   567→                      Last updated:{" "}
+   568→                      {new Date(settings.RESEND_API_KEY.updatedAt).toLocaleString()}
+   569→                    </span>
+   570→                  )}
+   571→                </p>
+   572→                {settings.RESEND_API_KEY && !resendKeyChanged && (
+   573→                  <p className="text-xs text-emerald-600 flex items-center gap-1">
+   574→                    <CheckCircle2 className="h-3 w-3" /> API key is configured
+   575→                  </p>
+   576→                )}
+   577→              </div>
+   578→
+   579→              {/* From Email (Resend-specific) */}
+   580→              <div className="space-y-1.5">
+   581→                <Label htmlFor="from-email">From Email</Label>
+   582→                <Input
+   583→                  id="from-email"
+   584→                  type="email"
+   585→                  placeholder="noreply@yourdomain.com"
+   586→                  value={fromEmail}
+   587→                  onChange={(e) => setFromEmail(e.target.value)}
+   588→                />
+   589→                <p className="text-xs text-muted-foreground">
+   590→                  Must be a verified domain in your Resend dashboard.
+   591→                </p>
+   592→              </div>
+   593→            </>
+   594→          )}
+   595→
+   596→          {/* Save */}
+   597→          <div className="flex justify-end pt-2">
+   598→            <Button onClick={handleSave} disabled={saving || !hasChanges()}>
+   599→              {saving ? (
+   600→                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   601→              ) : (
+   602→                <Save className="mr-2 h-4 w-4" />
+   603→              )}
+   604→              {saving ? "Saving..." : "Save Settings"}
+   605→            </Button>
+   606→          </div>
+   607→        </CardContent>
+   608→      </Card>
+   609→
+   610→      {/* z.ai Bridge Configuration */}
+   611→      <Card>
+   612→        <CardHeader>
+   613→          <CardTitle className="text-lg flex items-center gap-2">
+   614→            <Globe className="h-5 w-5" />
+   615→            z.ai Bridge
+   616→          </CardTitle>
+   617→          <CardDescription>
+   618→            Connect KarmaBoard to z.ai so users can launch project context into z.ai agentic chat sessions.
+   619→            When a user clicks <strong>Launch Codex</strong>, all project documents and chat history are sent to z.ai using the API key.
+   620→          </CardDescription>
+   621→        </CardHeader>
+   622→        <CardContent className="space-y-5">
+   623→          <Alert>
+   624→            <Zap className="h-4 w-4" />
+   625→            <AlertDescription>
+   626→              The <strong>API Key</strong> is used to call the z.ai API on your behalf (sending project docs, getting AI responses).
+   627→              The <strong>Email + Password</strong> are used to redirect to z.ai web logged in. Default model <strong>glm-4.7-flash</strong> is completely free.
+   628→            </AlertDescription>
+   629→          </Alert>
+   630→
+   631→          <Separator />
+   632→
+   633→          {/* z.ai API Key */}
+   634→          <div className="space-y-1.5">
+   635→            <Label htmlFor="zai-api-key" className="flex items-center gap-1.5">
+   636→              <Key className="h-3.5 w-3.5" />
+   637→              z.ai API Key
+   638→            </Label>
+   639→            <Input
+   640→              id="zai-api-key"
+   641→              type="password"
+   642→              placeholder="Paste your z.ai API key here"
+   643→              value={zaiApiKey}
+   644→              onChange={(e) => {
+   645→                setZaiApiKey(e.target.value);
+   646→                setZaiApiKeyChanged(true);
+   647→              }}
+   648→            />
+   649→            <p className="text-xs text-muted-foreground">
+   650→              Your z.ai API key. Used to send project context to z.ai and receive AI responses. Stored encrypted.
+   651→            </p>
+   652→            {settings.ZAI_BRIDGE_API_KEY && !zaiApiKeyChanged && (
+   653→              <p className="text-xs text-emerald-600 flex items-center gap-1">
+   654→                <CheckCircle2 className="h-3 w-3" /> API key is configured
+   655→              </p>
+   656→            )}
+   657→          </div>
+   658→
+   659→          <Separator />
+   660→
+   661→          {/* z.ai Login Credentials */}
+   662→          <div className="space-y-1.5">
+   663→            <Label className="flex items-center gap-1.5">
+   664→              <User className="h-3.5 w-3.5" />
+   665→              z.ai Login Credentials
+   666→            </Label>
+   667→            <p className="text-xs text-muted-foreground">
+   668→              Used to redirect to z.ai web logged in. Get your API key from <a href="https://z.ai" target="_blank" rel="noopener noreferrer" className="underline text-primary">z.ai</a>.
+   669→            </p>
+   670→          </div>
+   671→          <div className="grid gap-4 sm:grid-cols-2">
+   672→            <div className="space-y-1.5">
+   673→              <Label htmlFor="zai-email" className="flex items-center gap-1.5">
+   674→                <Mail className="h-3.5 w-3.5" />
+   675→                z.ai Email
+   676→              </Label>
+   677→              <Input
+   678→                id="zai-email"
+   679→                type="email"
+   680→                placeholder="you@example.com"
+   681→                value={zaiEmail}
+   682→                onChange={(e) => {
+   683→                  setZaiEmail(e.target.value);
+   684→                  setZaiEmailChanged(true);
+   685→                }}
+   686→              />
+   687→              <p className="text-xs text-muted-foreground">
+   688→                The email you use to log into z.ai.
+   689→              </p>
+   690→            </div>
+   691→            <div className="space-y-1.5">
+   692→              <Label htmlFor="zai-password" className="flex items-center gap-1.5">
+   693→                <Key className="h-3.5 w-3.5" />
+   694→                z.ai Password
+   695→              </Label>
+   696→              <Input
+   697→                id="zai-password"
+   698→                type="password"
+   699→                placeholder="Enter z.ai password"
+   700→                value={zaiPassword}
+   701→                onChange={(e) => {
+   702→                  setZaiPassword(e.target.value);
+   703→                  setZaiPasswordChanged(true);
+   704→                }}
+   705→              />
+   706→              <p className="text-xs text-muted-foreground">
+   707→                Your z.ai password. Stored encrypted.
+   708→              </p>
+   709→            </div>
+   710→          </div>
+   711→
+   712→          <Separator />
+   713→
+   714→          {/* z.ai Base URL */}
+   715→          <div className="space-y-1.5">
+   716→            <Label htmlFor="zai-base-url" className="flex items-center gap-1.5">
+   717→              <Globe className="h-3.5 w-3.5" />
+   718→              z.ai Base URL
+   719→            </Label>
+   720→            <Input
+   721→              id="zai-base-url"
+   722→              type="text"
+   723→              placeholder="https://api.z.ai/api/paas/v4"
+   724→              value={zaiBaseUrl}
+   725→              onChange={(e) => setZaiBaseUrl(e.target.value)}
+   726→            />
+   727→            <p className="text-xs text-muted-foreground">
+   728→              The z.ai API endpoint. Default: <code className="text-[11px]">https://api.z.ai/api/paas/v4</code>
+   729→            </p>
+   730→          </div>
+   731→
+   732→          <Separator />
+   733→
+   734→          {/* z.ai Model */}
+   735→          <div className="space-y-1.5">
+   736→            <Label htmlFor="zai-model" className="flex items-center gap-1.5">
+   737→              <Zap className="h-3.5 w-3.5" />
+   738→              z.ai Model
+   739→            </Label>
+   740→            <Input
+   741→              id="zai-model"
+   742→              type="text"
+   743→              placeholder="glm-4.7-flash"
+   744→              value={zaiModel}
+   745→              onChange={(e) => setZaiModel(e.target.value)}
+   746→            />
+   747→            <p className="text-xs text-muted-foreground">
+   748→              The model to use for z.ai chat sessions. Default: <code className="text-[11px]">glm-4.7-flash</code> (FREE)
+   749→            </p>
+   750→          </div>
+   751→
+   752→          {/* Test Connection + Save */}
+   753→          <div className="flex items-center gap-2 pt-2">
+   754→            <Button
+   755→              variant="outline"
+   756→              size="sm"
+   757→              onClick={handleTestZai}
+   758→              disabled={zaiTesting || !zaiApiKey}
+   759→            >
+   760→              {zaiTesting ? (
+   761→                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   762→              ) : zaiTestStatus === "success" ? (
+   763→                <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-500" />
+   764→              ) : zaiTestStatus === "error" ? (
+   765→                <XCircle className="mr-2 h-4 w-4 text-red-500" />
+   766→              ) : null}
+   767→              {zaiTesting ? "Testing..." : "Test Connection"}
+   768→            </Button>
+   769→            <div className="flex-1" />
+   770→            <Button
+   771→              onClick={handleSaveZai}
+   772→              disabled={
+   773→                zaiSaving ||
+   774→                (!zaiApiKeyChanged && !zaiEmailChanged && !zaiPasswordChanged &&
+   775→                  zaiBaseUrl === (settings.ZAI_BRIDGE_BASE_URL?.value || "https://api.z.ai/api/paas/v4") &&
+   776→                  zaiModel === (settings.ZAI_BRIDGE_MODEL?.value || "glm-4.7-flash"))
+   777→              }
+   778→            >
+   779→              {zaiSaving ? (
+   780→                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   781→              ) : (
+   782→                <Save className="mr-2 h-4 w-4" />
+   783→              )}
+   784→              {zaiSaving ? "Saving..." : "Save"}
+   785→            </Button>
+   786→          </div>
+   787→        </CardContent>
+   788→      </Card>
+   789→
+   790→      {/* Environment Variable Reference */}
+   791→      <Card>
+   792→        <CardHeader>
+   793→          <CardTitle className="text-sm font-medium text-muted-foreground">
+   794→            Environment Variable Reference
+   795→          </CardTitle>
+   796→        </CardHeader>
+   797→        <CardContent>
+   798→          <div className="text-xs space-y-2 text-muted-foreground">
+   799→            <p>
+   800→              Database settings above override these env vars. If no value is set in the
+   801→              database, the system falls back to env vars set in Vercel:
+   802→            </p>
+   803→            <div className="grid gap-2 sm:grid-cols-2 font-mono text-[11px]">
+   804→              <div className="rounded bg-muted px-2 py-1.5">
+   805→                <span className="text-foreground/70">EMAIL_PROVIDER</span>
+   806→              </div>
+   807→              <div className="rounded bg-muted px-2 py-1.5">
+   808→                <span className="text-foreground/70">SMTP_USER</span>
+   809→              </div>
+   810→              <div className="rounded bg-muted px-2 py-1.5">
+   811→                <span className="text-foreground/70">SMTP_PASSWORD</span>
+   812→              </div>
+   813→              <div className="rounded bg-muted px-2 py-1.5">
+   814→                <span className="text-foreground/70">RESEND_API_KEY</span>
+   815→              </div>
+   816→              <div className="rounded bg-muted px-2 py-1.5">
+   817→                <span className="text-foreground/70">RESEND_FROM_EMAIL</span>
+   818→              </div>
+   819→              <div className="rounded bg-muted px-2 py-1.5">
+   820→                <span className="text-foreground/70">RESEND_FROM_NAME</span>
+   821→              </div>
+   822→            </div>
+   823→          </div>
+   824→        </CardContent>
+   825→      </Card>
+   826→
+   827→      {/* PDF Theme Customization */}
+   828→      <Card>
+   829→        <CardHeader>
+   830→          <CardTitle className="text-lg flex items-center gap-2">
+   831→            <Palette className="h-5 w-5" />
+   832→            PDF Theme
+   833→          </CardTitle>
+   834→          <CardDescription>
+   835→            Customize the colors and styling of generated PDF documents. Changes apply
+   836→            immediately to all future PDF exports. Only you (Super Admin) can modify these.
+   837→          </CardDescription>
+   838→        </CardHeader>
+   839→        <CardContent className="space-y-5">
+   840→          <Alert>
+   841→            <AlertTriangle className="h-4 w-4" />
+   842→            <AlertDescription>
+   843→              All PDFs generated by Karma Space AI will use these theme colors. This includes
+   844→              individual message PDFs, project reports, and the combined documents download.
+   845→            </AlertDescription>
+   846→          </Alert>
+   847→
+   848→          <Separator />
+   849→
+   850→          {/* Live preview strip */}
+   851→          <div className="space-y-1.5">
+   852→            <Label className="text-xs font-medium">Live Preview</Label>
+   853→            <div className="flex flex-wrap gap-2">
+   854→              <div className="flex items-center gap-2">
+   855→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemePrimary }} />
+   856→                <span className="text-xs text-muted-foreground">Primary</span>
+   857→              </div>
+   858→              <div className="flex items-center gap-2">
+   859→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemePrimaryLight }} />
+   860→                <span className="text-xs text-muted-foreground">Light</span>
+   861→              </div>
+   862→              <div className="flex items-center gap-2">
+   863→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemePrimaryBg }} />
+   864→                <span className="text-xs text-muted-foreground">Table BG</span>
+   865→              </div>
+   866→              <div className="flex items-center gap-2">
+   867→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeAltRowBg }} />
+   868→                <span className="text-xs text-muted-foreground">Alt Row</span>
+   869→              </div>
+   870→              <div className="flex items-center gap-2">
+   871→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeCoverTop }} />
+   872→                <span className="text-xs text-muted-foreground">Cover</span>
+   873→              </div>
+   874→              <div className="flex items-center gap-2">
+   875→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeAccent }} />
+   876→                <span className="text-xs text-muted-foreground">Accent</span>
+   877→              </div>
+   878→              <div className="flex items-center gap-2">
+   879→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeWarning }} />
+   880→                <span className="text-xs text-muted-foreground">Warning</span>
+   881→              </div>
+   882→              <div className="flex items-center gap-2">
+   883→                <div className="h-8 w-8 rounded border" style={{ backgroundColor: pdfThemeDanger }} />
+   884→                <span className="text-xs text-muted-foreground">Danger</span>
+   885→              </div>
+   886→            </div>
+   887→          </div>
+   888→
+   889→          <Separator />
+   890→
+   891→          {/* Color inputs */}
+   892→          <div className="grid gap-4 sm:grid-cols-2">
+   893→            <div className="space-y-1.5">
+   894→              <Label htmlFor="pdf-primary" className="flex items-center gap-1.5">
+   895→                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemePrimary }} />
+   896→                Primary Color
+   897→              </Label>
+   898→              <div className="flex gap-2">
+   899→                <Input
+   900→                  id="pdf-primary"
+   901→                  type="color"
+   902→                  value={pdfThemePrimary}
+   903→                  onChange={(e) => setPdfThemePrimary(e.target.value)}
+   904→                  className="w-12 h-9 p-1 cursor-pointer"
+   905→                />
+   906→                <Input
+   907→                  value={pdfThemePrimary}
+   908→                  onChange={(e) => setPdfThemePrimary(e.target.value)}
+   909→                  placeholder="#1E40AF"
+   910→                  className="font-mono text-xs"
+   911→                />
+   912→              </div>
+   913→              <p className="text-xs text-muted-foreground">Main brand color for headings, accents, and cover</p>
+   914→            </div>
+   915→
+   916→            <div className="space-y-1.5">
+   917→              <Label htmlFor="pdf-primary-light" className="flex items-center gap-1.5">
+   918→                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemePrimaryLight }} />
+   919→                Light Accent
+   920→              </Label>
+   921→              <div className="flex gap-2">
+   922→                <Input
+   923→                  id="pdf-primary-light"
+   924→                  type="color"
+   925→                  value={pdfThemePrimaryLight}
+   926→                  onChange={(e) => setPdfThemePrimaryLight(e.target.value)}
+   927→                  className="w-12 h-9 p-1 cursor-pointer"
+   928→                />
+   929→                <Input
+   930→                  value={pdfThemePrimaryLight}
+   931→                  onChange={(e) => setPdfThemePrimaryLight(e.target.value)}
+   932→                  placeholder="#3B82F6"
+   933→                  className="font-mono text-xs"
+   934→                />
+   935→              </div>
+   936→              <p className="text-xs text-muted-foreground">Table headers, bullet dots, H2 accents</p>
+   937→            </div>
+   938→
+   939→            <div className="space-y-1.5">
+   940→              <Label htmlFor="pdf-primary-bg" className="flex items-center gap-1.5">
+   941→                <div className="h-3 w-3 rounded-sm shrink-0 border" style={{ backgroundColor: pdfThemePrimaryBg }} />
+   942→                Table Header BG
+   943→              </Label>
+   944→              <div className="flex gap-2">
+   945→                <Input
+   946→                  id="pdf-primary-bg"
+   947→                  type="color"
+   948→                  value={pdfThemePrimaryBg}
+   949→                  onChange={(e) => setPdfThemePrimaryBg(e.target.value)}
+   950→                  className="w-12 h-9 p-1 cursor-pointer"
+   951→                />
+   952→                <Input
+   953→                  value={pdfThemePrimaryBg}
+   954→                  onChange={(e) => setPdfThemePrimaryBg(e.target.value)}
+   955→                  placeholder="#EFF6FF"
+   956→                  className="font-mono text-xs"
+   957→                />
+   958→              </div>
+   959→              <p className="text-xs text-muted-foreground">Background color for table headers</p>
+   960→            </div>
+   961→
+   962→            <div className="space-y-1.5">
+   963→              <Label htmlFor="pdf-alt-row" className="flex items-center gap-1.5">
+   964→                <div className="h-3 w-3 rounded-sm shrink-0 border" style={{ backgroundColor: pdfThemeAltRowBg }} />
+   965→                Alternating Row BG
+   966→              </Label>
+   967→              <div className="flex gap-2">
+   968→                <Input
+   969→                  id="pdf-alt-row"
+   970→                  type="color"
+   971→                  value={pdfThemeAltRowBg}
+   972→                  onChange={(e) => setPdfThemeAltRowBg(e.target.value)}
+   973→                  className="w-12 h-9 p-1 cursor-pointer"
+   974→                />
+   975→                <Input
+   976→                  value={pdfThemeAltRowBg}
+   977→                  onChange={(e) => setPdfThemeAltRowBg(e.target.value)}
+   978→                  placeholder="#F9FAFB"
+   979→                  className="font-mono text-xs"
+   980→                />
+   981→              </div>
+   982→              <p className="text-xs text-muted-foreground">Shading for odd-numbered table rows</p>
+   983→            </div>
+   984→
+   985→            <div className="space-y-1.5">
+   986→              <Label htmlFor="pdf-cover-top" className="flex items-center gap-1.5">
+   987→                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeCoverTop }} />
+   988→                Cover Header
+   989→              </Label>
+   990→              <div className="flex gap-2">
+   991→                <Input
+   992→                  id="pdf-cover-top"
+   993→                  type="color"
+   994→                  value={pdfThemeCoverTop}
+   995→                  onChange={(e) => setPdfThemeCoverTop(e.target.value)}
+   996→                  className="w-12 h-9 p-1 cursor-pointer"
+   997→                />
+   998→                <Input
+   999→                  value={pdfThemeCoverTop}
+  1000→                  onChange={(e) => setPdfThemeCoverTop(e.target.value)}
+  1001→                  placeholder="#1E3A8A"
+  1002→                  className="font-mono text-xs"
+  1003→                />
+  1004→              </div>
+  1005→              <p className="text-xs text-muted-foreground">Gradient color for PDF cover page header</p>
+  1006→            </div>
+  1007→
+  1008→            <div className="space-y-1.5">
+  1009→              <Label htmlFor="pdf-accent" className="flex items-center gap-1.5">
+  1010→                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeAccent }} />
+  1011→                Accent (Success)
+  1012→              </Label>
+  1013→              <div className="flex gap-2">
+  1014→                <Input
+  1015→                  id="pdf-accent"
+  1016→                  type="color"
+  1017→                  value={pdfThemeAccent}
+  1018→                  onChange={(e) => setPdfThemeAccent(e.target.value)}
+  1019→                  className="w-12 h-9 p-1 cursor-pointer"
+  1020→                />
+  1021→                <Input
+  1022→                  value={pdfThemeAccent}
+  1023→                  onChange={(e) => setPdfThemeAccent(e.target.value)}
+  1024→                  placeholder="#059669"
+  1025→                  className="font-mono text-xs"
+  1026→                />
+  1027→              </div>
+  1028→              <p className="text-xs text-muted-foreground">Green accent for success/priority indicators</p>
+  1029→            </div>
+  1030→
+  1031→            <div className="space-y-1.5">
+  1032→              <Label htmlFor="pdf-warning" className="flex items-center gap-1.5">
+  1033→                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeWarning }} />
+  1034→                Warning Color
+  1035→              </Label>
+  1036→              <div className="flex gap-2">
+  1037→                <Input
+  1038→                  id="pdf-warning"
+  1039→                  type="color"
+  1040→                  value={pdfThemeWarning}
+  1041→                  onChange={(e) => setPdfThemeWarning(e.target.value)}
+  1042→                  className="w-12 h-9 p-1 cursor-pointer"
+  1043→                />
+  1044→                <Input
+  1045→                  value={pdfThemeWarning}
+  1046→                  onChange={(e) => setPdfThemeWarning(e.target.value)}
+  1047→                  placeholder="#D97706"
+  1048→                  className="font-mono text-xs"
+  1049→                />
+  1050→              </div>
+  1051→              <p className="text-xs text-muted-foreground">Amber for warnings and medium priority</p>
+  1052→            </div>
+  1053→
+  1054→            <div className="space-y-1.5">
+  1055→              <Label htmlFor="pdf-danger" className="flex items-center gap-1.5">
+  1056→                <div className="h-3 w-3 rounded-sm shrink-0" style={{ backgroundColor: pdfThemeDanger }} />
+  1057→                Danger Color
+  1058→              </Label>
+  1059→              <div className="flex gap-2">
+  1060→                <Input
+  1061→                  id="pdf-danger"
+  1062→                  type="color"
+  1063→                  value={pdfThemeDanger}
+  1064→                  onChange={(e) => setPdfThemeDanger(e.target.value)}
+  1065→                  className="w-12 h-9 p-1 cursor-pointer"
+  1066→                />
+  1067→                <Input
+  1068→                  value={pdfThemeDanger}
+  1069→                  onChange={(e) => setPdfThemeDanger(e.target.value)}
+  1070→                  placeholder="#DC2626"
+  1071→                  className="font-mono text-xs"
+  1072→                />
+  1073→              </div>
+  1074→              <p className="text-xs text-muted-foreground">Red for critical/high priority and errors</p>
+  1075→            </div>
+  1076→          </div>
+  1077→
+  1078→          {/* Reset to default */}
+  1079→          <div className="flex gap-2 pt-1">
+  1080→            <Button variant="ghost" size="sm" onClick={() => {
+  1081→              setPdfThemePrimary("#1E40AF");
+  1082→              setPdfThemePrimaryLight("#3B82F6");
+  1083→              setPdfThemePrimaryBg("#EFF6FF");
+  1084→              setPdfThemeAltRowBg("#F9FAFB");
+  1085→              setPdfThemeCoverTop("#1E3A8A");
+  1086→              setPdfThemeAccent("#059669");
+  1087→              setPdfThemeWarning("#D97706");
+  1088→              setPdfThemeDanger("#DC2626");
+  1089→            }}>
+  1090→              Reset to Default
+  1091→            </Button>
+  1092→            <div className="flex-1" />
+  1093→            <Button onClick={handleSavePdfTheme} disabled={pdfThemeSaving || !pdfThemeHasChanges}>
+  1094→              {pdfThemeSaving ? (
+  1095→                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+  1096→              ) : (
+  1097→                <Save className="mr-2 h-4 w-4" />
+  1098→              )}
+  1099→              {pdfThemeSaving ? "Saving..." : "Save Theme"}
+  1100→            </Button>
+  1101→          </div>
+  1102→        </CardContent>
+  1103→      </Card>
+  1104→    </div>
+  1105→  );
+  1106→}
+  1107→
