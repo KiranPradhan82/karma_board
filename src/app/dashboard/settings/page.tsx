@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { errorToast } from "@/lib/error-toast";
@@ -17,6 +17,10 @@ import {
   Globe,
   Zap,
   XCircle,
+  ImageIcon,
+  Trash2,
+  Upload,
+  Hammer,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -116,6 +120,70 @@ export default function SettingsPage() {
   const [zaiTesting, setZaiTesting] = useState(false);
   const [zaiSaving, setZaiSaving] = useState(false);
 
+  // Branding / Logo state
+  const [brandingLogo, setBrandingLogo] = useState<string | null>(null);
+  const [logoSaving, setLogoSaving] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Logo upload handler
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) {
+      errorToast({ error: "File too large. Maximum size is 500 KB.", title: "Upload failed" });
+      return;
+    }
+    setLogoSaving(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { BRANDING_LOGO: dataUrl } }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setBrandingLogo(dataUrl);
+        toast.success("Logo updated successfully");
+      } else {
+        errorToast({ error: json.error, title: "Failed to save logo" });
+      }
+    } catch (err) {
+      errorToast({ error: err, title: "Logo upload failed" });
+    } finally {
+      setLogoSaving(false);
+      // Reset input so same file can be re-selected
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
+
+  async function handleLogoRemove() {
+    setLogoSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: { BRANDING_LOGO: "" } }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setBrandingLogo(null);
+        toast.success("Logo removed, using default");
+      } else {
+        errorToast({ error: json.error, title: "Failed to remove logo" });
+      }
+    } catch (err) {
+      errorToast({ error: err, title: "Remove logo failed" });
+    } finally {
+      setLogoSaving(false);
+    }
+  }
+
   // Fetch settings
   useEffect(() => {
     async function fetchSettings() {
@@ -139,6 +207,9 @@ export default function SettingsPage() {
           if (data.ZAI_BRIDGE_PASSWORD) setZaiPassword(data.ZAI_BRIDGE_PASSWORD.value);
           if (data.ZAI_BRIDGE_BASE_URL) setZaiBaseUrl(data.ZAI_BRIDGE_BASE_URL.value);
           if (data.ZAI_BRIDGE_MODEL) setZaiModel(data.ZAI_BRIDGE_MODEL.value);
+
+          // Load branding logo
+          if (data.BRANDING_LOGO) setBrandingLogo(data.BRANDING_LOGO.value);
 
           // Load PDF theme
           if (data.PDF_THEME) {
@@ -414,6 +485,87 @@ export default function SettingsPage() {
           Manage application configuration and email service settings.
         </p>
       </div>
+
+      {/* Branding & Logo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ImageIcon className="h-5 w-5" />
+            Branding &amp; Logo
+          </CardTitle>
+          <CardDescription>
+            Customize the logo shown across the app — sidebar, login pages, and client portal.
+            Upload an SVG or PNG image. Changes take effect immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-start gap-6">
+            {/* Preview */}
+            <div className="shrink-0">
+              <div className="w-24 h-24 rounded-xl border-2 border-dashed border-muted-foreground/20 flex items-center justify-center overflow-hidden bg-muted/30">
+                {brandingLogo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={brandingLogo}
+                    alt="Logo preview"
+                    className="w-full h-full object-contain p-1"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                    <Hammer className="h-8 w-8" />
+                    <span className="text-[10px]">Default</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex-1 space-y-3">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/svg+xml,image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={handleLogoUpload}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={logoSaving}
+                >
+                  <Upload className="h-4 w-4 mr-1.5" />
+                  Upload Logo
+                </Button>
+                {brandingLogo && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={handleLogoRemove}
+                    disabled={logoSaving}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Recommended: SVG (scalable) or PNG with transparent background, at least 128×128px.
+                Max file size: 500 KB.
+              </p>
+              {settings.BRANDING_LOGO?.updatedAt && (
+                <p className="text-xs text-muted-foreground">
+                  Last updated: {new Date(settings.BRANDING_LOGO.updatedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Email Configuration */}
       <Card>

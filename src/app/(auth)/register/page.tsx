@@ -6,6 +6,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { errorToast } from "@/lib/error-toast";
 import { Loader2, UserPlus } from "lucide-react";
+import { SiteLogo } from "@/components/site-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,9 +76,12 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-8">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold tracking-tight">
-            Create Account
-          </CardTitle>
+            <div className="mx-auto mb-3">
+              <SiteLogo size={48} className="rounded-xl" />
+            </div>
+            <CardTitle className="text-2xl font-bold tracking-tight">
+              Create Account
+            </CardTitle>
           <CardDescription>
             Join KarmaBoard to start managing your projects
           </CardDescription>

@@ -5,7 +5,8 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { errorToast } from '@/lib/error-toast';
-import { Lock, Eye, EyeOff, Loader2, ShieldCheck, Hammer, Copy, Check } from 'lucide-react';
+import { Lock, Eye, EyeOff, Loader2, ShieldCheck, Copy, Check } from 'lucide-react';
+import { SiteLogo } from '@/components/site-logo';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,8 +91,8 @@ export default function ClientChangePasswordPage() {
       <div className="w-full max-w-md space-y-4">
         <Card>
           <CardHeader className="text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Hammer className="h-6 w-6" />
+            <div className="mx-auto mb-3">
+              <SiteLogo size={56} className="rounded-xl" />
             </div>
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
               <ShieldCheck className="h-7 w-7 text-primary" />

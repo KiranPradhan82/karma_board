@@ -25,6 +25,8 @@ const ALLOWED_KEYS = [
   'ZAI_BRIDGE_EMAIL',
   'ZAI_BRIDGE_PASSWORD',
   'ZAI_BRIDGE_GOOGLE_TOKEN',
+  // Branding
+  'BRANDING_LOGO',
 ];
 
 // GET /api/settings — Fetch all settings (sensitive values masked)

@@ -13,10 +13,10 @@ import {
   LogOut,
   X,
   Menu,
-  Hammer,
   Briefcase,
   Activity,
 } from "lucide-react";
+import { SiteLogo } from "@/components/site-logo";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -66,9 +66,7 @@ function NavContent({
       {/* Header */}
       <div className="flex h-14 items-center border-b px-4 shrink-0">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0">
-            <Hammer className="h-4 w-4" />
-          </div>
+          <SiteLogo size={32} className="rounded-lg" />
           {!collapsed && (
             <span className="font-semibold text-lg tracking-tight">
               KarmaBoard
@@ -238,9 +236,7 @@ export default function DashboardLayout({
           <Menu className="h-5 w-5" />
         </Button>
         <Link href="/dashboard" className="flex items-center gap-2 ml-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Hammer className="h-3.5 w-3.5" />
-          </div>
+          <SiteLogo size={28} className="rounded-md" />
           <span className="font-semibold text-base tracking-tight">
             KarmaBoard
           </span>

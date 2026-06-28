@@ -7,6 +7,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { errorToast } from "@/lib/error-toast";
 import { Loader2, LogIn, Copy, Check } from "lucide-react";
+import { SiteLogo } from "@/components/site-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -81,6 +82,9 @@ Stack: ${err instanceof Error ? err.stack : "N/A"}`);
       <div className="w-full max-w-md space-y-4">
         <Card>
           <CardHeader className="text-center">
+            <div className="mx-auto mb-3">
+              <SiteLogo size={48} className="rounded-xl" />
+            </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
               KarmaBoard
             </CardTitle>

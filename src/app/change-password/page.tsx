@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { errorToast } from '@/lib/error-toast';
 import { Lock, Eye, EyeOff, Loader2, ShieldCheck, Copy, Check } from 'lucide-react';
+import { SiteLogo } from '@/components/site-logo';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -101,12 +102,14 @@ export default function ChangePasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          {/* Icon */}
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <ShieldCheck className="h-7 w-7 text-primary" />
-          </div>
+          <div className="mx-auto mb-3">
+              <SiteLogo size={56} className="rounded-xl" />
+            </div>
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <ShieldCheck className="h-7 w-7 text-primary" />
+            </div>
 
-          <CardTitle className="text-xl">Set Your Password</CardTitle>
+            <CardTitle className="text-xl">Set Your Password</CardTitle>
           <CardDescription className="mt-2">
             Welcome, <strong>{userName}</strong>! This is your first login.
             Please choose a new password to secure your account.

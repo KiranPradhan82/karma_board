@@ -4,7 +4,8 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, LogIn, Hammer } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
+import { SiteLogo } from "@/components/site-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,8 +67,8 @@ export default function ClientLoginPage() {
       <div className="w-full max-w-md space-y-4">
         <Card>
           <CardHeader className="text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Hammer className="h-6 w-6" />
+            <div className="mx-auto mb-3">
+              <SiteLogo size={48} className="rounded-xl" />
             </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
               KarmaBoard
