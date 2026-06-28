@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, getTursoClient, getClientIp, logActivity } from '@/lib/api-auth';
+import { notifyClient } from '@/lib/notify-client';
 
 // GET /api/projects/[id]/todos — List all todos for a project
 export async function GET(
@@ -208,27 +209,12 @@ export async function POST(
     }
 
     // Notify client if project has a linked client
-    try {
-      const projectInfo = await client.execute({
-        sql: `SELECT "clientId" FROM "Project" WHERE id = ?`,
-        args: [projectId],
-      });
-      if (projectInfo.rows[0]?.clientId) {
-        await client.execute({
-          sql: `INSERT INTO "ClientNotification" (id, "clientId", "projectId", type, message, "sentBy", "createdAt")
-                VALUES (?, ?, ?, 'UPDATE', ?, ?, datetime('now'))`,
-          args: [
-            crypto.randomUUID(),
-            projectInfo.rows[0].clientId,
-            projectId,
-            `New task added: ${title.trim()}`,
-            user.id,
-          ],
-        });
-      }
-    } catch {
-      // Non-critical
-    }
+    notifyClient({
+      projectId,
+      type: 'UPDATE',
+      message: `New task added: ${title.trim()}`,
+      sentBy: user.id,
+    });
 
     return NextResponse.json({
       success: true,

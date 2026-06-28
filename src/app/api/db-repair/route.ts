@@ -138,6 +138,9 @@ const INDEX_SQL: Record<string, string> = {
   ProjectTodo_projectId_sortOrder: `CREATE INDEX IF NOT EXISTS "ProjectTodo_projectId_sortOrder_idx" ON "ProjectTodo" ("projectId", "sortOrder")`,
   ProjectTodo_assigneeId: `CREATE INDEX IF NOT EXISTS "ProjectTodo_assigneeId_idx" ON "ProjectTodo" ("assigneeId")`,
   ProjectTodo_projectId_status: `CREATE INDEX IF NOT EXISTS "ProjectTodo_projectId_status_idx" ON "ProjectTodo" ("projectId", "status")`,
+  ClientNotification_clientId: `CREATE INDEX IF NOT EXISTS "ClientNotification_clientId_idx" ON "ClientNotification" ("clientId")`,
+  ClientNotification_projectId: `CREATE INDEX IF NOT EXISTS "ClientNotification_projectId_idx" ON "ClientNotification" ("projectId")`,
+  ClientNotification_clientId_createdAt: `CREATE INDEX IF NOT EXISTS "ClientNotification_clientId_createdAt_idx" ON "ClientNotification" ("clientId", "createdAt" DESC)`,
 };
 
 export async function POST() {

@@ -3,6 +3,7 @@ import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } fr
 import { createProjectSchema } from "@/lib/validations/project";
 import { hashPassword } from "@/lib/auth-utils";
 import { sendClientWelcomeEmail } from "@/lib/email";
+import { notifyClient } from "@/lib/notify-client";
 import { notifyNewProject, notifyUsers } from "@/lib/notify";
 
 // GET /api/projects — List all projects with search/filter/pagination
@@ -286,6 +287,16 @@ export async function POST(request: NextRequest) {
     }
     if (notifyPromises.length > 0) {
       notifyUsers(notifyPromises);
+    }
+
+    // Notify client if project is linked to one
+    if (finalClientId) {
+      notifyClient({
+        projectId: id,
+        type: 'STARTED',
+        message: `Project "${name}" has been created and assigned to you.`,
+        sentBy: user.id,
+      });
     }
 
     // Audit log

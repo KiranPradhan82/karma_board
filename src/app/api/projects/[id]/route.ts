@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from "@/lib/api-auth";
 import { updateProjectSchema } from "@/lib/validations/project";
+import { notifyClient } from "@/lib/notify-client";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -87,9 +88,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const client = getTursoClient();
     const ip = getClientIp(request);
 
-    // Check project exists
+    // Check project exists (fetch status + clientId for notification comparison)
     const existing = await client.execute({
-      sql: 'SELECT id, name FROM "Project" WHERE id = ?',
+      sql: 'SELECT id, name, status, "clientId" FROM "Project" WHERE id = ?',
       args: [id],
     });
     if (existing.rows.length === 0) {
@@ -164,6 +165,41 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       ipAddress: ip,
       tursoClient: client,
     });
+
+    // Notify client on significant changes
+    const oldStatus = existing.rows[0].status as string;
+    const hasLinkedClient = existing.rows[0].clientId as string | null;
+
+    if (hasLinkedClient) {
+      if (updates.status && updates.status !== oldStatus) {
+        if (updates.status === 'COMPLETED') {
+          notifyClient({
+            projectId: id,
+            type: 'COMPLETED',
+            message: `Project "${existing.rows[0].name}" has been marked as completed.`,
+            sentBy: user.id,
+          });
+        } else {
+          const statusLabel = updates.status.replace(/_/g, ' ').toLowerCase();
+          notifyClient({
+            projectId: id,
+            type: 'UPDATE',
+            message: `Project "${existing.rows[0].name}" status changed to ${statusLabel}.`,
+            sentBy: user.id,
+          });
+        }
+      } else if (updates.clientId !== undefined && updates.clientId !== hasLinkedClient) {
+        // Client assignment changed
+        if (updates.clientId) {
+          notifyClient({
+            projectId: id,
+            type: 'STARTED',
+            message: `Project "${existing.rows[0].name}" has been assigned to you.`,
+            sentBy: user.id,
+          });
+        }
+      }
+    }
 
     // Fetch updated project
     const updated = await client.execute({

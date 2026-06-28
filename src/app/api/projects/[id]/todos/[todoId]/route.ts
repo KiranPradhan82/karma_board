@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, getTursoClient, getClientIp, logActivity } from '@/lib/api-auth';
+import { notifyClient } from '@/lib/notify-client';
 
 // PATCH /api/projects/[id]/todos/[todoId] — Update a todo (toggle status, edit fields, reorder)
 export async function PATCH(
@@ -151,29 +152,14 @@ export async function PATCH(
       // Non-critical
     }
 
-    // Notify client if status changed to DONE or todo was completed
+    // Notify client if status changed to DONE
     if (body.status === 'DONE' && (todo.status as string) !== 'DONE') {
-      try {
-        const projectInfo = await client.execute({
-          sql: `SELECT "clientId" FROM "Project" WHERE id = ?`,
-          args: [projectId],
-        });
-        if (projectInfo.rows[0]?.clientId) {
-          await client.execute({
-            sql: `INSERT INTO "ClientNotification" (id, "clientId", "projectId", type, message, "sentBy", "createdAt")
-                  VALUES (?, ?, ?, 'COMPLETED', ?, ?, datetime('now'))`,
-            args: [
-              crypto.randomUUID(),
-              projectInfo.rows[0].clientId,
-              projectId,
-              `Task completed: ${todo.title as string}`,
-              user.id,
-            ],
-          });
-        }
-      } catch {
-        // Non-critical
-      }
+      notifyClient({
+        projectId,
+        type: 'COMPLETED',
+        message: `Task completed: ${todo.title as string}`,
+        sentBy: user.id,
+      });
     }
 
     return NextResponse.json({ success: true, message: 'Todo updated' });
