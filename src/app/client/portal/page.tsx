@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   LogOut,
   User,
@@ -23,7 +24,6 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiError } from "@/hooks/use-api-error";
-import Link from "next/link";
 
 interface ClientProject {
   id: string;
@@ -33,9 +33,8 @@ interface ClientProject {
   deadline: string | null;
   color: string | null;
   description: string | null;
-  totalTodos: number;
-  doneTodos: number;
-  completionPercent: number;
+  todoCount: number;
+  todoDone: number;
 }
 
 interface Activity {
@@ -55,11 +54,11 @@ interface Notification {
   createdAt: string;
 }
 
-const statusConfig: Record<string, { label: string; className: string; color: string }> = {
-  ACTIVE: { label: "Active", className: "bg-emerald-100 text-emerald-700", color: "bg-emerald-500" },
-  COMPLETED: { label: "Completed", className: "bg-blue-100 text-blue-700", color: "bg-blue-500" },
-  ON_HOLD: { label: "On Hold", className: "bg-yellow-100 text-yellow-700", color: "bg-yellow-500" },
-  ARCHIVED: { label: "Archived", className: "bg-gray-100 text-gray-600", color: "bg-gray-500" },
+const statusConfig: Record<string, { label: string; className: string }> = {
+  ACTIVE: { label: "Active", className: "bg-emerald-100 text-emerald-700" },
+  COMPLETED: { label: "Completed", className: "bg-blue-100 text-blue-700" },
+  ON_HOLD: { label: "On Hold", className: "bg-yellow-100 text-yellow-700" },
+  ARCHIVED: { label: "Archived", className: "bg-gray-100 text-gray-600" },
 };
 
 function getDaysRemaining(deadline: string | null, status: string) {
@@ -91,17 +90,20 @@ export default function ClientPortalPage() {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to load client data', errMsg, 'URL: /api/clients/me');
     }
-  }, [showError]);
+  }, []);
 
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch("/api/clients/me/projects");
       const data = await res.json();
       if (data.success) {
-        setProjects(data.data.projects || []);
+        setProjects(data.data.projects);
+      } else {
+        showError('Failed to load projects', data.error || 'Unknown error');
       }
-    } catch {
-      // ignore — projects are secondary
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showError('Failed to load projects', errMsg, 'URL: /api/clients/me/projects');
     }
   }, []);
 
@@ -119,7 +121,7 @@ export default function ClientPortalPage() {
       const errMsg = err instanceof Error ? err.message : String(err);
       showError('Failed to load activities', errMsg, 'URL: /api/clients/me/activities');
     }
-  }, [showError]);
+  }, []);
 
   useEffect(() => {
     if (authStatus === "authenticated") {
@@ -242,57 +244,56 @@ export default function ClientPortalPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projects.map((project) => {
                 const status = statusConfig[project.status] || statusConfig.ACTIVE;
+                const todoPercent = project.todoCount > 0 ? Math.round((project.todoDone / project.todoCount) * 100) : 0;
                 const daysRemaining = getDaysRemaining(project.deadline, project.status);
 
                 return (
-                  <Card key={project.id} className="hover:shadow-md transition-shadow" style={{ borderLeftColor: project.color || "#6366f1", borderLeftWidth: "4px" }}>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base">{project.name}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      {project.description && (
-                        <p className="text-sm text-muted-foreground line-clamp-2">{project.description}</p>
-                      )}
-
-                      <div className="flex items-center gap-2">
-                        <Badge className={status.className}>{status.label}</Badge>
-                      </div>
-
-                      {/* Todo Progress */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <ListTodo className="h-3 w-3" />
-                            Tasks
-                          </span>
-                          <span>{project.doneTodos}/{project.totalTodos} done ({project.completionPercent}%)</span>
+                  <Link key={project.id} href={`/client/projects/${project.id}`}>
+                    <Card className="hover:shadow-md transition-shadow cursor-pointer h-full" style={{ borderLeftColor: project.color || "#6366f1", borderLeftWidth: "4px" }}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between">
+                          <CardTitle className="text-base">{project.name}</CardTitle>
+                          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
                         </div>
-                        <Progress value={project.completionPercent} className="h-2" />
-                      </div>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {project.description && (
+                          <p className="text-sm text-muted-foreground line-clamp-2">{project.description}</p>
+                        )}
 
-                      {/* Deadline */}
-                      {project.deadline && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Calendar className="h-3.5 w-3.5" />
-                          <span>Deadline: {new Date(project.deadline).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
-                          {daysRemaining !== null && (
-                            <Badge variant={daysRemaining < 0 ? "destructive" : daysRemaining <= 7 ? "secondary" : "outline"} className="text-[10px] px-1.5 py-0 ml-auto">
-                              {daysRemaining < 0 ? `${Math.abs(daysRemaining)}d overdue` : `${daysRemaining}d left`}
-                            </Badge>
-                          )}
+                        <div className="flex items-center gap-2">
+                          <Badge className={status.className}>{status.label}</Badge>
                         </div>
-                      )}
 
-                      {/* View Tasks Link */}
-                      <Button variant="outline" size="sm" className="w-full" asChild>
-                        <Link href={`/client/portal/projects/${project.id}`}>
-                          <ListTodo className="h-4 w-4 mr-1.5" />
-                          View Tasks
-                          <ArrowRight className="h-4 w-4 ml-auto" />
-                        </Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
+                        {/* Todo Progress */}
+                        {project.todoCount > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <ListTodo className="h-3 w-3" />
+                                Tasks: {project.todoDone}/{project.todoCount}
+                              </span>
+                              <span>{todoPercent}%</span>
+                            </div>
+                            <Progress value={todoPercent} className="h-2" />
+                          </div>
+                        )}
+
+                        {/* Deadline */}
+                        {project.deadline && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Calendar className="h-3.5 w-3.5" />
+                            <span>Deadline: {new Date(project.deadline).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                            {daysRemaining !== null && (
+                              <Badge variant={daysRemaining < 0 ? "destructive" : daysRemaining <= 7 ? "secondary" : "outline"} className="text-[10px] px-1.5 py-0 ml-auto">
+                                {daysRemaining < 0 ? `${Math.abs(daysRemaining)}d overdue` : `${daysRemaining}d left`}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
                 );
               })}
             </div>
