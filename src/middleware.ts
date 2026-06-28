@@ -64,10 +64,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/client/portal", request.url));
     }
 
-    // Force password change for clients
+    // Force password change for clients (allow the change-password API through)
     if (
       token.mustChangePassword === true &&
-      pathname !== "/client/change-password"
+      pathname !== "/client/change-password" &&
+      !pathname.startsWith("/api/clients/me/change-password")
     ) {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json(
