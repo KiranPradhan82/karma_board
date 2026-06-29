@@ -502,7 +502,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
             <SelectContent>
               <SelectItem value="ALL">All Members</SelectItem>
               <SelectItem value="unassigned">Unassigned</SelectItem>
-              {team.map((m) => (
+              {team.filter((m) => m.userId).map((m) => (
                 <SelectItem key={m.userId} value={m.userId}>
                   {m.user.name}
                 </SelectItem>
@@ -790,7 +790,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {team.map((m) => (
+                    {team.filter((m) => m.userId).map((m) => (
                       <SelectItem key={m.userId} value={m.userId}>
                         {m.user.name} ({m.role})
                       </SelectItem>
@@ -871,7 +871,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {team.map((m) => (
+                    {team.filter((m) => m.userId).map((m) => (
                       <SelectItem key={m.userId} value={m.userId}>
                         {m.user.name}
                       </SelectItem>
