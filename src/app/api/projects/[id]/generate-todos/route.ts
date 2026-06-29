@@ -14,7 +14,7 @@ const DOC_LABELS: Record<string, string> = {
   plan: "Implementation Plan",
 };
 
-// POST /api/projects/[id]/todos/generate — Retroactively generate todos from all existing pre-coding docs
+// POST /api/projects/[id]/generate-todos — Retroactively generate todos from all existing pre-coding docs
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const user = await getAuthUser(request);
@@ -125,8 +125,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       perDocCounts[docType] = newTasks.length;
     }
 
-    // Audit log
-    await logActivity({
+    // Audit log (non-fatal)
+    logActivity({
       userId: user.id,
       action: "GENERATE_TODOS_FROM_DOCS",
       details: `Generated ${totalGenerated} tasks from ${docsResult.rows.length} documents`,
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    console.error("[POST /api/projects/[id]/todos/generate] Error:", error);
+    console.error("[POST /api/projects/[id]/generate-todos] Error:", error);
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
   }
 }

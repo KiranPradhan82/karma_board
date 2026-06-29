@@ -163,7 +163,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
   const handleGenerateFromDocs = async () => {
     setGenerating(true);
     try {
-      const res = await fetch(`/api/projects/${projectId}/todos/generate`, { method: "POST" });
+      const res = await fetch(`/api/projects/${projectId}/generate-todos`, { method: "POST" });
       const data = await res.json();
       if (data.success) {
         const { totalGenerated, documentsProcessed, perDoc } = data.data;
