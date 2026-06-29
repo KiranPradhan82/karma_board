@@ -26,6 +26,31 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const client = getTursoClient();
     const ip = getClientIp(request);
 
+    // Ensure ProjectTodo table exists (auto-create if missing)
+    await client.execute({
+      sql: `CREATE TABLE IF NOT EXISTS "ProjectTodo" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "projectId" TEXT NOT NULL,
+        "assigneeId" TEXT,
+        "title" TEXT NOT NULL,
+        "description" TEXT,
+        "status" TEXT NOT NULL DEFAULT 'PENDING',
+        "priority" TEXT NOT NULL DEFAULT 'MEDIUM',
+        "dueDate" DATETIME,
+        "sortOrder" INTEGER NOT NULL DEFAULT 0,
+        "reviewedBy" TEXT,
+        "reviewedAt" DATETIME,
+        "createdBy" TEXT NOT NULL,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL
+      )`,
+      args: [],
+    });
+    // Ensure indexes exist
+    await client.execute({ sql: `CREATE INDEX IF NOT EXISTS "ProjectTodo_projectId_sortOrder_idx" ON "ProjectTodo" ("projectId", "sortOrder")`, args: [] });
+    await client.execute({ sql: `CREATE INDEX IF NOT EXISTS "ProjectTodo_assigneeId_idx" ON "ProjectTodo" ("assigneeId")`, args: [] });
+    await client.execute({ sql: `CREATE INDEX IF NOT EXISTS "ProjectTodo_projectId_status_idx" ON "ProjectTodo" ("projectId", "status")`, args: [] });
+
     // Fetch all pre-coding documents for this project
     const docsResult = await client.execute({
       sql: `SELECT id, "docType", title, content FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,

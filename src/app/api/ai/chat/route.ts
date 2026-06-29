@@ -982,6 +982,8 @@ export async function POST(request: NextRequest) {
     const PRE_CODING_DOCS = ['prd', 'trd', 'flow', 'ux', 'schema', 'plan'];
     if (documentInfo && PRE_CODING_DOCS.includes(documentInfo.docType) && aiText && aiText.length > 500) {
       try {
+        // Ensure ProjectTodo table exists
+        await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "ProjectTodo" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "assigneeId" TEXT, "title" TEXT NOT NULL, "description" TEXT, "status" TEXT NOT NULL DEFAULT 'PENDING', "priority" TEXT NOT NULL DEFAULT 'MEDIUM', "dueDate" DATETIME, "sortOrder" INTEGER NOT NULL DEFAULT 0, "reviewedBy" TEXT, "reviewedAt" DATETIME, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`, args: [] });
         const generatedCount = await autoGenerateTodosFromDoc(client, projectId, aiText, documentInfo.docType, user.id);
         if (generatedCount > 0) {
           const docLabel = documentInfo.docType.toUpperCase();
