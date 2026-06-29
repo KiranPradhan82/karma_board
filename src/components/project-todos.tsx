@@ -139,7 +139,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
   const [addForm, setAddForm] = useState({
     title: "",
     description: "",
-    assigneeId: "",
+    assigneeId: "unassigned",
     priority: "MEDIUM",
     dueDate: "",
   });
@@ -151,7 +151,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
-    assigneeId: "",
+    assigneeId: "unassigned",
     priority: "MEDIUM",
     dueDate: "",
     status: "PENDING",
@@ -286,7 +286,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
         body: JSON.stringify({
           title: addForm.title.trim(),
           description: addForm.description.trim() || null,
-          assigneeId: addForm.assigneeId || null,
+          assigneeId: addForm.assigneeId === "unassigned" ? null : addForm.assigneeId,
           priority: addForm.priority,
           dueDate: addForm.dueDate ? new Date(addForm.dueDate).toISOString() : null,
         }),
@@ -312,7 +312,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
     setEditForm({
       title: todo.title,
       description: todo.description || "",
-      assigneeId: todo.assigneeId || "",
+      assigneeId: todo.assigneeId || "unassigned",
       priority: todo.priority,
       dueDate: todo.dueDate ? todo.dueDate.split("T")[0] : "",
       status: todo.status,
@@ -333,7 +333,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
         body: JSON.stringify({
           title: editForm.title.trim(),
           description: editForm.description.trim() || null,
-          assigneeId: editForm.assigneeId || null,
+          assigneeId: editForm.assigneeId === "unassigned" ? null : editForm.assigneeId,
           priority: editForm.priority,
           dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : null,
           status: editForm.status,
@@ -789,7 +789,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                     <SelectValue placeholder="Unassigned" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unassigned</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
                     {team.map((m) => (
                       <SelectItem key={m.userId} value={m.userId}>
                         {m.user.name} ({m.role})
@@ -870,7 +870,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                     <SelectValue placeholder="Unassigned" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unassigned</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
                     {team.map((m) => (
                       <SelectItem key={m.userId} value={m.userId}>
                         {m.user.name}
