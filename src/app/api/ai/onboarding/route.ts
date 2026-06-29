@@ -37,11 +37,12 @@ export async function POST(request: NextRequest) {
     if (type === "pdf") {
       // Store the PDF as-is
       await client.execute({
-        sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", content, "pdfData", "createdAt", "updatedAt")
-              VALUES (?, ?, 'requirements', ?, ?, datetime('now'), datetime('now'))`,
+        sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", title, content, "pdfData", version, "createdAt", "updatedAt")
+              VALUES (?, ?, 'requirements', ?, ?, ?, 1, datetime('now'), datetime('now'))`,
         args: [
           docId,
           projectId,
+          "Product Requirements (PDF)",
           "Uploaded Product Requirements Document (PDF)",
           fileData,
         ],
@@ -56,11 +57,12 @@ export async function POST(request: NextRequest) {
         console.error("[POST /api/ai/onboarding] PDF generation failed (non-fatal):", pdfErr);
       }
       await client.execute({
-        sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", content, "pdfData", "createdAt", "updatedAt")
-              VALUES (?, ?, 'requirements', ?, ?, datetime('now'), datetime('now'))`,
+        sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", title, content, "pdfData", version, "createdAt", "updatedAt")
+              VALUES (?, ?, 'requirements', ?, ?, ?, 1, datetime('now'), datetime('now'))`,
         args: [
           docId,
           projectId,
+          "Product Requirements",
           pdfContent,
           pdfBase64,
         ],
