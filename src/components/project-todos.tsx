@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   RotateCcw,
   Send,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -156,6 +157,35 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
     dueDate: "",
     status: "PENDING",
   });
+
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerateFromDocs = async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/todos/generate`, { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        const { totalGenerated, documentsProcessed, perDoc } = data.data;
+        if (totalGenerated > 0) {
+          const details = Object.entries(perDoc as Record<string, number>)
+            .filter(([, count]) => count > 0)
+            .map(([doc, count]) => `${doc.toUpperCase()}: ${count}`)
+            .join(", ");
+          toast.success(`Generated ${totalGenerated} task${totalGenerated > 1 ? "s" : ""} from ${documentsProcessed} documents`, { description: details });
+        } else {
+          toast.info("No new tasks found. All tasks from your documents already exist.");
+        }
+        fetchTodos();
+      } else {
+        toast.error(data.error || "Failed to generate tasks");
+      }
+    } catch {
+      errorToast({ error: "Failed to generate tasks from documents" });
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const fetchTodos = useCallback(async () => {
     try {
@@ -439,10 +469,16 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
           Project Todos
         </h2>
         {isAdmin && (
-          <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Task
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={handleGenerateFromDocs} disabled={generating}>
+              {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+              {generating ? "Generating..." : "Generate from Docs"}
+            </Button>
+            <Button size="sm" onClick={() => setAddOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Task
+            </Button>
+          </div>
         )}
       </div>
 

@@ -261,13 +261,14 @@ export async function GET(request: NextRequest) {
 export const maxDuration = 120;
 
 /**
- * Auto-generate todos from an Implementation Plan document.
- * Parses markdown sections to extract actionable tasks with priorities and phases.
+ * Parse tasks from a markdown document. Uses doc-type-specific patterns
+ * to extract actionable items from PRD, TRD, Flow, UX, Schema, and Plan docs.
  */
-async function autoGenerateTodosFromPlan(
+async function autoGenerateTodosFromDoc(
   dbClient: ReturnType<typeof getTursoClient>,
   projectId: string,
-  planContent: string,
+  docContent: string,
+  docType: string,
   userId: string,
 ): Promise<number> {
   // Get current max sortOrder for the project
@@ -278,11 +279,20 @@ async function autoGenerateTodosFromPlan(
   let sortOrder = Number(maxOrder.rows[0].maxOrder) + 1;
 
   const tasks: { title: string; description: string; priority: string }[] = [];
-
-  // Parse the plan markdown for task items
-  const lines = planContent.split('\n');
+  const lines = docContent.split('\n');
   let currentSection = '';
   let currentPhase = '';
+
+  // Doc-type-specific section prefixes for richer descriptions
+  const DOC_LABELS: Record<string, string> = {
+    prd: "Product Requirements",
+    trd: "Technical Requirements",
+    flow: "Application Flow",
+    ux: "UI/UX Design",
+    schema: "Database Schema",
+    plan: "Implementation Plan",
+  };
+  const docLabel = DOC_LABELS[docType] || docType.toUpperCase();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -307,35 +317,35 @@ async function autoGenerateTodosFromPlan(
 
       // Determine priority from context
       let priority = 'MEDIUM';
-      if (/\b(critical|urgent|high.?priority|must.?have|blocker)\b/i.test(taskText) ||
-          /\b(critical|urgent|high.?priority|must.?have|blocker)\b/i.test(currentSection)) {
+      if (/\b(critical|urgent|high.?priority|must.?have|blocker|p0)\b/i.test(taskText) ||
+          /\b(critical|urgent|high.?priority|must.?have|blocker|p0)\b/i.test(currentSection)) {
         priority = 'HIGH';
-      } else if (/\b(low.?priority|nice.?to.?have|optional|future)\b/i.test(taskText) ||
-                 /\b(low.?priority|nice.?to.?have|optional|future)\b/i.test(currentSection)) {
+      } else if (/\b(low.?priority|nice.?to.?have|optional|future|p[2-3])\b/i.test(taskText) ||
+                 /\b(low.?priority|nice.?to.?have|optional|future|p[2-3])\b/i.test(currentSection)) {
         priority = 'LOW';
       }
 
       // Build description from context
-      let description = '';
+      let description = `Source: ${docLabel}`;
       if (currentPhase) {
-        description += `Phase: ${currentPhase}\n`;
+        description += `\nPhase: ${currentPhase}`;
       }
       if (currentSection && currentSection !== currentPhase) {
-        description += `Section: ${currentSection}\n`;
+        description += `\nSection: ${currentSection}`;
       }
 
       // Try to grab a sub-description line (next non-empty, non-list line)
       for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
         const nextLine = lines[j].trim();
         if (nextLine && !nextLine.match(/^[-*#]/) && !nextLine.match(/^\d+\./)) {
-          description += nextLine;
+          description += `\n${nextLine}`;
           break;
         }
       }
 
       tasks.push({
         title: taskText,
-        description: description.trim() || null,
+        description: description.trim(),
         priority,
       });
     }
@@ -343,7 +353,7 @@ async function autoGenerateTodosFromPlan(
 
   if (tasks.length === 0) return 0;
 
-  // Check for existing plan-generated todos to avoid duplicates
+  // Check for existing todos to avoid duplicates
   const existingTodos = await dbClient.execute({
     sql: `SELECT title FROM "ProjectTodo" WHERE "projectId" = ?`,
     args: [projectId],
@@ -352,7 +362,7 @@ async function autoGenerateTodosFromPlan(
 
   const newTasks = tasks.filter(t => !existingTitles.has(t.title.toLowerCase()));
   if (newTasks.length === 0) {
-    console.log(`[autoGenerateTodos] All ${tasks.length} tasks already exist, skipping.`);
+    console.log(`[autoGenerateTodos] All ${tasks.length} tasks from ${docType} already exist, skipping.`);
     return 0;
   }
 
@@ -366,7 +376,7 @@ async function autoGenerateTodosFromPlan(
     });
   }
 
-  console.log(`[autoGenerateTodos] Created ${newTasks.length} tasks from plan (out of ${tasks.length} parsed, ${existingTitles.size} existing)`);
+  console.log(`[autoGenerateTodos] Created ${newTasks.length} tasks from ${docType} (out of ${tasks.length} parsed, ${existingTitles.size} existing)`);
   return newTasks.length;
 }
 
@@ -968,13 +978,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ===== Auto-generate todos from /plan document =====
-    if (documentInfo && documentInfo.docType === 'plan' && aiText && aiText.length > 500) {
+    // ===== Auto-generate todos from pre-coding documents =====
+    const PRE_CODING_DOCS = ['prd', 'trd', 'flow', 'ux', 'schema', 'plan'];
+    if (documentInfo && PRE_CODING_DOCS.includes(documentInfo.docType) && aiText && aiText.length > 500) {
       try {
-        const generatedCount = await autoGenerateTodosFromPlan(client, projectId, aiText, user.id);
+        const generatedCount = await autoGenerateTodosFromDoc(client, projectId, aiText, documentInfo.docType, user.id);
         if (generatedCount > 0) {
-          // Append a note to the AI response about generated tasks
-          aiText += `\n\n---\n✅ **Auto-generated ${generatedCount} task${generatedCount > 1 ? 's' : ''}** from this plan into the project's task board. View them in the **Tasks** tab.`;
+          const docLabel = documentInfo.docType.toUpperCase();
+          aiText += `\n\n---\n✅ **Auto-generated ${generatedCount} task${generatedCount > 1 ? 's' : ''}** from this ${docLabel} document into the project's task board. View them in the **Tasks** tab.`;
         }
       } catch (todoErr) {
         console.error("[POST /api/ai/chat] Auto-generate todos error (non-fatal):", todoErr);
