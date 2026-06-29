@@ -1,0 +1,937 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useState, useEffect, useCallback } from "react";
+     4→     4→import { useSession } from "next-auth/react";
+     5→     5→import { toast } from "sonner";
+     6→     6→import { errorToast } from "@/lib/error-toast";
+     7→     7→import {
+     8→     8→  CheckCircle2,
+     9→     9→  Circle,
+    10→    10→  Clock,
+    11→    11→  Plus,
+    12→    12→  Trash2,
+    13→    13→  Pencil,
+    14→    14→  ChevronDown,
+    15→    15→  ChevronUp,
+    16→    16→  ListTodo,
+    17→    17→  Loader2,
+    18→    18→  AlertCircle,
+    19→    19→  User,
+    20→    20→  Calendar,
+    21→    21→  MoreHorizontal,
+    22→    22→  X,
+    23→    23→  Eye,
+    24→    24→  ShieldCheck,
+    25→    25→  RotateCcw,
+    26→    26→  Send,
+    27→    27→} from "lucide-react";
+    28→    28→import { Button } from "@/components/ui/button";
+    29→    29→import { Input } from "@/components/ui/input";
+    30→    30→import { Badge } from "@/components/ui/badge";
+    31→    31→import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+    32→    32→import { Progress } from "@/components/ui/progress";
+    33→    33→import { Label } from "@/components/ui/label";
+    34→    34→import { Textarea } from "@/components/ui/textarea";
+    35→    35→import {
+    36→    36→  Select,
+    37→    37→  SelectContent,
+    38→    38→  SelectItem,
+    39→    39→  SelectTrigger,
+    40→    40→  SelectValue,
+    41→    41→} from "@/components/ui/select";
+    42→    42→import {
+    43→    43→  Dialog,
+    44→    44→  DialogContent,
+    45→    45→  DialogHeader,
+    46→    46→  DialogTitle,
+    47→    47→  DialogFooter,
+    48→    48→} from "@/components/ui/dialog";
+    49→    49→import {
+    50→    50→  DropdownMenu,
+    51→    51→  DropdownMenuContent,
+    52→    52→  DropdownMenuItem,
+    53→    53→  DropdownMenuSeparator,
+    54→    54→  DropdownMenuTrigger,
+    55→    55→} from "@/components/ui/dropdown-menu";
+    56→    56→import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+    57→    57→
+    58→    58→// ── Types ──────────────────────────────────────────────
+    59→    59→
+    60→    60→interface TodoItem {
+    61→    61→  id: string;
+    62→    62→  projectId: string;
+    63→    63→  assigneeId: string | null;
+    64→    64→  title: string;
+    65→    65→  description: string | null;
+    66→    66→  status: string;
+    67→    67→  priority: string;
+    68→    68→  dueDate: string | null;
+    69→    69→  sortOrder: number;
+    70→    70→  createdBy: string;
+    71→    71→  createdAt: string;
+    72→    72→  updatedAt: string;
+    73→    73→  assigneeName: string | null;
+    74→    74→  assigneeEmail: string | null;
+    75→    75→  assigneeAvatar: string | null;
+    76→    76→  createdByName: string | null;
+    77→    77→}
+    78→    78→
+    79→    79→interface TodoSummary {
+    80→    80→  total: number;
+    81→    81→  done: number;
+    82→    82→  inProgress: number;
+    83→    83→  pendingReview: number;
+    84→    84→  pending: number;
+    85→    85→  completionPercent: number;
+    86→    86→}
+    87→    87→
+    88→    88→interface TeamMember {
+    89→    89→  id: string;
+    90→    90→  userId: string;
+    91→    91→  role: string;
+    92→    92→  user: {
+    93→    93→    name: string;
+    94→    94→    email: string;
+    95→    95→    avatar: string | null;
+    96→    96→    jobTitle: string | null;
+    97→    97→    status: string;
+    98→    98→  };
+    99→    99→}
+   100→   100→
+   101→   101→// ── Configs ────────────────────────────────────────────
+   102→   102→
+   103→   103→const priorityConfig: Record<string, { label: string; className: string; dotColor: string }> = {
+   104→   104→  HIGH: { label: "High", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", dotColor: "bg-red-500" },
+   105→   105→  MEDIUM: { label: "Medium", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", dotColor: "bg-amber-500" },
+   106→   106→  LOW: { label: "Low", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", dotColor: "bg-green-500" },
+   107→   107→};
+   108→   108→
+   109→   109→const statusConfig: Record<string, { label: string; className: string; icon: React.ElementType }> = {
+   110→   110→  PENDING: { label: "Pending", className: "bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-400", icon: Circle },
+   111→   111→  IN_PROGRESS: { label: "In Progress", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: Clock },
+   112→   112→  PENDING_REVIEW: { label: "Pending Review", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400", icon: Eye },
+   113→   113→  COMPLETED: { label: "Completed", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400", icon: CheckCircle2 },
+   114→   114→};
+   115→   115→
+   116→   116→// ── Component ──────────────────────────────────────────
+   117→   117→
+   118→   118→interface ProjectTodosProps {
+   119→   119→  projectId: string;
+   120→   120→  team: TeamMember[];
+   121→   121→  isAdmin: boolean;
+   122→   122→  isSuperAdmin: boolean;
+   123→   123→}
+   124→   124→
+   125→   125→export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: ProjectTodosProps) {
+   126→   126→  const { data: session } = useSession();
+   127→   127→  const user = session?.user as { id?: string; role?: string } | undefined;
+   128→   128→
+   129→   129→  const [todos, setTodos] = useState<TodoItem[]>([]);
+   130→   130→  const [summary, setSummary] = useState<TodoSummary | null>(null);
+   131→   131→  const [loading, setLoading] = useState(true);
+   132→   132→  const [statusFilter, setStatusFilter] = useState("ALL");
+   133→   133→  const [assigneeFilter, setAssigneeFilter] = useState("ALL");
+   134→   134→  const [expandedTodo, setExpandedTodo] = useState<string | null>(null);
+   135→   135→
+   136→   136→  // Add todo dialog
+   137→   137→  const [addOpen, setAddOpen] = useState(false);
+   138→   138→  const [addLoading, setAddLoading] = useState(false);
+   139→   139→  const [addForm, setAddForm] = useState({
+   140→   140→    title: "",
+   141→   141→    description: "",
+   142→   142→    assigneeId: "",
+   143→   143→    priority: "MEDIUM",
+   144→   144→    dueDate: "",
+   145→   145→  });
+   146→   146→
+   147→   147→  // Edit todo dialog
+   148→   148→  const [editOpen, setEditOpen] = useState(false);
+   149→   149→  const [editLoading, setEditLoading] = useState(false);
+   150→   150→  const [editTodoId, setEditTodoId] = useState<string | null>(null);
+   151→   151→  const [editForm, setEditForm] = useState({
+   152→   152→    title: "",
+   153→   153→    description: "",
+   154→   154→    assigneeId: "",
+   155→   155→    priority: "MEDIUM",
+   156→   156→    dueDate: "",
+   157→   157→    status: "PENDING",
+   158→   158→  });
+   159→   159→
+   160→   160→  const fetchTodos = useCallback(async () => {
+   161→   161→    try {
+   162→   162→      const params = new URLSearchParams();
+   163→   163→      if (statusFilter !== "ALL") params.set("status", statusFilter);
+   164→   164→      if (assigneeFilter !== "ALL") params.set("assigneeId", assigneeFilter);
+   165→   165→
+   166→   166→      const res = await fetch(`/api/projects/${projectId}/todos?${params.toString()}`);
+   167→   167→      const data = await res.json();
+   168→   168→      if (data.success) {
+   169→   169→        setTodos(data.data.todos);
+   170→   170→        // Always fetch unfiltered summary
+   171→   171→        const summaryRes = await fetch(`/api/projects/${projectId}/todos`);
+   172→   172→        const summaryData = await summaryRes.json();
+   173→   173→        if (summaryData.success) {
+   174→   174→          setSummary(summaryData.data.summary);
+   175→   175→        }
+   176→   176→      }
+   177→   177→    } catch {
+   178→   178→      // Silently fail
+   179→   179→    } finally {
+   180→   180→      setLoading(false);
+   181→   181→    }
+   182→   182→  }, [projectId, statusFilter, assigneeFilter]);
+   183→   183→
+   184→   184→  useEffect(() => {
+   185→   185→    fetchTodos();
+   186→   186→  }, [fetchTodos]);
+   187→   187→
+   188→   188→  // ── Determine what actions a user can take on a todo ──
+   189→   189→
+   190→   190→  const getNextStatus = (todo: TodoItem): string | null => {
+   191→   191→    if (isSuperAdmin) {
+   192→   192→      // SA can move anything to COMPLETED directly
+   193→   193→      if (todo.status !== "COMPLETED") return "COMPLETED";
+   194→   194→      return null;
+   195→   195→    }
+   196→   196→
+   197→   197→    // Members: PENDING → IN_PROGRESS → PENDING_REVIEW
+   198→   198→    switch (todo.status) {
+   199→   199→      case "PENDING": return "IN_PROGRESS";
+   200→   200→      case "IN_PROGRESS": return "PENDING_REVIEW";
+   201→   201→      default: return null;
+   202→   202→    }
+   203→   203→  };
+   204→   204→
+   205→   205→  const handleToggleStatus = async (todo: TodoItem) => {
+   206→   206→    const nextStatus = getNextStatus(todo);
+   207→   207→    if (!nextStatus) return;
+   208→   208→
+   209→   209→    // Optimistic update
+   210→   210→    setTodos((prev) =>
+   211→   211→      prev.map((t) => (t.id === todo.id ? { ...t, status: nextStatus } : t))
+   212→   212→    );
+   213→   213→
+   214→   214→    try {
+   215→   215→      const res = await fetch(`/api/projects/${projectId}/todos/${todo.id}`, {
+   216→   216→        method: "PATCH",
+   217→   217→        headers: { "Content-Type": "application/json" },
+   218→   218→        body: JSON.stringify({ status: nextStatus }),
+   219→   219→      });
+   220→   220→      const data = await res.json();
+   221→   221→      if (!data.success) {
+   222→   222→        // Revert optimistic update
+   223→   223→        setTodos((prev) =>
+   224→   224→          prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
+   225→   225→        );
+   226→   226→        errorToast({ error: data.error, title: "Failed to update task" });
+   227→   227→      } else {
+   228→   228→        fetchTodos();
+   229→   229→        if (nextStatus === "COMPLETED") {
+   230→   230→          toast.success("Task completed — client notified");
+   231→   231→        } else if (nextStatus === "PENDING_REVIEW") {
+   232→   232→          toast.success("Task submitted for review");
+   233→   233→        } else {
+   234→   234→          toast.success("Task status updated");
+   235→   235→        }
+   236→   236→      }
+   237→   237→    } catch {
+   238→   238→      setTodos((prev) =>
+   239→   239→        prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
+   240→   240→      );
+   241→   241→      errorToast({ error: "Failed to update task" });
+   242→   242→    }
+   243→   243→  };
+   244→   244→
+   245→   245→  // Super admin: reject a PENDING_REVIEW task back to IN_PROGRESS
+   246→   246→  const handleRejectReview = async (todo: TodoItem) => {
+   247→   247→    setTodos((prev) =>
+   248→   248→      prev.map((t) => (t.id === todo.id ? { ...t, status: "IN_PROGRESS" } : t))
+   249→   249→    );
+   250→   250→    try {
+   251→   251→      const res = await fetch(`/api/projects/${projectId}/todos/${todo.id}`, {
+   252→   252→        method: "PATCH",
+   253→   253→        headers: { "Content-Type": "application/json" },
+   254→   254→        body: JSON.stringify({ status: "IN_PROGRESS" }),
+   255→   255→      });
+   256→   256→      const data = await res.json();
+   257→   257→      if (!data.success) {
+   258→   258→        setTodos((prev) =>
+   259→   259→          prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
+   260→   260→        );
+   261→   261→        errorToast({ error: data.error, title: "Failed to reject task" });
+   262→   262→      } else {
+   263→   263→        fetchTodos();
+   264→   264→        toast.success("Task sent back for revisions");
+   265→   265→      }
+   266→   266→    } catch {
+   267→   267→      setTodos((prev) =>
+   268→   268→        prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
+   269→   269→      );
+   270→   270→      errorToast({ error: "Failed to reject task" });
+   271→   271→    }
+   272→   272→  };
+   273→   273→
+   274→   274→  // ── Handlers ──
+   275→   275→
+   276→   276→  const handleAddTodo = async () => {
+   277→   277→    if (!addForm.title.trim()) {
+   278→   278→      toast.error("Task title is required");
+   279→   279→      return;
+   280→   280→    }
+   281→   281→    setAddLoading(true);
+   282→   282→    try {
+   283→   283→      const res = await fetch(`/api/projects/${projectId}/todos`, {
+   284→   284→        method: "POST",
+   285→   285→        headers: { "Content-Type": "application/json" },
+   286→   286→        body: JSON.stringify({
+   287→   287→          title: addForm.title.trim(),
+   288→   288→          description: addForm.description.trim() || null,
+   289→   289→          assigneeId: addForm.assigneeId || null,
+   290→   290→          priority: addForm.priority,
+   291→   291→          dueDate: addForm.dueDate ? new Date(addForm.dueDate).toISOString() : null,
+   292→   292→        }),
+   293→   293→      });
+   294→   294→      const data = await res.json();
+   295→   295→      if (data.success) {
+   296→   296→        toast.success("Task added");
+   297→   297→        setAddOpen(false);
+   298→   298→        setAddForm({ title: "", description: "", assigneeId: "", priority: "MEDIUM", dueDate: "" });
+   299→   299→        fetchTodos();
+   300→   300→      } else {
+   301→   301→        errorToast({ error: data.error, title: "Failed to add task" });
+   302→   302→      }
+   303→   303→    } catch {
+   304→   304→      errorToast({ error: "Failed to add task" });
+   305→   305→    } finally {
+   306→   306→      setAddLoading(false);
+   307→   307→    }
+   308→   308→  };
+   309→   309→
+   310→   310→  const openEditDialog = (todo: TodoItem) => {
+   311→   311→    setEditTodoId(todo.id);
+   312→   312→    setEditForm({
+   313→   313→      title: todo.title,
+   314→   314→      description: todo.description || "",
+   315→   315→      assigneeId: todo.assigneeId || "",
+   316→   316→      priority: todo.priority,
+   317→   317→      dueDate: todo.dueDate ? todo.dueDate.split("T")[0] : "",
+   318→   318→      status: todo.status,
+   319→   319→    });
+   320→   320→    setEditOpen(true);
+   321→   321→  };
+   322→   322→
+   323→   323→  const handleEditSave = async () => {
+   324→   324→    if (!editTodoId || !editForm.title.trim()) {
+   325→   325→      toast.error("Task title is required");
+   326→   326→      return;
+   327→   327→    }
+   328→   328→    setEditLoading(true);
+   329→   329→    try {
+   330→   330→      const res = await fetch(`/api/projects/${projectId}/todos/${editTodoId}`, {
+   331→   331→        method: "PATCH",
+   332→   332→        headers: { "Content-Type": "application/json" },
+   333→   333→        body: JSON.stringify({
+   334→   334→          title: editForm.title.trim(),
+   335→   335→          description: editForm.description.trim() || null,
+   336→   336→          assigneeId: editForm.assigneeId || null,
+   337→   337→          priority: editForm.priority,
+   338→   338→          dueDate: editForm.dueDate ? new Date(editForm.dueDate).toISOString() : null,
+   339→   339→          status: editForm.status,
+   340→   340→        }),
+   341→   341→      });
+   342→   342→      const data = await res.json();
+   343→   343→      if (data.success) {
+   344→   344→        toast.success("Task updated");
+   345→   345→        setEditOpen(false);
+   346→   346→        fetchTodos();
+   347→   347→      } else {
+   348→   348→        errorToast({ error: data.error, title: "Failed to update task" });
+   349→   349→      }
+   350→   350→    } catch {
+   351→   351→      errorToast({ error: "Failed to update task" });
+   352→   352→    } finally {
+   353→   353→      setEditLoading(false);
+   354→   354→    }
+   355→   355→  };
+   356→   356→
+   357→   357→  const handleDeleteTodo = async (todo: TodoItem) => {
+   358→   358→    if (!confirm(`Delete "${todo.title}"? This cannot be undone.`)) return;
+   359→   359→    try {
+   360→   360→      const res = await fetch(`/api/projects/${projectId}/todos/${todo.id}`, { method: "DELETE" });
+   361→   361→      const data = await res.json();
+   362→   362→      if (data.success) {
+   363→   363→        toast.success("Task deleted");
+   364→   364→        fetchTodos();
+   365→   365→      } else {
+   366→   366→        errorToast({ error: data.error, title: "Failed to delete task" });
+   367→   367→      }
+   368→   368→    } catch {
+   369→   369→      errorToast({ error: "Failed to delete task" });
+   370→   370→    }
+   371→   371→  };
+   372→   372→
+   373→   373→  const handleMoveTodo = async (todo: TodoItem, direction: "up" | "down") => {
+   374→   374→    const sortedTodos = [...todos].sort((a, b) => a.sortOrder - b.sortOrder);
+   375→   375→    const idx = sortedTodos.findIndex((t) => t.id === todo.id);
+   376→   376→    if (direction === "up" && idx <= 0) return;
+   377→   377→    if (direction === "down" && idx >= sortedTodos.length - 1) return;
+   378→   378→
+   379→   379→    const swapWith = direction === "up" ? sortedTodos[idx - 1] : sortedTodos[idx + 1];
+   380→   380→
+   381→   381→    // Optimistic swap
+   382→   382→    setTodos((prev) =>
+   383→   383→      prev.map((t) => {
+   384→   384→        if (t.id === todo.id) return { ...t, sortOrder: swapWith.sortOrder };
+   385→   385→        if (t.id === swapWith.id) return { ...t, sortOrder: todo.sortOrder };
+   386→   386→        return t;
+   387→   387→      })
+   388→   388→    );
+   389→   389→
+   390→   390→    try {
+   391→   391→      await fetch(`/api/projects/${projectId}/todos/${todo.id}`, {
+   392→   392→        method: "PATCH",
+   393→   393→        headers: { "Content-Type": "application/json" },
+   394→   394→        body: JSON.stringify({ sortOrder: swapWith.sortOrder }),
+   395→   395→      });
+   396→   396→      await fetch(`/api/projects/${projectId}/todos/${swapWith.id}`, {
+   397→   397→        method: "PATCH",
+   398→   398→        headers: { "Content-Type": "application/json" },
+   399→   399→        body: JSON.stringify({ sortOrder: todo.sortOrder }),
+   400→   400→      });
+   401→   401→    } catch {
+   402→   402→      // Revert
+   403→   403→      fetchTodos();
+   404→   404→    }
+   405→   405→  };
+   406→   406→
+   407→   407→  function formatDueDate(dateStr: string | null) {
+   408→   408→    if (!dateStr) return null;
+   409→   409→    try {
+   410→   410→      return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+   411→   411→    } catch {
+   412→   412→      return null;
+   413→   413→    }
+   414→   414→  }
+   415→   415→
+   416→   416→  function isOverdue(dateStr: string | null, status: string) {
+   417→   417→    if (!dateStr || status === "COMPLETED") return false;
+   418→   418→    return new Date(dateStr) < new Date();
+   419→   419→  }
+   420→   420→
+   421→   421→  // ── Render ──
+   422→   422→
+   423→   423→  const canManage = isAdmin || isSuperAdmin;
+   424→   424→  // Members can toggle status on their own assigned tasks or if they're admin/SA
+   425→   425→  const canToggle = (todo: TodoItem) => {
+   426→   426→    if (isSuperAdmin) return true;
+   427→   427→    if (isAdmin) return true;
+   428→   428→    // Regular members can toggle if it's not in PENDING_REVIEW or COMPLETED
+   429→   429→    if (todo.status === "PENDING_REVIEW" || todo.status === "COMPLETED") return false;
+   430→   430→    return canManage;
+   431→   431→  };
+   432→   432→
+   433→   433→  return (
+   434→   434→    <div>
+   435→   435→      {/* Header */}
+   436→   436→      <div className="flex items-center justify-between mb-4">
+   437→   437→        <h2 className="text-lg font-semibold flex items-center gap-2">
+   438→   438→          <ListTodo className="h-5 w-5" />
+   439→   439→          Project Todos
+   440→   440→        </h2>
+   441→   441→        {isAdmin && (
+   442→   442→          <Button size="sm" onClick={() => setAddOpen(true)}>
+   443→   443→            <Plus className="mr-2 h-4 w-4" />
+   444→   444→            Add Task
+   445→   445→          </Button>
+   446→   446→        )}
+   447→   447→      </div>
+   448→   448→
+   449→   449→      {/* Summary Progress */}
+   450→   450→      {summary && summary.total > 0 && (
+   451→   451→        <Card className="mb-4">
+   452→   452→          <CardContent className="p-4">
+   453→   453→            <div className="flex items-center justify-between mb-2">
+   454→   454→              <div className="flex items-center gap-3">
+   455→   455→                <span className="text-sm font-medium">{summary.completionPercent}% complete</span>
+   456→   456→                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+   457→   457→                  <span className="flex items-center gap-1">
+   458→   458→                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+   459→   459→                    {summary.done} done
+   460→   460→                  </span>
+   461→   461→                  <span className="flex items-center gap-1">
+   462→   462→                    <span className="h-2 w-2 rounded-full bg-orange-500" />
+   463→   463→                    {summary.pendingReview} review
+   464→   464→                  </span>
+   465→   465→                  <span className="flex items-center gap-1">
+   466→   466→                    <span className="h-2 w-2 rounded-full bg-blue-500" />
+   467→   467→                    {summary.inProgress} in progress
+   468→   468→                  </span>
+   469→   469→                  <span className="flex items-center gap-1">
+   470→   470→                    <span className="h-2 w-2 rounded-full bg-slate-400" />
+   471→   471→                    {summary.pending} pending
+   472→   472→                  </span>
+   473→   473→                </div>
+   474→   474→              </div>
+   475→   475→              <span className="text-xs text-muted-foreground">{summary.total} total</span>
+   476→   476→            </div>
+   477→   477→            <Progress value={summary.completionPercent} className="h-2" />
+   478→   478→          </CardContent>
+   479→   479→        </Card>
+   480→   480→      )}
+   481→   481→
+   482→   482→      {/* Filters */}
+   483→   483→      {summary && summary.total > 0 && (
+   484→   484→        <div className="flex flex-wrap items-center gap-2 mb-4">
+   485→   485→          <Select value={statusFilter} onValueChange={setStatusFilter}>
+   486→   486→            <SelectTrigger className="h-8 w-[140px] text-xs">
+   487→   487→              <SelectValue placeholder="Status" />
+   488→   488→            </SelectTrigger>
+   489→   489→            <SelectContent>
+   490→   490→              <SelectItem value="ALL">All Status</SelectItem>
+   491→   491→              <SelectItem value="PENDING">Pending</SelectItem>
+   492→   492→              <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+   493→   493→              <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
+   494→   494→              <SelectItem value="COMPLETED">Completed</SelectItem>
+   495→   495→            </SelectContent>
+   496→   496→          </Select>
+   497→   497→
+   498→   498→          <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+   499→   499→            <SelectTrigger className="h-8 w-[150px] text-xs">
+   500→   500→              <SelectValue placeholder="Assignee" />
+   501→   501→            </SelectTrigger>
+   502→   502→            <SelectContent>
+   503→   503→              <SelectItem value="ALL">All Members</SelectItem>
+   504→   504→              <SelectItem value="unassigned">Unassigned</SelectItem>
+   505→   505→              {team.map((m) => (
+   506→   506→                <SelectItem key={m.userId} value={m.userId}>
+   507→   507→                  {m.user.name}
+   508→   508→                </SelectItem>
+   509→   509→              ))}
+   510→   510→            </SelectContent>
+   511→   511→          </Select>
+   512→   512→
+   513→   513→          {(statusFilter !== "ALL" || assigneeFilter !== "ALL") && (
+   514→   514→            <Button
+   515→   515→              variant="ghost"
+   516→   516→              size="sm"
+   517→   517→              className="h-8 text-xs"
+   518→   518→              onClick={() => {
+   519→   519→                setStatusFilter("ALL");
+   520→   520→                setAssigneeFilter("ALL");
+   521→   521→              }}
+   522→   522→            >
+   523→   523→              <X className="mr-1 h-3 w-3" />
+   524→   524→              Clear filters
+   525→   525→            </Button>
+   526→   526→          )}
+   527→   527→        </div>
+   528→   528→      )}
+   529→   529→
+   530→   530→      {/* Loading */}
+   531→   531→      {loading && (
+   532→   532→        <Card>
+   533→   533→          <CardContent className="flex items-center justify-center py-10">
+   534→   534→            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+   535→   535→          </CardContent>
+   536→   536→        </Card>
+   537→   537→      )}
+   538→   538→
+   539→   539→      {/* Empty State */}
+   540→   540→      {!loading && todos.length === 0 && (
+   541→   541→        <Card>
+   542→   542→          <CardContent className="flex flex-col items-center py-10">
+   543→   543→            <ListTodo className="h-10 w-10 text-muted-foreground mb-3" />
+   544→   544→            <p className="text-sm text-muted-foreground mb-1">No tasks yet</p>
+   545→   545→            <p className="text-xs text-muted-foreground mb-3">
+   546→   546→              {(statusFilter !== "ALL" || assigneeFilter !== "ALL")
+   547→   547→                ? "No tasks match the current filters"
+   548→   548→                : "Create your first task to start tracking progress"}
+   549→   549→            </p>
+   550→   550→            {isAdmin && (statusFilter === "ALL" && assigneeFilter === "ALL") && (
+   551→   551→              <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+   552→   552→                <Plus className="mr-2 h-4 w-4" />
+   553→   553→                Add First Task
+   554→   554→              </Button>
+   555→   555→            )}
+   556→   556→          </CardContent>
+   557→   557→        </Card>
+   558→   558→      )}
+   559→   559→
+   560→   560→      {/* Todo List */}
+   561→   561→      {!loading && todos.length > 0 && (
+   562→   562→        <div className="space-y-2">
+   563→   563→          {todos.map((todo) => {
+   564→   564→            const priority = priorityConfig[todo.priority] || priorityConfig.MEDIUM;
+   565→   565→            const status = statusConfig[todo.status] || statusConfig.PENDING;
+   566→   566→            const StatusIcon = status.icon;
+   567→   567→            const isCompleted = todo.status === "COMPLETED";
+   568→   568→            const isPendingReview = todo.status === "PENDING_REVIEW";
+   569→   569→            const overdue = isOverdue(todo.dueDate, todo.status);
+   570→   570→            const dueDateStr = formatDueDate(todo.dueDate);
+   571→   571→            const isExpanded = expandedTodo === todo.id;
+   572→   572→            const nextStatus = getNextStatus(todo);
+   573→   573→
+   574→   574→            return (
+   575→   575→              <Card
+   576→   576→                key={todo.id}
+   577→   577→                className={`transition-all ${isCompleted ? "opacity-60" : ""} ${
+   578→   578→                  isPendingReview ? "border-orange-200 dark:border-orange-800/40" : ""
+   579→   579→                } ${
+   580→   580→                  overdue ? "border-red-200 dark:border-red-800/40" : ""
+   581→   581→                }`}
+   582→   582→              >
+   583→   583→                <CardContent className="p-3 sm:p-4">
+   584→   584→                  <div className="flex items-start gap-3">
+   585→   585→                    {/* Checkbox / Status Toggle */}
+   586→   586→                    <button
+   587→   587→                      onClick={() => canToggle(todo) && handleToggleStatus(todo)}
+   588→   588→                      className={`mt-0.5 shrink-0 transition-colors ${
+   589→   589→                        canToggle(todo) ? "cursor-pointer hover:opacity-70" : "cursor-default"
+   590→   590→                      }`}
+   591→   591→                      disabled={!canToggle(todo)}
+   592→   592→                      title={
+   593→   593→                        isSuperAdmin && !isCompleted
+   594→   594→                          ? "Click to complete directly (super admin)"
+   595→   595→                          : nextStatus
+   596→   596→                            ? `Move to ${statusConfig[nextStatus]?.label}`
+   597→   597→                            : undefined
+   598→   598→                      }
+   599→   599→                    >
+   600→   600→                      {isCompleted ? (
+   601→   601→                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+   602→   602→                      ) : isPendingReview ? (
+   603→   603→                        <Eye className="h-5 w-5 text-orange-500" />
+   604→   604→                      ) : todo.status === "IN_PROGRESS" ? (
+   605→   605→                        <Clock className="h-5 w-5 text-blue-500" />
+   606→   606→                      ) : (
+   607→   607→                        <Circle className="h-5 w-5 text-slate-300 dark:text-slate-600" />
+   608→   608→                      )}
+   609→   609→                    </button>
+   610→   610→
+   611→   611→                    {/* Content */}
+   612→   612→                    <div className="flex-1 min-w-0">
+   613→   613→                      <div className="flex items-start justify-between gap-2">
+   614→   614→                        <div className="flex-1 min-w-0">
+   615→   615→                          <p className={`text-sm font-medium leading-snug ${isCompleted ? "line-through text-muted-foreground" : ""}`}>
+   616→   616→                            {todo.title}
+   617→   617→                          </p>
+   618→   618→                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+   619→   619→                            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${priority.className}`}>
+   620→   620→                              {priority.label}
+   621→   621→                            </Badge>
+   622→   622→                            <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${status.className}`}>
+   623→   623→                              {status.label}
+   624→   624→                            </Badge>
+   625→   625→                            {isPendingReview && (
+   626→   626→                              <span className="text-[10px] text-orange-600 dark:text-orange-400 flex items-center gap-0.5">
+   627→   627→                                <ShieldCheck className="h-3 w-3" />
+   628→   628→                                Awaiting review
+   629→   629→                              </span>
+   630→   630→                            )}
+   631→   631→                            {todo.assigneeName && (
+   632→   632→                              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+   633→   633→                                <User className="h-3 w-3" />
+   634→   634→                                {todo.assigneeName}
+   635→   635→                              </span>
+   636→   636→                            )}
+   637→   637→                            {dueDateStr && (
+   638→   638→                              <span className={`text-[11px] flex items-center gap-1 ${overdue ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+   639→   639→                                <Calendar className="h-3 w-3" />
+   640→   640→                                {overdue && <AlertCircle className="h-3 w-3" />}
+   641→   641→                                {dueDateStr}
+   642→   642→                              </span>
+   643→   643→                            )}
+   644→   644→                          </div>
+   645→   645→                        </div>
+   646→   646→
+   647→   647→                        {/* Actions */}
+   648→   648→                        {canManage && (
+   649→   649→                          <DropdownMenu>
+   650→   650→                            <DropdownMenuTrigger asChild>
+   651→   651→                              <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+   652→   652→                                <MoreHorizontal className="h-4 w-4" />
+   653→   653→                              </Button>
+   654→   654→                            </DropdownMenuTrigger>
+   655→   655→                            <DropdownMenuContent align="end">
+   656→   656→                              {/* Status transitions */}
+   657→   657→                              {!isCompleted && nextStatus && (
+   658→   658→                                <DropdownMenuItem onClick={() => handleToggleStatus(todo)}>
+   659→   659→                                  {isSuperAdmin ? (
+   660→   660→                                    <>
+   661→   661→                                      <ShieldCheck className="mr-2 h-4 w-4 text-emerald-600" />
+   662→   662→                                      Complete (SA Direct)
+   663→   663→                                    </>
+   664→   664→                                  ) : (
+   665→   665→                                    <>
+   666→   666→                                      {nextStatus === "PENDING_REVIEW" ? (
+   667→   667→                                        <>
+   668→   668→                                          <Send className="mr-2 h-4 w-4 text-orange-500" />
+   669→   669→                                          Submit for Review
+   670→   670→                                        </>
+   671→   671→                                      ) : (
+   672→   672→                                        <>
+   673→   673→                                          <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
+   674→   674→                                          Mark as {nextStatus === "IN_PROGRESS" ? "In Progress" : "Done"}
+   675→   675→                                        </>
+   676→   676→                                      )}
+   677→   677→                                    </>
+   678→   678→                                  )}
+   679→   679→                                </DropdownMenuItem>
+   680→   680→                              )}
+   681→   681→
+   682→   682→                              {/* SA: Reject PENDING_REVIEW back to IN_PROGRESS */}
+   683→   683→                              {isSuperAdmin && isPendingReview && (
+   684→   684→                                <DropdownMenuItem onClick={() => handleRejectReview(todo)}>
+   685→   685→                                  <RotateCcw className="mr-2 h-4 w-4 text-blue-500" />
+   686→   686→                                  Send Back for Revisions
+   687→   687→                                </DropdownMenuItem>
+   688→   688→                              )}
+   689→   689→
+   690→   690→                              <DropdownMenuItem onClick={() => openEditDialog(todo)}>
+   691→   691→                                <Pencil className="mr-2 h-4 w-4" />
+   692→   692→                                Edit
+   693→   693→                              </DropdownMenuItem>
+   694→   694→                              <DropdownMenuSeparator />
+   695→   695→                              <DropdownMenuItem
+   696→   696→                                onClick={() => handleMoveTodo(todo, "up")}
+   697→   697→                                disabled={todos[0]?.id === todo.id}
+   698→   698→                              >
+   699→   699→                                <ChevronUp className="mr-2 h-4 w-4" />
+   700→   700→                                Move Up
+   701→   701→                              </DropdownMenuItem>
+   702→   702→                              <DropdownMenuItem
+   703→   703→                                onClick={() => handleMoveTodo(todo, "down")}
+   704→   704→                                disabled={todos[todos.length - 1]?.id === todo.id}
+   705→   705→                              >
+   706→   706→                                <ChevronDown className="mr-2 h-4 w-4" />
+   707→   707→                                Move Down
+   708→   708→                              </DropdownMenuItem>
+   709→   709→                              <DropdownMenuSeparator />
+   710→   710→                              {isSuperAdmin && (
+   711→   711→                                <DropdownMenuItem
+   712→   712→                                  className="text-destructive"
+   713→   713→                                  onClick={() => handleDeleteTodo(todo)}
+   714→   714→                                >
+   715→   715→                                  <Trash2 className="mr-2 h-4 w-4" />
+   716→   716→                                  Delete
+   717→   717→                                </DropdownMenuItem>
+   718→   718→                              )}
+   719→   719→                            </DropdownMenuContent>
+   720→   720→                          </DropdownMenu>
+   721→   721→                        )}
+   722→   722→                      </div>
+   723→   723→
+   724→   724→                      {/* Expandable Description */}
+   725→   725→                      {todo.description && (
+   726→   726→                        <button
+   727→   727→                          onClick={() => setExpandedTodo(isExpanded ? null : todo.id)}
+   728→   728→                          className="text-xs text-muted-foreground hover:text-foreground mt-2 flex items-center gap-1"
+   729→   729→                        >
+   730→   730→                          {isExpanded ? (
+   731→   731→                            <>
+   732→   732→                              <ChevronUp className="h-3 w-3" />
+   733→   733→                              Hide details
+   734→   734→                            </>
+   735→   735→                          ) : (
+   736→   736→                            <>
+   737→   737→                              <ChevronDown className="h-3 w-3" />
+   738→   738→                              Show details
+   739→   739→                            </>
+   740→   740→                          )}
+   741→   741→                        </button>
+   742→   742→                      )}
+   743→   743→                      {isExpanded && todo.description && (
+   744→   744→                        <p className="text-sm text-muted-foreground mt-2 bg-muted/50 rounded-md p-3 whitespace-pre-wrap">
+   745→   745→                          {todo.description}
+   746→   746→                        </p>
+   747→   747→                      )}
+   748→   748→                    </div>
+   749→   749→                  </div>
+   750→   750→                </CardContent>
+   751→   751→              </Card>
+   752→   752→            );
+   753→   753→          })}
+   754→   754→        </div>
+   755→   755→      )}
+   756→   756→
+   757→   757→      {/* Add Todo Dialog */}
+   758→   758→      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+   759→   759→        <DialogContent className="sm:max-w-[500px]">
+   760→   760→          <DialogHeader>
+   761→   761→            <DialogTitle>Add Task</DialogTitle>
+   762→   762→          </DialogHeader>
+   763→   763→          <div className="grid gap-4 py-4">
+   764→   764→            <div className="grid gap-2">
+   765→   765→              <Label htmlFor="add-title">Task Title *</Label>
+   766→   766→              <Input
+   767→   767→                id="add-title"
+   768→   768→                placeholder="e.g., Design homepage mockup"
+   769→   769→                value={addForm.title}
+   770→   770→                onChange={(e) => setAddForm({ ...addForm, title: e.target.value })}
+   771→   771→                onKeyDown={(e) => e.key === "Enter" && !addLoading && handleAddTodo()}
+   772→   772→              />
+   773→   773→            </div>
+   774→   774→            <div className="grid gap-2">
+   775→   775→              <Label htmlFor="add-desc">Description</Label>
+   776→   776→              <Textarea
+   777→   777→                id="add-desc"
+   778→   778→                placeholder="Detailed description of the task..."
+   779→   779→                value={addForm.description}
+   780→   780→                onChange={(e) => setAddForm({ ...addForm, description: e.target.value })}
+   781→   781→                rows={3}
+   782→   782→              />
+   783→   783→            </div>
+   784→   784→            <div className="grid grid-cols-2 gap-4">
+   785→   785→              <div className="grid gap-2">
+   786→   786→                <Label htmlFor="add-assignee">Assign To</Label>
+   787→   787→                <Select value={addForm.assigneeId} onValueChange={(v) => setAddForm({ ...addForm, assigneeId: v })}>
+   788→   788→                  <SelectTrigger id="add-assignee">
+   789→   789→                    <SelectValue placeholder="Unassigned" />
+   790→   790→                  </SelectTrigger>
+   791→   791→                  <SelectContent>
+   792→   792→                    <SelectItem value="">Unassigned</SelectItem>
+   793→   793→                    {team.map((m) => (
+   794→   794→                      <SelectItem key={m.userId} value={m.userId}>
+   795→   795→                        {m.user.name} ({m.role})
+   796→   796→                      </SelectItem>
+   797→   797→                    ))}
+   798→   798→                  </SelectContent>
+   799→   799→                </Select>
+   800→   800→              </div>
+   801→   801→              <div className="grid gap-2">
+   802→   802→                <Label htmlFor="add-priority">Priority</Label>
+   803→   803→                <Select value={addForm.priority} onValueChange={(v) => setAddForm({ ...addForm, priority: v })}>
+   804→   804→                  <SelectTrigger id="add-priority">
+   805→   805→                    <SelectValue />
+   806→   806→                  </SelectTrigger>
+   807→   807→                  <SelectContent>
+   808→   808→                    <SelectItem value="HIGH">High</SelectItem>
+   809→   809→                    <SelectItem value="MEDIUM">Medium</SelectItem>
+   810→   810→                    <SelectItem value="LOW">Low</SelectItem>
+   811→   811→                  </SelectContent>
+   812→   812→                </Select>
+   813→   813→              </div>
+   814→   814→            </div>
+   815→   815→            <div className="grid gap-2">
+   816→   816→              <Label htmlFor="add-due">Due Date</Label>
+   817→   817→              <Input
+   818→   818→                id="add-due"
+   819→   819→                type="date"
+   820→   820→                value={addForm.dueDate}
+   821→   821→                onChange={(e) => setAddForm({ ...addForm, dueDate: e.target.value })}
+   822→   822→              />
+   823→   823→            </div>
+   824→   824→          </div>
+   825→   825→          <DialogFooter>
+   826→   826→            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+   827→   827→            <Button onClick={handleAddTodo} disabled={addLoading || !addForm.title.trim()}>
+   828→   828→              {addLoading ? (
+   829→   829→                <>
+   830→   830→                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   831→   831→                  Adding...
+   832→   832→                </>
+   833→   833→              ) : (
+   834→   834→                "Add Task"
+   835→   835→              )}
+   836→   836→            </Button>
+   837→   837→          </DialogFooter>
+   838→   838→        </DialogContent>
+   839→   839→      </Dialog>
+   840→   840→
+   841→   841→      {/* Edit Todo Dialog */}
+   842→   842→      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+   843→   843→        <DialogContent className="sm:max-w-[500px]">
+   844→   844→          <DialogHeader>
+   845→   845→            <DialogTitle>Edit Task</DialogTitle>
+   846→   846→          </DialogHeader>
+   847→   847→          <div className="grid gap-4 py-4">
+   848→   848→            <div className="grid gap-2">
+   849→   849→              <Label htmlFor="edit-title">Task Title *</Label>
+   850→   850→              <Input
+   851→   851→                id="edit-title"
+   852→   852→                value={editForm.title}
+   853→   853→                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+   854→   854→              />
+   855→   855→            </div>
+   856→   856→            <div className="grid gap-2">
+   857→   857→              <Label htmlFor="edit-desc">Description</Label>
+   858→   858→              <Textarea
+   859→   859→                id="edit-desc"
+   860→   860→                value={editForm.description}
+   861→   861→                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+   862→   862→                rows={3}
+   863→   863→              />
+   864→   864→            </div>
+   865→   865→            <div className="grid grid-cols-3 gap-4">
+   866→   866→              <div className="grid gap-2">
+   867→   867→                <Label htmlFor="edit-assignee">Assign To</Label>
+   868→   868→                <Select value={editForm.assigneeId} onValueChange={(v) => setEditForm({ ...editForm, assigneeId: v })}>
+   869→   869→                  <SelectTrigger id="edit-assignee">
+   870→   870→                    <SelectValue placeholder="Unassigned" />
+   871→   871→                  </SelectTrigger>
+   872→   872→                  <SelectContent>
+   873→   873→                    <SelectItem value="">Unassigned</SelectItem>
+   874→   874→                    {team.map((m) => (
+   875→   875→                      <SelectItem key={m.userId} value={m.userId}>
+   876→   876→                        {m.user.name}
+   877→   877→                      </SelectItem>
+   878→   878→                    ))}
+   879→   879→                  </SelectContent>
+   880→   880→                </Select>
+   881→   881→              </div>
+   882→   882→              <div className="grid gap-2">
+   883→   883→                <Label htmlFor="edit-priority">Priority</Label>
+   884→   884→                <Select value={editForm.priority} onValueChange={(v) => setEditForm({ ...editForm, priority: v })}>
+   885→   885→                  <SelectTrigger id="edit-priority">
+   886→   886→                    <SelectValue />
+   887→   887→                  </SelectTrigger>
+   888→   888→                  <SelectContent>
+   889→   889→                    <SelectItem value="HIGH">High</SelectItem>
+   890→   890→                    <SelectItem value="MEDIUM">Medium</SelectItem>
+   891→   891→                    <SelectItem value="LOW">Low</SelectItem>
+   892→   892→                  </SelectContent>
+   893→   893→                </Select>
+   894→   894→              </div>
+   895→   895→              <div className="grid gap-2">
+   896→   896→                <Label htmlFor="edit-status">Status</Label>
+   897→   897→                <Select value={editForm.status} onValueChange={(v) => setEditForm({ ...editForm, status: v })}>
+   898→   898→                  <SelectTrigger id="edit-status">
+   899→   899→                    <SelectValue />
+   900→   900→                  </SelectTrigger>
+   901→   901→                  <SelectContent>
+   902→   902→                    <SelectItem value="PENDING">Pending</SelectItem>
+   903→   903→                    <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+   904→   904→                    <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
+   905→   905→                    <SelectItem value="COMPLETED">Completed</SelectItem>
+   906→   906→                  </SelectContent>
+   907→   907→                </Select>
+   908→   908→              </div>
+   909→   909→            </div>
+   910→   910→            <div className="grid gap-2">
+   911→   911→              <Label htmlFor="edit-due">Due Date</Label>
+   912→   912→              <Input
+   913→   913→                id="edit-due"
+   914→   914→                type="date"
+   915→   915→                value={editForm.dueDate}
+   916→   916→                onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
+   917→   917→              />
+   918→   918→            </div>
+   919→   919→          </div>
+   920→   920→          <DialogFooter>
+   921→   921→            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+   922→   922→            <Button onClick={handleEditSave} disabled={editLoading || !editForm.title.trim()}>
+   923→   923→              {editLoading ? (
+   924→   924→                <>
+   925→   925→                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+   926→   926→                  Saving...
+   927→   927→                </>
+   928→   928→              ) : (
+   929→   929→                "Save Changes"
+   930→   930→              )}
+   931→   931→            </Button>
+   932→   932→          </DialogFooter>
+   933→   933→        </DialogContent>
+   934→   934→      </Dialog>
+   935→   935→    </div>
+   936→   936→  );
+   937→   937→}
