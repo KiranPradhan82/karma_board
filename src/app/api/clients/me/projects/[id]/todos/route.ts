@@ -40,9 +40,11 @@ export async function GET(
             WHERE t."projectId" = ?
             ORDER BY
               CASE t.status
-                WHEN 'IN_PROGRESS' THEN 0
-                WHEN 'PENDING' THEN 1
-                WHEN 'DONE' THEN 2
+                WHEN 'PENDING_REVIEW' THEN 0
+                WHEN 'IN_PROGRESS' THEN 1
+                WHEN 'PENDING' THEN 2
+                WHEN 'DONE' THEN 3
+                WHEN 'COMPLETED' THEN 3
               END,
               CASE t.priority
                 WHEN 'HIGH' THEN 0
@@ -58,8 +60,9 @@ export async function GET(
     const summaryResult = await client.execute({
       sql: `SELECT
               COUNT(*) as total,
-              SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) as done,
+              SUM(CASE WHEN status IN ('DONE', 'COMPLETED') THEN 1 ELSE 0 END) as done,
               SUM(CASE WHEN status = 'IN_PROGRESS' THEN 1 ELSE 0 END) as inProgress,
+              SUM(CASE WHEN status = 'PENDING_REVIEW' THEN 1 ELSE 0 END) as pendingReview,
               SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending
             FROM "ProjectTodo" WHERE "projectId" = ?`,
       args: [projectId],
@@ -100,6 +103,7 @@ export async function GET(
           total: totalTodos,
           done: doneTodos,
           inProgress: inProgressTodos,
+          pendingReview: Number(summary.pendingReview),
           pending: pendingTodos,
           completionPercent: totalTodos > 0 ? Math.round((doneTodos / totalTodos) * 100) : 0,
         },

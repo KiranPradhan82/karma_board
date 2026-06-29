@@ -66,7 +66,8 @@ export async function GET(
     const summaryResult = await client.execute({
       sql: `SELECT
               COUNT(*) as total,
-              SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END) as done,
+              SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as done,
+              SUM(CASE WHEN status = 'PENDING_REVIEW' THEN 1 ELSE 0 END) as pendingReview,
               SUM(CASE WHEN status = 'IN_PROGRESS' THEN 1 ELSE 0 END) as inProgress,
               SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending
             FROM "ProjectTodo" WHERE "projectId" = ?`,
@@ -76,6 +77,7 @@ export async function GET(
     const summary = summaryResult.rows[0];
     const totalTodos = Number(summary.total);
     const doneTodos = Number(summary.done);
+    const pendingReviewTodos = Number(summary.pendingReview);
     const inProgressTodos = Number(summary.inProgress);
     const pendingTodos = Number(summary.pending);
 
@@ -106,6 +108,7 @@ export async function GET(
           total: totalTodos,
           done: doneTodos,
           inProgress: inProgressTodos,
+          pendingReview: pendingReviewTodos,
           pending: pendingTodos,
           completionPercent: totalTodos > 0 ? Math.round((doneTodos / totalTodos) * 100) : 0,
         },

@@ -185,6 +185,8 @@ model ProjectTodo {
   priority    String    @default("MEDIUM")
   dueDate     DateTime?
   sortOrder   Int       @default(0)
+  reviewedBy  String?
+  reviewedAt  DateTime?
   createdBy   String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime
@@ -192,6 +194,7 @@ model ProjectTodo {
   Project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   Assignee User?    @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   Creator  User     @relation("TodoCreator", fields: [createdBy], references: [id])
+  Reviewer User?    @relation("TodoReviewer", fields: [reviewedBy], references: [id])
 
   @@index([projectId, sortOrder])
   @@index([assigneeId])
@@ -255,5 +258,6 @@ model User {
   ProjectMember      ProjectMember[]
   ProjectTodo        ProjectTodo[]  @relation("TodoCreator")
   ProjectTodoAssign  ProjectTodo[]  @relation("TodoAssignee")
+  ProjectTodoReview  ProjectTodo[]  @relation("TodoReviewer")
   UserSession        UserSession[]
 }

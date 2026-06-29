@@ -32,6 +32,10 @@ const COLUMN_DEFS: Record<string, Record<string, { type: string; default: string
     removedAt: { type: "DATETIME", default: null },
     assignedBy: { type: "TEXT", default: null },
   },
+  ProjectTodo: {
+    reviewedBy: { type: "TEXT", default: null },
+    reviewedAt: { type: "DATETIME", default: null },
+  },
 };
 
 // Table creation SQL for missing tables (simplified — full CREATE TABLE statements)

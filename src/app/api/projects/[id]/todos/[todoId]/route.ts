@@ -2,6 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, getTursoClient, getClientIp, logActivity } from '@/lib/api-auth';
 import { notifyClient } from '@/lib/notify-client';
 
+/**
+ * Todo status workflow:
+ *
+ *   PENDING ──▶ IN_PROGRESS ──▶ PENDING_REVIEW ──▶ COMPLETED
+ *      ▲              │                   │               │
+ *      └──────────────┘                   │               │
+ *             (member/SA)                 │               │
+ *                                         │               │
+ *                              SA confirms ─┘               │
+ *                                         │               │
+ *                              SA rejects ──┘───▶ IN_PROGRESS
+ *                                         │
+ *                              SA direct: any ──▶ COMPLETED (no review needed)
+ *
+ * - Members can: PENDING→IN_PROGRESS, IN_PROGRESS→PENDING_REVIEW, IN_PROGRESS→PENDING
+ * - ADMIN/SUPERADMIN can transition any direction
+ * - Only SUPERADMIN can confirm (PENDING_REVIEW→COMPLETED) or directly mark COMPLETED
+ * - Client notification sent ONLY when status reaches COMPLETED
+ */
+
+const VALID_STATUSES = ['PENDING', 'IN_PROGRESS', 'PENDING_REVIEW', 'COMPLETED'];
+
+// Allowed transitions for non-SUPERADMIN users
+const MEMBER_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ['IN_PROGRESS'],
+  IN_PROGRESS: ['PENDING', 'PENDING_REVIEW'],
+  PENDING_REVIEW: [], // Only SUPERADMIN can act on PENDING_REVIEW
+  COMPLETED: [],      // Terminal state
+};
+
 // PATCH /api/projects/[id]/todos/[todoId] — Update a todo (toggle status, edit fields, reorder)
 export async function PATCH(
   request: NextRequest,
@@ -42,6 +72,7 @@ export async function PATCH(
 
     const todo = existing.rows[0];
     const body = await request.json();
+    const isSuperAdmin = user.role === 'SUPERADMIN';
 
     // Validate assignee (if provided and changed)
     if (body.assigneeId !== undefined && body.assigneeId !== todo.assigneeId) {
@@ -62,10 +93,47 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: 'Invalid priority' }, { status: 400 });
     }
 
-    // Validate status
-    const validStatuses = ['PENDING', 'IN_PROGRESS', 'DONE'];
-    if (body.status !== undefined && !validStatuses.includes(body.status)) {
-      return NextResponse.json({ success: false, error: 'Invalid status' }, { status: 400 });
+    // Validate status and enforce transition rules
+    let newStatus: string | undefined;
+    if (body.status !== undefined) {
+      if (!VALID_STATUSES.includes(body.status)) {
+        return NextResponse.json({ success: false, error: 'Invalid status' }, { status: 400 });
+      }
+
+      const currentStatus = todo.status as string;
+
+      if (body.status !== currentStatus) {
+        if (!isSuperAdmin) {
+          // Non-SUPERADMIN: check allowed transitions
+          const allowed = MEMBER_TRANSITIONS[currentStatus] || [];
+          if (!allowed.includes(body.status)) {
+            if (currentStatus === 'PENDING_REVIEW') {
+              return NextResponse.json(
+                { success: false, error: 'This task is pending review. Only a super admin can confirm or reject it.' },
+                { status: 403 }
+              );
+            }
+            if (currentStatus === 'COMPLETED') {
+              return NextResponse.json(
+                { success: false, error: 'Completed tasks cannot be reopened by members. Contact a super admin.' },
+                { status: 403 }
+              );
+            }
+            return NextResponse.json(
+              { success: false, error: `Cannot transition from ${currentStatus} to ${body.status}` },
+              { status: 400 }
+            );
+          }
+        }
+
+        // SUPERADMIN: all transitions allowed, but track review metadata
+        if (body.status === 'COMPLETED' && currentStatus !== 'PENDING_REVIEW') {
+          // Direct completion by SUPERADMIN (bypassing review)
+          body._directComplete = true;
+        }
+      }
+
+      newStatus = body.status;
     }
 
     // Build SET clause dynamically
@@ -112,16 +180,34 @@ export async function PATCH(
       args.push(body.sortOrder);
     }
 
-    if (body.status !== undefined) {
+    if (newStatus !== undefined) {
       setClauses.push('status = ?');
-      args.push(body.status);
-      if (body.status !== (todo.status as string)) {
-        const statusLabels: Record<string, string> = {
-          PENDING: 'Pending',
-          IN_PROGRESS: 'In Progress',
-          DONE: 'Done',
-        };
-        detailsParts.push(`status changed to ${statusLabels[body.status]}`);
+      args.push(newStatus);
+
+      const statusLabels: Record<string, string> = {
+        PENDING: 'Pending',
+        IN_PROGRESS: 'In Progress',
+        PENDING_REVIEW: 'Pending Review',
+        COMPLETED: 'Completed',
+      };
+      detailsParts.push(`status changed to ${statusLabels[newStatus]}`);
+
+      // Track review metadata when reaching COMPLETED
+      if (newStatus === 'COMPLETED') {
+        setClauses.push('"reviewedBy" = ?');
+        args.push(user.id);
+        setClauses.push('"reviewedAt" = datetime(\'now\')');
+      }
+
+      // Clear review metadata if reverting from COMPLETED or PENDING_REVIEW
+      if (newStatus !== 'COMPLETED' && (todo.status as string) === 'COMPLETED') {
+        setClauses.push('"reviewedBy" = NULL');
+        setClauses.push('"reviewedAt" = NULL');
+      }
+      if (newStatus === 'IN_PROGRESS' && (todo.status as string) === 'PENDING_REVIEW') {
+        // Rejected by super admin — clear review metadata
+        setClauses.push('"reviewedBy" = NULL');
+        setClauses.push('"reviewedAt" = NULL');
       }
     }
 
@@ -138,7 +224,14 @@ export async function PATCH(
 
     // Log activity
     try {
-      const actionType = body.status === 'DONE' ? 'COMPLETE_TODO' : 'UPDATE_TODO';
+      let actionType = 'UPDATE_TODO';
+      if (newStatus === 'COMPLETED') {
+        actionType = 'COMPLETE_TODO';
+      } else if (newStatus === 'PENDING_REVIEW') {
+        actionType = 'SUBMIT_TODO_FOR_REVIEW';
+      } else if (newStatus === 'IN_PROGRESS' && (todo.status as string) === 'PENDING_REVIEW') {
+        actionType = 'REJECT_TODO_REVIEW';
+      }
       await logActivity({
         userId: user.id,
         action: actionType,
@@ -152,12 +245,17 @@ export async function PATCH(
       // Non-critical
     }
 
-    // Notify client if status changed to DONE
-    if (body.status === 'DONE' && (todo.status as string) !== 'DONE') {
+    // Notify client ONLY when status reaches COMPLETED
+    if (newStatus === 'COMPLETED' && (todo.status as string) !== 'COMPLETED') {
+      const directBySA = isSuperAdmin && (todo.status as string) !== 'PENDING_REVIEW';
+      const message = directBySA
+        ? `Task completed: ${todo.title as string}`
+        : `Task completed (reviewed): ${todo.title as string}`;
+
       notifyClient({
         projectId,
         type: 'COMPLETED',
-        message: `Task completed: ${todo.title as string}`,
+        message,
         sentBy: user.id,
       });
     }

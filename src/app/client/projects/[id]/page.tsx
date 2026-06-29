@@ -19,6 +19,7 @@ import {
   Calendar,
   User,
   AlertCircle,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,12 +64,16 @@ const priorityConfig: Record<string, { label: string; className: string }> = {
 const statusIconMap: Record<string, { icon: React.ElementType; className: string }> = {
   PENDING: { icon: Circle, className: "text-slate-300 dark:text-slate-600" },
   IN_PROGRESS: { icon: Clock, className: "text-blue-500" },
+  PENDING_REVIEW: { icon: Eye, className: "text-orange-500" },
+  COMPLETED: { icon: CheckCircle2, className: "text-emerald-500" },
   DONE: { icon: CheckCircle2, className: "text-emerald-500" },
 };
 
 const statusLabels: Record<string, string> = {
   PENDING: "Pending",
   IN_PROGRESS: "In Progress",
+  PENDING_REVIEW: "Pending Review",
+  COMPLETED: "Completed",
   DONE: "Done",
 };
 
@@ -152,7 +157,7 @@ export default function ClientProjectDetailPage() {
   }
 
   function isOverdue(dateStr: string | null, status: string) {
-    if (!dateStr || status === "DONE") return false;
+    if (!dateStr || status === "DONE" || status === "COMPLETED") return false;
     return new Date(dateStr) < new Date();
   }
 
@@ -315,7 +320,8 @@ export default function ClientProjectDetailPage() {
                 <SelectItem value="ALL">All Status</SelectItem>
                 <SelectItem value="PENDING">Pending</SelectItem>
                 <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                <SelectItem value="DONE">Done</SelectItem>
+                <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
+                <SelectItem value="COMPLETED">Completed</SelectItem>
               </SelectContent>
             </Select>
             <span className="text-xs text-muted-foreground">
@@ -352,7 +358,7 @@ export default function ClientProjectDetailPage() {
               const priority = priorityConfig[todo.priority] || priorityConfig.MEDIUM;
               const statusIcon = statusIconMap[todo.status] || statusIconMap.PENDING;
               const StatusIcon = statusIcon.icon;
-              const isDone = todo.status === "DONE";
+              const isDone = todo.status === "DONE" || todo.status === "COMPLETED";
               const overdue = isOverdue(todo.dueDate, todo.status);
               const dueDateStr = formatDueDate(todo.dueDate);
 
@@ -380,8 +386,9 @@ export default function ClientProjectDetailPage() {
                             {priority.label}
                           </Badge>
                           <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${
-                            todo.status === 'DONE' ? 'bg-emerald-100 text-emerald-700' :
+                            todo.status === 'DONE' || todo.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' :
                             todo.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
+                            todo.status === 'PENDING_REVIEW' ? 'bg-orange-100 text-orange-700' :
                             'bg-slate-100 text-slate-600'
                           }`}>
                             {statusLabels[todo.status] || todo.status}

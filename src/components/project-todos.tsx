@@ -20,13 +20,16 @@ import {
   Calendar,
   MoreHorizontal,
   X,
+  Eye,
+  ShieldCheck,
+  RotateCcw,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -77,6 +80,7 @@ interface TodoSummary {
   total: number;
   done: number;
   inProgress: number;
+  pendingReview: number;
   pending: number;
   completionPercent: number;
 }
@@ -102,10 +106,11 @@ const priorityConfig: Record<string, { label: string; className: string; dotColo
   LOW: { label: "Low", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", dotColor: "bg-green-500" },
 };
 
-const statusConfig: Record<string, { label: string; className: string; icon: React.ElementType; nextStatus?: string }> = {
-  PENDING: { label: "Pending", className: "bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-400", icon: Circle, nextStatus: "IN_PROGRESS" },
-  IN_PROGRESS: { label: "In Progress", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: Clock, nextStatus: "DONE" },
-  DONE: { label: "Done", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400", icon: CheckCircle2, nextStatus: undefined },
+const statusConfig: Record<string, { label: string; className: string; icon: React.ElementType }> = {
+  PENDING: { label: "Pending", className: "bg-slate-100 text-slate-600 dark:bg-slate-800/50 dark:text-slate-400", icon: Circle },
+  IN_PROGRESS: { label: "In Progress", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", icon: Clock },
+  PENDING_REVIEW: { label: "Pending Review", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400", icon: Eye },
+  COMPLETED: { label: "Completed", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400", icon: CheckCircle2 },
 };
 
 // ── Component ──────────────────────────────────────────
@@ -161,7 +166,6 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
       const res = await fetch(`/api/projects/${projectId}/todos?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
-        // If we have filters, we still need the unfiltered summary
         setTodos(data.data.todos);
         // Always fetch unfiltered summary
         const summaryRes = await fetch(`/api/projects/${projectId}/todos`);
@@ -181,11 +185,26 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
     fetchTodos();
   }, [fetchTodos]);
 
-  // ── Handlers ──
+  // ── Determine what actions a user can take on a todo ──
+
+  const getNextStatus = (todo: TodoItem): string | null => {
+    if (isSuperAdmin) {
+      // SA can move anything to COMPLETED directly
+      if (todo.status !== "COMPLETED") return "COMPLETED";
+      return null;
+    }
+
+    // Members: PENDING → IN_PROGRESS → PENDING_REVIEW
+    switch (todo.status) {
+      case "PENDING": return "IN_PROGRESS";
+      case "IN_PROGRESS": return "PENDING_REVIEW";
+      default: return null;
+    }
+  };
 
   const handleToggleStatus = async (todo: TodoItem) => {
-    const nextStatus = statusConfig[todo.status]?.nextStatus;
-    if (!nextStatus) return; // Already DONE, no next
+    const nextStatus = getNextStatus(todo);
+    if (!nextStatus) return;
 
     // Optimistic update
     setTodos((prev) =>
@@ -204,21 +223,55 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
         setTodos((prev) =>
           prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
         );
-        errorToast({ error: data.error, title: "Failed to update todo" });
+        errorToast({ error: data.error, title: "Failed to update task" });
       } else {
-        // Re-fetch to get fresh summary
         fetchTodos();
-        if (nextStatus === "DONE") {
-          toast.success("Task marked as done");
+        if (nextStatus === "COMPLETED") {
+          toast.success("Task completed — client notified");
+        } else if (nextStatus === "PENDING_REVIEW") {
+          toast.success("Task submitted for review");
+        } else {
+          toast.success("Task status updated");
         }
       }
     } catch {
       setTodos((prev) =>
         prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
       );
-      errorToast({ error: "Failed to update todo" });
+      errorToast({ error: "Failed to update task" });
     }
   };
+
+  // Super admin: reject a PENDING_REVIEW task back to IN_PROGRESS
+  const handleRejectReview = async (todo: TodoItem) => {
+    setTodos((prev) =>
+      prev.map((t) => (t.id === todo.id ? { ...t, status: "IN_PROGRESS" } : t))
+    );
+    try {
+      const res = await fetch(`/api/projects/${projectId}/todos/${todo.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "IN_PROGRESS" }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setTodos((prev) =>
+          prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
+        );
+        errorToast({ error: data.error, title: "Failed to reject task" });
+      } else {
+        fetchTodos();
+        toast.success("Task sent back for revisions");
+      }
+    } catch {
+      setTodos((prev) =>
+        prev.map((t) => (t.id === todo.id ? { ...t, status: todo.status } : t))
+      );
+      errorToast({ error: "Failed to reject task" });
+    }
+  };
+
+  // ── Handlers ──
 
   const handleAddTodo = async () => {
     if (!addForm.title.trim()) {
@@ -361,11 +414,21 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
   }
 
   function isOverdue(dateStr: string | null, status: string) {
-    if (!dateStr || status === "DONE") return false;
+    if (!dateStr || status === "COMPLETED") return false;
     return new Date(dateStr) < new Date();
   }
 
   // ── Render ──
+
+  const canManage = isAdmin || isSuperAdmin;
+  // Members can toggle status on their own assigned tasks or if they're admin/SA
+  const canToggle = (todo: TodoItem) => {
+    if (isSuperAdmin) return true;
+    if (isAdmin) return true;
+    // Regular members can toggle if it's not in PENDING_REVIEW or COMPLETED
+    if (todo.status === "PENDING_REVIEW" || todo.status === "COMPLETED") return false;
+    return canManage;
+  };
 
   return (
     <div>
@@ -396,6 +459,10 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                     {summary.done} done
                   </span>
                   <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-orange-500" />
+                    {summary.pendingReview} review
+                  </span>
+                  <span className="flex items-center gap-1">
                     <span className="h-2 w-2 rounded-full bg-blue-500" />
                     {summary.inProgress} in progress
                   </span>
@@ -423,7 +490,8 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
               <SelectItem value="ALL">All Status</SelectItem>
               <SelectItem value="PENDING">Pending</SelectItem>
               <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-              <SelectItem value="DONE">Done</SelectItem>
+              <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
+              <SelectItem value="COMPLETED">Completed</SelectItem>
             </SelectContent>
           </Select>
 
@@ -496,16 +564,19 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
             const priority = priorityConfig[todo.priority] || priorityConfig.MEDIUM;
             const status = statusConfig[todo.status] || statusConfig.PENDING;
             const StatusIcon = status.icon;
-            const isDone = todo.status === "DONE";
+            const isCompleted = todo.status === "COMPLETED";
+            const isPendingReview = todo.status === "PENDING_REVIEW";
             const overdue = isOverdue(todo.dueDate, todo.status);
             const dueDateStr = formatDueDate(todo.dueDate);
             const isExpanded = expandedTodo === todo.id;
-            const canManage = isAdmin || isSuperAdmin;
+            const nextStatus = getNextStatus(todo);
 
             return (
               <Card
                 key={todo.id}
-                className={`transition-all ${isDone ? "opacity-60" : ""} ${
+                className={`transition-all ${isCompleted ? "opacity-60" : ""} ${
+                  isPendingReview ? "border-orange-200 dark:border-orange-800/40" : ""
+                } ${
                   overdue ? "border-red-200 dark:border-red-800/40" : ""
                 }`}
               >
@@ -513,14 +584,23 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                   <div className="flex items-start gap-3">
                     {/* Checkbox / Status Toggle */}
                     <button
-                      onClick={() => canManage && handleToggleStatus(todo)}
+                      onClick={() => canToggle(todo) && handleToggleStatus(todo)}
                       className={`mt-0.5 shrink-0 transition-colors ${
-                        canManage ? "cursor-pointer hover:opacity-70" : "cursor-default"
+                        canToggle(todo) ? "cursor-pointer hover:opacity-70" : "cursor-default"
                       }`}
-                      disabled={!canManage}
+                      disabled={!canToggle(todo)}
+                      title={
+                        isSuperAdmin && !isCompleted
+                          ? "Click to complete directly (super admin)"
+                          : nextStatus
+                            ? `Move to ${statusConfig[nextStatus]?.label}`
+                            : undefined
+                      }
                     >
-                      {isDone ? (
+                      {isCompleted ? (
                         <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                      ) : isPendingReview ? (
+                        <Eye className="h-5 w-5 text-orange-500" />
                       ) : todo.status === "IN_PROGRESS" ? (
                         <Clock className="h-5 w-5 text-blue-500" />
                       ) : (
@@ -532,7 +612,7 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium leading-snug ${isDone ? "line-through text-muted-foreground" : ""}`}>
+                          <p className={`text-sm font-medium leading-snug ${isCompleted ? "line-through text-muted-foreground" : ""}`}>
                             {todo.title}
                           </p>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
@@ -542,6 +622,12 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                             <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${status.className}`}>
                               {status.label}
                             </Badge>
+                            {isPendingReview && (
+                              <span className="text-[10px] text-orange-600 dark:text-orange-400 flex items-center gap-0.5">
+                                <ShieldCheck className="h-3 w-3" />
+                                Awaiting review
+                              </span>
+                            )}
                             {todo.assigneeName && (
                               <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                                 <User className="h-3 w-3" />
@@ -567,12 +653,40 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {!isDone && status.nextStatus && (
+                              {/* Status transitions */}
+                              {!isCompleted && nextStatus && (
                                 <DropdownMenuItem onClick={() => handleToggleStatus(todo)}>
-                                  <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
-                                  Mark as {status.nextStatus === "DONE" ? "Done" : "In Progress"}
+                                  {isSuperAdmin ? (
+                                    <>
+                                      <ShieldCheck className="mr-2 h-4 w-4 text-emerald-600" />
+                                      Complete (SA Direct)
+                                    </>
+                                  ) : (
+                                    <>
+                                      {nextStatus === "PENDING_REVIEW" ? (
+                                        <>
+                                          <Send className="mr-2 h-4 w-4 text-orange-500" />
+                                          Submit for Review
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
+                                          Mark as {nextStatus === "IN_PROGRESS" ? "In Progress" : "Done"}
+                                        </>
+                                      )}
+                                    </>
+                                  )}
                                 </DropdownMenuItem>
                               )}
+
+                              {/* SA: Reject PENDING_REVIEW back to IN_PROGRESS */}
+                              {isSuperAdmin && isPendingReview && (
+                                <DropdownMenuItem onClick={() => handleRejectReview(todo)}>
+                                  <RotateCcw className="mr-2 h-4 w-4 text-blue-500" />
+                                  Send Back for Revisions
+                                </DropdownMenuItem>
+                              )}
+
                               <DropdownMenuItem onClick={() => openEditDialog(todo)}>
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Edit
@@ -787,7 +901,8 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
                   <SelectContent>
                     <SelectItem value="PENDING">Pending</SelectItem>
                     <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                    <SelectItem value="DONE">Done</SelectItem>
+                    <SelectItem value="PENDING_REVIEW">Pending Review</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

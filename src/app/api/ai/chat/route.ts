@@ -260,6 +260,116 @@ export async function GET(request: NextRequest) {
 // /docs with tool calling + retry may need up to 120s
 export const maxDuration = 120;
 
+/**
+ * Auto-generate todos from an Implementation Plan document.
+ * Parses markdown sections to extract actionable tasks with priorities and phases.
+ */
+async function autoGenerateTodosFromPlan(
+  dbClient: ReturnType<typeof getTursoClient>,
+  projectId: string,
+  planContent: string,
+  userId: string,
+): Promise<number> {
+  // Get current max sortOrder for the project
+  const maxOrder = await dbClient.execute({
+    sql: `SELECT COALESCE(MAX("sortOrder"), -1) as maxOrder FROM "ProjectTodo" WHERE "projectId" = ?`,
+    args: [projectId],
+  });
+  let sortOrder = Number(maxOrder.rows[0].maxOrder) + 1;
+
+  const tasks: { title: string; description: string; priority: string }[] = [];
+
+  // Parse the plan markdown for task items
+  const lines = planContent.split('\n');
+  let currentSection = '';
+  let currentPhase = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // Track current section/phase for context
+    if (line.match(/^#{1,3}\s/)) {
+      currentSection = line.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+      if (/phase/i.test(currentSection)) {
+        currentPhase = currentSection;
+      }
+      continue;
+    }
+
+    // Match markdown list items: "- [ ] task", "- task", "* task", numbered lists
+    const taskMatch = line.match(/^[-*]\s+\[?\s*\]?\s+(.+)/) || line.match(/^\d+\.\s+(.+)/);
+    if (taskMatch) {
+      let taskText = taskMatch[1].trim();
+      // Skip if it's a sub-heading or too short
+      if (taskText.length < 5) continue;
+      // Skip if it's just a bold title (like a section header in a list)
+      if (taskText.match(/^\*\*[^*]+\*\*$/) && taskText.length < 80) continue;
+
+      // Determine priority from context
+      let priority = 'MEDIUM';
+      if (/\b(critical|urgent|high.?priority|must.?have|blocker)\b/i.test(taskText) ||
+          /\b(critical|urgent|high.?priority|must.?have|blocker)\b/i.test(currentSection)) {
+        priority = 'HIGH';
+      } else if (/\b(low.?priority|nice.?to.?have|optional|future)\b/i.test(taskText) ||
+                 /\b(low.?priority|nice.?to.?have|optional|future)\b/i.test(currentSection)) {
+        priority = 'LOW';
+      }
+
+      // Build description from context
+      let description = '';
+      if (currentPhase) {
+        description += `Phase: ${currentPhase}\n`;
+      }
+      if (currentSection && currentSection !== currentPhase) {
+        description += `Section: ${currentSection}\n`;
+      }
+
+      // Try to grab a sub-description line (next non-empty, non-list line)
+      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+        const nextLine = lines[j].trim();
+        if (nextLine && !nextLine.match(/^[-*#]/) && !nextLine.match(/^\d+\./)) {
+          description += nextLine;
+          break;
+        }
+      }
+
+      tasks.push({
+        title: taskText,
+        description: description.trim() || null,
+        priority,
+      });
+    }
+  }
+
+  if (tasks.length === 0) return 0;
+
+  // Check for existing plan-generated todos to avoid duplicates
+  const existingTodos = await dbClient.execute({
+    sql: `SELECT title FROM "ProjectTodo" WHERE "projectId" = ?`,
+    args: [projectId],
+  });
+  const existingTitles = new Set(existingTodos.rows.map(r => (r.title as string).toLowerCase()));
+
+  const newTasks = tasks.filter(t => !existingTitles.has(t.title.toLowerCase()));
+  if (newTasks.length === 0) {
+    console.log(`[autoGenerateTodos] All ${tasks.length} tasks already exist, skipping.`);
+    return 0;
+  }
+
+  // Batch insert all tasks
+  for (const task of newTasks) {
+    const id = crypto.randomUUID();
+    await dbClient.execute({
+      sql: `INSERT INTO "ProjectTodo" (id, "projectId", title, description, status, priority, "sortOrder", "createdBy", "createdAt", "updatedAt")
+            VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, datetime('now'), datetime('now'))`,
+      args: [id, projectId, task.title, task.description || null, task.priority, sortOrder++, userId],
+    });
+  }
+
+  console.log(`[autoGenerateTodos] Created ${newTasks.length} tasks from plan (out of ${tasks.length} parsed, ${existingTitles.size} existing)`);
+  return newTasks.length;
+}
+
 // POST /api/ai/chat — Send message and get AI response (with agentic tool-calling loop)
 export async function POST(request: NextRequest) {
   try {
@@ -855,6 +965,19 @@ export async function POST(request: NextRequest) {
         }
       } catch (docErr) {
         console.error("[POST /api/ai/chat] Auto-save document error (non-fatal):", docErr);
+      }
+    }
+
+    // ===== Auto-generate todos from /plan document =====
+    if (documentInfo && documentInfo.docType === 'plan' && aiText && aiText.length > 500) {
+      try {
+        const generatedCount = await autoGenerateTodosFromPlan(client, projectId, aiText, user.id);
+        if (generatedCount > 0) {
+          // Append a note to the AI response about generated tasks
+          aiText += `\n\n---\n✅ **Auto-generated ${generatedCount} task${generatedCount > 1 ? 's' : ''}** from this plan into the project's task board. View them in the **Tasks** tab.`;
+        }
+      } catch (todoErr) {
+        console.error("[POST /api/ai/chat] Auto-generate todos error (non-fatal):", todoErr);
       }
     }
 
