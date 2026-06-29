@@ -145,7 +145,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
     console.error("[POST /api/projects/[id]/generate-todos] Error:", error);
-    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ success: false, error: `Server error: ${message}` }, { status: 500 });
   }
 }

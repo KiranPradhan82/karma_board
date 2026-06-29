@@ -164,24 +164,32 @@ export function ProjectTodos({ projectId, team, isAdmin, isSuperAdmin }: Project
     setGenerating(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/generate-todos`, { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        const { totalGenerated, documentsProcessed, perDoc } = data.data;
-        if (totalGenerated > 0) {
-          const details = Object.entries(perDoc as Record<string, number>)
-            .filter(([, count]) => count > 0)
-            .map(([doc, count]) => `${doc.toUpperCase()}: ${count}`)
-            .join(", ");
-          toast.success(`Generated ${totalGenerated} task${totalGenerated > 1 ? "s" : ""} from ${documentsProcessed} documents`, { description: details });
-        } else {
-          toast.info("No new tasks found. All tasks from your documents already exist.");
-        }
-        fetchTodos();
+      if (!res.ok) {
+        let errMsg = `Request failed (${res.status})`;
+        try { const d = await res.json(); errMsg = d.error || errMsg; } catch {}
+        toast.error(errMsg);
       } else {
-        toast.error(data.error || "Failed to generate tasks");
+        const data = await res.json();
+        if (data.success) {
+          const { totalGenerated, documentsProcessed, perDoc } = data.data;
+          if (totalGenerated > 0) {
+            const details = Object.entries(perDoc as Record<string, number>)
+              .filter(([, count]) => count > 0)
+              .map(([doc, count]) => `${doc.toUpperCase()}: ${count}`)
+              .join(", ");
+            toast.success(`Generated ${totalGenerated} task${totalGenerated > 1 ? "s" : ""} from ${documentsProcessed} documents`, { description: details });
+          } else {
+            toast.info("No new tasks found. All tasks from your documents already exist.");
+          }
+          fetchTodos();
+        } else {
+          toast.error(data.error || "Failed to generate tasks");
+        }
       }
-    } catch {
-      errorToast({ error: "Failed to generate tasks from documents" });
+    } catch (err) {
+      console.error("[generate-todos] Error:", err);
+      const msg = err instanceof Error ? err.message : "Failed to generate tasks from documents";
+      toast.error(msg);
     } finally {
       setGenerating(false);
     }
