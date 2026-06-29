@@ -1410,7 +1410,8 @@ export default function KarmaSpacePage() {
             </div>
           ) : onboardingPhase === "requirements" ? (
             /* Onboarding Screen */
-            <div className="flex flex-col items-center justify-center h-full px-4 py-8">
+            <div className="h-full overflow-y-auto">
+            <div className="flex flex-col items-center justify-start min-h-full px-4 py-8">
               <div className="w-full max-w-lg space-y-6">
                 <div className="text-center">
                   <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 mx-auto">
@@ -1533,6 +1534,7 @@ export default function KarmaSpacePage() {
                   </Button>
                 ))}
               </div>
+            </div>
             </div>
           ) : (
             /* Chat container — native scroll, newest at bottom */
