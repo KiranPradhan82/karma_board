@@ -65,17 +65,19 @@ export default function ClientLoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-8">
-      <div className="w-full max-w-md space-y-4">
+      <div className="w-full max-w-md space-y-6">
+        {/* Brand logo above card */}
+        <div className="flex flex-col items-center gap-2">
+          <SiteLogo size={56} className="rounded-2xl" />
+          <h1 className="text-xl font-bold tracking-tight text-foreground">KarmaBoard</h1>
+        </div>
         <Card>
           <CardHeader className="text-center">
-            <div className="mx-auto mb-3">
-              <SiteLogo size={48} className="rounded-xl" />
-            </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
-              KarmaBoard
+              Client Portal
             </CardTitle>
             <CardDescription>
-              Client Portal — Sign in to view your projects
+              Sign in to view your projects
             </CardDescription>
           </CardHeader>
           <CardContent>

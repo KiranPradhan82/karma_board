@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/providers";
+import { SplashScreen } from "@/components/splash-screen";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -34,8 +35,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         <Providers>
-          {children}
-          <Toaster position="top-right" richColors closeButton />
+          <SplashScreen>
+            {children}
+            <Toaster position="top-right" richColors closeButton />
+          </SplashScreen>
         </Providers>
       </body>
     </html>

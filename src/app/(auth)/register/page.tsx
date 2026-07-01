@@ -76,19 +76,22 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-            <div className="mx-auto mb-3">
-              <SiteLogo size={48} className="rounded-xl" />
-            </div>
+      <div className="w-full max-w-md space-y-6">
+        {/* Brand logo above card */}
+        <div className="flex flex-col items-center gap-2">
+          <SiteLogo size={56} className="rounded-2xl" />
+          <h1 className="text-xl font-bold tracking-tight text-foreground">KarmaBoard</h1>
+        </div>
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
             <CardTitle className="text-2xl font-bold tracking-tight">
               Create Account
             </CardTitle>
-          <CardDescription>
-            Join KarmaBoard to start managing your projects
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+            <CardDescription>
+              Join KarmaBoard to start managing your projects
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
@@ -185,7 +188,8 @@ export default function RegisterPage() {
             </Link>
           </div>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }
