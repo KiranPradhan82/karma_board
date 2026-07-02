@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ShieldCheck, Loader2, Mail, RefreshCw, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 
 interface SecurityCodeGateProps {
@@ -18,21 +17,12 @@ export default function SecurityCodeGate({ onVerified }: SecurityCodeGateProps) 
   const [fallbackCode, setFallbackCode] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-
   // Countdown timer for resend
   useEffect(() => {
     if (countdown <= 0) return;
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
-
-  // Focus input when entering phase
-  useEffect(() => {
-    if (phase === "enter" && !fallbackCode) {
-      inputRef.current?.focus();
-    }
-  }, [phase, fallbackCode]);
 
   const requestCode = useCallback(async () => {
     setLoading(true);
