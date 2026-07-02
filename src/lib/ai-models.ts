@@ -435,6 +435,73 @@ export function getProviderConfig(modelId: string): ProviderConfig {
 }
 
 /**
+ * Async version of getProviderConfig — reads API keys from Settings DB first,
+ * then falls back to environment variables.
+ *
+ * This is the preferred version for server-side API routes where DB access
+ * is available. Ensures all keys are managed through the Settings UI.
+ */
+export async function getProviderConfigAsync(modelId: string): Promise<ProviderConfig> {
+  const cap = MODEL_MAP[modelId];
+
+  if (!cap) {
+    const { getSetting } = await import("./settings-resolver");
+    const baseUrl = await getSetting("AI_API_BASE_URL") || "https://api.openai.com/v1";
+    const apiKey = await getSetting("AI_API_KEY") || "";
+    return { baseUrl, apiKey, provider: "unknown" };
+  }
+
+  const { getProviderApiKey, getProviderBaseUrl } = await import("./settings-resolver");
+  const [apiKey, baseUrl] = await Promise.all([
+    getProviderApiKey(cap.providerEnvKey),
+    getProviderBaseUrl(cap.providerEnvBaseUrl, cap.defaultBaseUrl),
+  ]);
+
+  // Fallback to generic AI_API_KEY if provider-specific key is empty
+  const finalKey = apiKey || process.env.AI_API_KEY || "";
+
+  return { baseUrl, apiKey: finalKey, provider: cap.provider };
+}
+
+/**
+ * Async version of isAiConfigured — checks Settings DB + env vars.
+ */
+export async function isAiConfiguredAsync(): Promise<boolean> {
+  const { getAllProviderConfigs } = await import("./settings-resolver");
+  const configs = await getAllProviderConfigs();
+  const keyEnvVars = [
+    "GROQ_API_KEY", "OPENAI_API_KEY", "GOOGLE_AI_API_KEY",
+    "TOGETHER_API_KEY", "ZAI_API_KEY", "SAMBANOVA_API_KEY",
+    "OPENROUTER_API_KEY", "AI_API_KEY",
+  ];
+  for (const k of keyEnvVars) {
+    if (configs[k]) return true;
+  }
+  return false;
+}
+
+/**
+ * Async version of getConfiguredModels — reads keys from Settings DB.
+ */
+export async function getConfiguredModelsAsync(): Promise<AiModelOption[]> {
+  const { getAllProviderConfigs } = await import("./settings-resolver");
+  const configs = await getAllProviderConfigs();
+
+  return MODEL_REGISTRY
+    .filter((m) => {
+      const key = configs[m.providerEnvKey] || configs.AI_API_KEY;
+      return !!key;
+    })
+    .map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description,
+      contextWindow: m.contextWindow,
+      category: m.category,
+    }));
+}
+
+/**
  * Check if a model supports OpenAI-style multimodal content (image_url array format).
  */
 export function supportsMultimodal(modelId?: string): boolean {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from "react";
 import { useSession } from "next-auth/react";
+import SecurityCodeGate from "@/components/security-code-gate";
 import {
   Bot,
   Send,
@@ -233,6 +234,9 @@ export default function KarmaSpacePage() {
   const [terminalOutput, setTerminalOutput] = useState<TerminalEntry[]>([]);
   const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+
+  // Security code verification — required every time the chat page loads
+  const [securityVerified, setSecurityVerified] = useState(false);
 
   // Fetch pending delete requests (SUPERADMIN)
   useEffect(() => {
@@ -1117,6 +1121,17 @@ export default function KarmaSpacePage() {
       (p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
         p.description?.toLowerCase().includes(projectSearch.toLowerCase()))
   ), [projects, projectSearch]);
+
+  // Security code gate — must verify before accessing chat
+  if (!securityVerified) {
+    return (
+      <TooltipProvider>
+        <div className="flex flex-col h-[calc(100vh-3.5rem)] -m-4 sm:-m-6 lg:-m-8 bg-background">
+          <SecurityCodeGate onVerified={() => setSecurityVerified(true)} />
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider>

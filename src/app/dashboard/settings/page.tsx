@@ -26,6 +26,9 @@ import {
   Users,
   TrendingUp,
   Terminal,
+  Cpu,
+  Plus,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -57,6 +60,195 @@ interface SettingItem {
   value: string;
   masked: boolean;
   updatedAt: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  AI Model Routing Config (GitHub-Driven)                           */
+/* ------------------------------------------------------------------ */
+
+function AiRoutingConfigCard() {
+  const [config, setConfig] = useState<{
+    version: string;
+    defaultModel: string;
+    visionModel: string;
+    fallbackModels: string[];
+    modelRules: { taskType: string; model: string; fallbackModel: string; description: string }[];
+  }>({ version: "1.0", defaultModel: "", visionModel: "", fallbackModels: [], modelRules: [] });
+  const [githubConfigured, setGithubConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newRule, setNewRule] = useState({ taskType: "", model: "", description: "" });
+
+  useEffect(() => {
+    fetch("/api/ai/routing-config")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) {
+          setConfig(json.data.config);
+          setGithubConfigured(json.data.githubConfigured);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/ai/routing-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+      const json = await res.json();
+      if (json.success) {
+        toast.success("Routing config saved to GitHub");
+      } else {
+        toast.error(json.error || "Failed to save");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addRule = () => {
+    if (!newRule.taskType || !newRule.model) return;
+    setConfig((prev) => ({
+      ...prev,
+      modelRules: [...prev.modelRules, { ...newRule, fallbackModel: "" }],
+    }));
+    setNewRule({ taskType: "", model: "", description: "" });
+  };
+
+  const removeRule = (idx: number) => {
+    setConfig((prev) => ({
+      ...prev,
+      modelRules: prev.modelRules.filter((_, i) => i !== idx),
+    }));
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-64" />
+          <Skeleton className="h-4 w-80 mt-2" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-32" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Cpu className="h-5 w-5 text-primary" />
+          <CardTitle>AI Model Routing Config</CardTitle>
+        </div>
+        <CardDescription>
+          Configure which AI model handles which task type. Saved to your GitHub repo as version-controlled YAML.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!githubConfigured && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              GitHub repository is not configured. Set up GitHub integration first to use routing config.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Default Model</Label>
+            <Input
+              placeholder="e.g. glm-4-flash"
+              value={config.defaultModel}
+              onChange={(e) => setConfig((prev) => ({ ...prev, defaultModel: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Vision Model (optional)</Label>
+            <Input
+              placeholder="e.g. glm-4.6v-flash"
+              value={config.visionModel}
+              onChange={(e) => setConfig((prev) => ({ ...prev, visionModel: e.target.value }))}
+            />
+          </div>
+        </div>
+
+        {config.modelRules.length > 0 && (
+          <div className="space-y-2">
+            <Label>Routing Rules</Label>
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-2 font-medium">Task Type</th>
+                    <th className="text-left p-2 font-medium">Model</th>
+                    <th className="text-left p-2 font-medium hidden md:table-cell">Description</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {config.modelRules.map((rule, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="p-2 font-mono text-xs">{rule.taskType}</td>
+                      <td className="p-2 font-mono text-xs">{rule.model}</td>
+                      <td className="p-2 text-xs text-muted-foreground hidden md:table-cell">{rule.description || "—"}</td>
+                      <td className="p-2">
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => removeRule(i)}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <Label>Add Routing Rule</Label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              placeholder="Task type (e.g. doc-generation)"
+              value={newRule.taskType}
+              onChange={(e) => setNewRule((prev) => ({ ...prev, taskType: e.target.value }))}
+              className="sm:w-1/3"
+            />
+            <Input
+              placeholder="Model ID (e.g. glm-4-flash)"
+              value={newRule.model}
+              onChange={(e) => setNewRule((prev) => ({ ...prev, model: e.target.value }))}
+              className="sm:w-1/3"
+            />
+            <Input
+              placeholder="Description (optional)"
+              value={newRule.description}
+              onChange={(e) => setNewRule((prev) => ({ ...prev, description: e.target.value }))}
+              className="sm:w-1/3"
+            />
+            <Button variant="outline" size="sm" onClick={addRule} className="shrink-0" disabled={!newRule.taskType || !newRule.model}>
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <Button onClick={handleSave} disabled={saving || !githubConfigured || !config.defaultModel} className="w-full sm:w-auto">
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+          Save to GitHub
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1431,6 +1623,9 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* AI Model Routing Config (GitHub-Driven) */}
+      <AiRoutingConfigCard />
 
       {/* AI Usage Analytics */}
       <AiAnalyticsCard />

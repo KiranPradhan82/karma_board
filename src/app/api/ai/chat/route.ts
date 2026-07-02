@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
 import { generatePdfBase64 } from "@/lib/generate-pdf";
 import { buildSystemPrompt } from "@/lib/ai-prompts";
-import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt, getFallbackModels, getModelCapability } from "@/lib/ai-client";
+import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt, getFallbackModels, getModelCapability, getProviderConfigAsync } from "@/lib/ai-client";
 import { getToolsForRole } from "@/lib/ai-tools";
 import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
 import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
@@ -10,6 +10,9 @@ import type { AiMessage } from "@/lib/ai-client";
 import { pushFile, pushBinaryFile } from "@/lib/github-client";
 import { decrypt } from "@/lib/encryption";
 import { sendChunkedContext } from "@/lib/zai-chunker";
+import { buildAutoContext } from "@/lib/auto-context";
+import { resolveModelForTask, loadRoutingConfigFromGithub } from "@/lib/github-config";
+import { getGitHubPat } from "@/lib/settings-resolver";
 
 // ===== Document type mapping =====
 const DOC_TYPE_MAP: Record<string, string> = {
@@ -418,6 +421,22 @@ export async function POST(request: NextRequest) {
     const client = getTursoClient();
     const ip = getClientIp(request);
 
+    // ===== Inject Settings-managed API keys into process.env for this request =====
+    // This ensures ALL downstream AI calls (chatCompletion, visionCompletion, fallbacks)
+    // use keys from the Settings UI rather than requiring env vars.
+    try {
+      const { getAllProviderConfigs } = await import("@/lib/settings-resolver");
+      const configs = await getAllProviderConfigs();
+      for (const [key, value] of Object.entries(configs)) {
+        if (value && !process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+      console.log("[POST /api/ai/chat] Settings-managed keys injected into process.env");
+    } catch (injectErr) {
+      console.error("[POST /api/ai/chat] Settings key injection failed (non-fatal):", injectErr);
+    }
+
     // Auto-migrate AI tables if they don't exist
     await ensureAiTables(client);
 
@@ -532,11 +551,14 @@ export async function POST(request: NextRequest) {
       // User explicitly chose a model — respect it
       activeModel = projectModel;
     } else if (isDocCommand) {
-      // Auto-select the best model for doc generation
-      activeModel = DOC_AUTO_MODEL;
-      modelAutoSelected = true;
+      // Check GitHub routing config first, then auto-select
+      const ghRoute = await resolveModelForTask(command || "doc-generation", null);
+      activeModel = ghRoute.model || DOC_AUTO_MODEL;
+      modelAutoSelected = !ghRoute.model;
     } else {
-      activeModel = getGlobalDefaultModel();
+      // Check GitHub routing config for default model
+      const ghRoute = await resolveModelForTask("general-chat", null);
+      activeModel = ghRoute.model || getGlobalDefaultModel();
     }
 
     // Build system prompt with rich context
@@ -553,6 +575,18 @@ export async function POST(request: NextRequest) {
       protocolSteps: protocolSteps.length > 0 ? protocolSteps : undefined,
       command,
     });
+
+    // ===== Auto-context: Inject full organizational context =====
+    // This gives the AI model complete awareness of all projects, members, roles, and access levels
+    let enrichedSystemPrompt = systemPrompt;
+    try {
+      const autoContext = await buildAutoContext(user.id, user.role, projectId);
+      if (autoContext) {
+        enrichedSystemPrompt = systemPrompt + "\n\n---\n\n" + autoContext;
+      }
+    } catch (ctxErr) {
+      console.error("[POST /api/ai/chat] Auto-context build failed (non-fatal):", ctxErr);
+    }
 
     // ===== Determine max_tokens based on model capability =====
     // Use the model's actual max_output_tokens — NO artificial caps.
@@ -596,7 +630,7 @@ export async function POST(request: NextRequest) {
     let modelRouteReason = "";
     try {
       const estimatedTokens = estimatePromptTokens(
-        [{ role: "system", content: systemPrompt }, ...chatHistory.map((m) => ({ role: String(m.role), content: String(m.content) }))],
+        [{ role: "system", content: enrichedSystemPrompt }, ...chatHistory.map((m) => ({ role: String(m.role), content: String(m.content) }))],
         availableTools.length > 0 ? availableTools : undefined
       );
       const route = findBestModelForPrompt(estimatedTokens, activeModel, {
@@ -637,7 +671,7 @@ export async function POST(request: NextRequest) {
 
     // Build initial messages array
     const aiMessages: AiMessage[] = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: enrichedSystemPrompt },
     ];
 
     for (const msg of chatHistory) {
@@ -668,7 +702,7 @@ export async function POST(request: NextRequest) {
         const result = await visionCompletion({
           model: visionModel,
           messages: [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: enrichedSystemPrompt },
             {
               role: "user",
               content: multimodalContent,
@@ -853,7 +887,7 @@ export async function POST(request: NextRequest) {
             console.log(`[AI Fallback] No content after ${round} rounds for ${command}, retrying without tools (with provider fallback)...`);
             try {
               const retryMessages: AiMessage[] = [
-                { role: "system", content: systemPrompt },
+                { role: "system", content: enrichedSystemPrompt },
                 ...chatHistory.map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content) })),
               ];
               const retryResult = await callWithFallback(retryMessages, activeModel, maxTokens, undefined, undefined, "No-tools retry");
@@ -1044,22 +1078,18 @@ export async function POST(request: NextRequest) {
             sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
             args: [],
           });
-          const patResult = await client.execute({
-            sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_PAT'`,
-            args: [],
-          });
 
-          if (repoResult.rows.length === 0 || patResult.rows.length === 0) {
+          if (repoResult.rows.length === 0) {
             console.log("[Chat] No GitHub config, skipping auto-push for", documentInfo.docType);
             return;
           }
 
           const repoUrl = repoResult.rows[0].value as string;
-          let token: string;
-          try {
-            token = decrypt(patResult.rows[0].value as string);
-          } catch {
-            token = patResult.rows[0].value as string; // Legacy unencrypted
+          // Use settings-resolver to get decrypted PAT from Settings DB
+          const token = await getGitHubPat();
+          if (!token) {
+            console.log("[Chat] No GitHub PAT in settings, skipping auto-push for", documentInfo.docType);
+            return;
           }
 
           const githubConfig = { repoUrl, token };

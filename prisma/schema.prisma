@@ -217,6 +217,18 @@ model Settings {
   updatedAt DateTime
 }
 
+model SecurityCode {
+  id        String   @id
+  userId    String
+  code      String
+  purpose   String   @default("AI_CHAT")
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose, usedAt])
+}
+
 model Notification {
   id        String   @id
   userId    String

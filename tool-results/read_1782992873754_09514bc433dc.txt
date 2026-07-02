@@ -1,0 +1,1963 @@
+     1→"use client";
+     2→
+     3→import { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from "react";
+     4→import { useSession } from "next-auth/react";
+     5→import {
+     6→  Bot,
+     7→  Send,
+     8→  Paperclip,
+     9→  X,
+    10→  Download,
+    11→  ChevronDown,
+    12→  MessageSquare,
+    13→  Sparkles,
+    14→  FileText,
+    15→  Loader2,
+    16→  AlertCircle,
+    17→  Search,
+    18→  Cpu,
+    19→  CheckCircle2,
+    20→  XCircle,
+    21→  ImagePlus,
+    22→  FileDown,
+    23→  Upload,
+    24→  FileUp,
+    25→  Rocket,
+    26→  Check,
+    27→  CheckCircle,
+    28→  Trash2,
+    29→  KeyRound,
+    30→  ShieldCheck,
+    31→  ShieldX,
+    32→  ShieldAlert,
+    33→  Bell,
+    34→  FolderTree,
+    35→  TerminalSquare,
+    36→  Globe,
+    37→  Copy,
+    38→  Zap,
+    39→} from "lucide-react";
+    40→import { Button } from "@/components/ui/button";
+    41→import { Badge } from "@/components/ui/badge";
+    42→import {
+    43→  Command,
+    44→  CommandEmpty,
+    45→  CommandGroup,
+    46→  CommandInput,
+    47→  CommandItem,
+    48→  CommandList,
+    49→} from "@/components/ui/command";
+    50→import {
+    51→  Popover,
+    52→  PopoverContent,
+    53→  PopoverTrigger,
+    54→} from "@/components/ui/popover";
+    55→import {
+    56→  Tooltip,
+    57→  TooltipContent,
+    58→  TooltipProvider,
+    59→  TooltipTrigger,
+    60→} from "@/components/ui/tooltip";
+    61→import {
+    62→  Select,
+    63→  SelectContent,
+    64→  SelectGroup,
+    65→  SelectItem,
+    66→  SelectLabel,
+    67→  SelectTrigger,
+    68→  SelectValue,
+    69→} from "@/components/ui/select";
+    70→import {
+    71→  Dialog,
+    72→  DialogContent,
+    73→  DialogDescription,
+    74→  DialogFooter,
+    75→  DialogHeader,
+    76→  DialogTitle,
+    77→} from "@/components/ui/dialog";
+    78→import { AVAILABLE_MODELS, type AiModelOption } from "@/lib/ai-client";
+    79→import { useIsMobile } from "@/hooks/use-mobile";
+    80→import { toast } from "sonner";
+    81→import { Textarea } from "@/components/ui/textarea";
+    82→import { IdeLayout } from "@/components/karma-space/ide-layout";
+    83→import { FileExplorer, buildFileTree } from "@/components/karma-space/file-explorer";
+    84→import { TerminalPanel } from "@/components/karma-space/terminal-panel";
+    85→import { ChatMessageItem, type ChatMessage as ChatMessageType, type ChatMessageCallbacks } from "@/components/karma-space/chat-message-item";
+    86→import type { FileTreeItem } from "@/components/karma-space/file-explorer";
+    87→import type { TerminalEntry } from "@/components/karma-space/terminal-panel";
+    88→
+    89→interface Project {
+    90→  id: string;
+    91→  name: string;
+    92→  description?: string;
+    93→  status: string;
+    94→  color?: string;
+    95→}
+    96→
+    97→interface ToolExecution {
+    98→  toolName: string;
+    99→  label: string;
+   100→  icon: string;
+   101→  status: "success" | "error" | "running";
+   102→  displayMessage: string;
+   103→}
+   104→
+   105→interface ChatMessage {
+   106→  id: string;
+   107→  role: string;
+   108→  content: string;
+   109→  timestamp: string;
+   110→  userName?: string;
+   111→  toolExecutions?: ToolExecution[];
+   112→  modelRouteReason?: string;
+   113→  documentInfo?: {
+   114→    id: string;
+   115→    docType: string;
+   116→    title: string;
+   117→    version: number;
+   118→  };
+   119→  zaiBridge?: {
+   120→    chatId: string;
+   121→    chatUrl: string;
+   122→    context: string;
+   123→    modelName: string;
+   124→    documentsFound: number;
+   125→    chatMessagesFound?: number;
+   126→    docsSource?: string;
+   127→    isNewChat: boolean;
+   128→    aiResponse?: string;
+   129→    apiError?: string;
+   130→    chunksTotal?: number;
+   131→    chunksSent?: number;
+   132→    chunkProgress?: string;
+   133→  };
+   134→}
+   135→
+   136→const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
+   137→  "/docs": { label: "Full Protocol", icon: "📋" },
+   138→  "/prd": { label: "PRD", icon: "📄" },
+   139→  "/trd": { label: "TRD", icon: "⚙️" },
+   140→  "/flow": { label: "App Flow", icon: "🔄" },
+   141→  "/ux": { label: "UI/UX Brief", icon: "🎨" },
+   142→  "/schema": { label: "Schema", icon: "🗄️" },
+   143→  "/plan": { label: "Plan", icon: "📅" },
+   144→  "/init": { label: "Init Project", icon: "🚀" },
+   145→  "/standup": { label: "Daily Standup", icon: "📊" },
+   146→  "/risks": { label: "Risk Analyzer", icon: "⚠️" },
+   147→  "/summarize": { label: "Meeting Summarizer", icon: "📝" },
+   148→  "/code-review": { label: "Code Review", icon: "🔍" },
+   149→  "/knowledge": { label: "Knowledge Search", icon: "🧠" },
+   150→  "/help": { label: "Help", icon: "❓" },
+   151→};
+   152→
+   153→/** Ensure content is always a string — prevents React error #31 when API returns objects */
+   154→function safeContent(content: unknown): string {
+   155→  return typeof content === "string" ? content : content != null ? JSON.stringify(content) : "";
+   156→}
+   157→
+   158→/** Ensure error is always a string — prevents React error #31 when API returns error objects like {code, id, message} */
+   159→function safeError(err: unknown, fallback: string): string {
+   160→  if (typeof err === "string") return err;
+   161→  if (err && typeof err === "object") {
+   162→    const obj = err as Record<string, unknown>;
+   163→    if (typeof obj.message === "string") return obj.message;
+   164→    try { return JSON.stringify(err); } catch { /* fall through */ }
+   165→  }
+   166→  return fallback;
+   167→}
+   168→
+   169→export default function KarmaSpacePage() {
+   170→  const { data: session } = useSession();
+   171→  const user = session?.user as { name?: string; role?: string } | undefined;
+   172→  const isSuperAdmin = user?.role === "SUPERADMIN";
+   173→
+   174→  const [projects, setProjects] = useState<Project[]>([]);
+   175→  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+   176→  const [projectSearch, setProjectSearch] = useState("");
+   177→  const [projectPopoverOpen, setProjectPopoverOpen] = useState(false);
+   178→
+   179→  const [messages, setMessages] = useState<ChatMessage[]>([]);
+   180→  const [inputValue, setInputValue] = useState("");
+   181→  const [isLoading, setIsLoading] = useState(false);
+   182→  const [error, setError] = useState<string | null>(null);
+   183→
+   184→  const [attachedFiles, setAttachedFiles] = useState<{
+   185→    data: string;
+   186→    name: string;
+   187→    type: string;
+   188→  }[]>([]);
+   189→  const [isExporting, setIsExporting] = useState(false);
+   190→  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null); // message ID being exported
+   191→  const [downloadingDocPdf, setDownloadingDocPdf] = useState<string | null>(null); // document ID being downloaded
+   192→  const [isExportingAll, setIsExportingAll] = useState(false);
+   193→  const [onboardingPhase, setOnboardingPhase] = useState<"idle" | "requirements" | "complete">("idle");
+   194→  const [onboardingTab, setOnboardingTab] = useState<"upload" | "write">("write");
+   195→  const [onboardingText, setOnboardingText] = useState("");
+   196→  const [onboardingFile, setOnboardingFile] = useState<File | null>(null);
+   197→  const [onboardingSubmitting, setOnboardingSubmitting] = useState(false);
+   198→  const onboardingFileInputRef = useRef<HTMLInputElement>(null);
+   199→
+   200→  // Agentic tool execution steps (shown during loading)
+   201→  const [activeToolSteps, setActiveToolSteps] = useState<ToolExecution[]>([]);
+   202→
+   203→  // Per-project AI model (SUPERADMIN only)
+   204→  const [projectModel, setProjectModel] = useState<string | null>(null);
+   205→  const [isModelLoading, setIsModelLoading] = useState(false);
+   206→
+   207→  // Karmaspace Codex bridge state
+   208→  const [codexLoading, setCodexLoading] = useState(false);
+   209→
+   210→  // Embedded z.ai Codex chat state
+   211→  const [zaiChatMessages, setZaiChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+   212→  const [zaiChatInput, setZaiChatInput] = useState("");
+   213→  const [zaiChatLoading, setZaiChatLoading] = useState(false);
+   214→  const [zaiChatExpanded, setZaiChatExpanded] = useState(false);
+   215→  const zaiChatHistoryLoaded = useRef(false);
+   216→
+   217→  // Delete chat flow
+   218→  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+   219→  const [deletePassword, setDeletePassword] = useState("");
+   220→  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+   221→  const [deleteError, setDeleteError] = useState<string | null>(null);
+   222→  const [deleteRequestStatus, setDeleteRequestStatus] = useState<{ status: string; message: string } | null>(null);
+   223→
+   224→  // Super admin: pending delete requests
+   225→  const [deleteRequests, setDeleteRequests] = useState<{
+   226→    id: string; projectId: string; projectName: string; userId: string; userName: string; userEmail: string; status: string; createdAt: string;
+   227→  }[]>([]);
+   228→  const [reviewingRequestId, setReviewingRequestId] = useState<string | null>(null);
+   229→  const [deleteReviewDialogOpen, setDeleteReviewDialogOpen] = useState(false);
+   230→
+   231→  // IDE panel state
+   232→  const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
+   233→  const [terminalOutput, setTerminalOutput] = useState<TerminalEntry[]>([]);
+   234→  const [fileExplorerOpen, setFileExplorerOpen] = useState(false);
+   235→  const [terminalOpen, setTerminalOpen] = useState(false);
+   236→
+   237→  // Fetch pending delete requests (SUPERADMIN)
+   238→  useEffect(() => {
+   239→    if (!isSuperAdmin) return;
+   240→    async function fetchDeleteRequests() {
+   241→      try {
+   242→        const res = await fetch("/api/ai/chat/delete-requests?status=PENDING");
+   243→        const json = await res.json();
+   244→        if (json.success) setDeleteRequests(json.data.deleteRequests || []);
+   245→      } catch { /* silent */ }
+   246→    }
+   247→    fetchDeleteRequests();
+   248→    const interval = setInterval(fetchDeleteRequests, 30000); // refresh every 30s
+   249→    return () => clearInterval(interval);
+   250→  }, [isSuperAdmin]);
+   251→
+   252→  const handleDeleteChat = async () => {
+   253→    if (!selectedProject || !deletePassword.trim()) return;
+   254→    setDeleteSubmitting(true);
+   255→    setDeleteError(null);
+   256→    try {
+   257→      const res = await fetch("/api/ai/chat/delete-request", {
+   258→        method: "POST",
+   259→        headers: { "Content-Type": "application/json" },
+   260→        body: JSON.stringify({ projectId: selectedProject.id, password: deletePassword.trim() }),
+   261→      });
+   262→      const json = await res.json();
+   263→      if (json.success) {
+   264→        setDeleteDialogOpen(false);
+   265→        setDeletePassword("");
+   266→        setDeleteRequestStatus({ status: "PENDING", message: json.data.message });
+   267→      } else {
+   268→        setDeleteError(safeError(json.error, "Failed to submit delete request."));
+   269→      }
+   270→    } catch (err) {
+   271→      setDeleteError(safeError(err, "Network error. Please try again."));
+   272→    } finally {
+   273→      setDeleteSubmitting(false);
+   274→    }
+   275→  };
+   276→
+   277→  const handleReviewDeleteRequest = async (requestId: string, action: "approve" | "decline") => {
+   278→    setReviewingRequestId(requestId);
+   279→    try {
+   280→      const res = await fetch(`/api/ai/chat/delete-requests/${requestId}`, {
+   281→        method: "POST",
+   282→        headers: { "Content-Type": "application/json" },
+   283→        body: JSON.stringify({ action }),
+   284→      });
+   285→      const json = await res.json();
+   286→      if (json.success) {
+   287→        setDeleteRequests((prev) => prev.filter((r) => r.id !== requestId));
+   288→        if (json.data.status === "APPROVED") {
+   289→          // Refresh messages for the affected project
+   290→          if (selectedProject) setMessages([]);
+   291→        }
+   292→      }
+   293→    } catch { /* silent */ }
+   294→    finally {
+   295→      setReviewingRequestId(null);
+   296→    }
+   297→  };
+   298→
+   299→  const isMobile = useIsMobile();
+   300→  const chatContainerRef = useRef<HTMLDivElement>(null);
+   301→  const fileInputRef = useRef<HTMLInputElement>(null);
+   302→  const inputRef = useRef<HTMLTextAreaElement>(null);
+   303→
+   304→  // Fetch projects
+   305→  useEffect(() => {
+   306→    async function fetchProjects() {
+   307→      try {
+   308→        const res = await fetch("/api/projects?limit=100");
+   309→        const json = await res.json();
+   310→        if (json.success) {
+   311→          const allProjects = json.data.projects || [];
+   312→          setProjects(allProjects);
+   313→          // If selected project is archived or no longer exists, clear selection
+   314→          setSelectedProject((prev) => {
+   315→            if (!prev) return null;
+   316→            const stillExists = allProjects.find((p: Project) => p.id === prev.id);
+   317→            if (!stillExists || stillExists.status === "ARCHIVED") return null;
+   318→            return prev;
+   319→          });
+   320→        }
+   321→      } catch {
+   322→        console.error("Failed to fetch projects");
+   323→      }
+   324→    }
+   325→    fetchProjects();
+   326→  }, []);
+   327→
+   328→  // Clear embedded z.ai chat when project changes
+   329→  useEffect(() => {
+   330→    setZaiChatMessages([]);
+   331→    setZaiChatInput("");
+   332→    setZaiChatExpanded(false);
+   333→    setZaiChatLoading(false);
+   334→    zaiChatHistoryLoaded.current = false;
+   335→  }, [selectedProject?.id]);
+   336→
+   337→  // Load z.ai chat history when embedded chat is first expanded
+   338→  useEffect(() => {
+   339→    if (!zaiChatExpanded || !selectedProject || zaiChatHistoryLoaded.current) return;
+   340→    zaiChatHistoryLoaded.current = true;
+   341→    async function loadZaiChatHistory() {
+   342→      try {
+   343→        const res = await fetch(`/api/ai/zai-chat?projectId=${selectedProject.id}`);
+   344→        const json = await res.json();
+   345→        if (json.success && json.messages?.length > 0) {
+   346→          setZaiChatMessages(json.messages.map((m: { role: string; content: string }) => ({
+   347→            role: m.role === "user" ? "user" as const : "assistant" as const,
+   348→            content: m.content,
+   349→          })));
+   350→        }
+   351→      } catch {
+   352→        // Silent — if history fails to load, chat starts fresh
+   353→      }
+   354→    }
+   355→    loadZaiChatHistory();
+   356→  }, [zaiChatExpanded, selectedProject]);
+   357→
+   358→  // Load messages when project changes
+   359→  useEffect(() => {
+   360→    if (!selectedProject) {
+   361→      setMessages([]);
+   362→      return;
+   363→    }
+   364→
+   365→    async function fetchMessages() {
+   366→      try {
+   367→        const res = await fetch(
+   368→          `/api/ai/chat?projectId=${selectedProject.id}&limit=100`
+   369→        );
+   370→        const json = await res.json();
+   371→        if (json.success) {
+   372→          // API returns newest first — reverse so oldest is at top
+   373→          const msgs = (json.data.messages || []).reverse();
+   374→          setMessages(msgs);
+   375→        }
+   376→      } catch {
+   377→        console.error("Failed to fetch messages");
+   378→      }
+   379→    }
+   380→    fetchMessages();
+   381→  }, [selectedProject]);
+   382→
+   383→  // Scroll to bottom on initial load and new messages
+   384→  useEffect(() => {
+   385→    requestAnimationFrame(() => {
+   386→      const el = chatContainerRef.current;
+   387→      if (el) {
+   388→        el.scrollTop = el.scrollHeight;
+   389→      }
+   390→    });
+   391→  }, [messages]);
+   392→
+   393→  // Fetch per-project model when project changes (SUPERADMIN)
+   394→  useEffect(() => {
+   395→    if (!selectedProject) {
+   396→      setProjectModel(null);
+   397→      return;
+   398→    }
+   399→    async function fetchProjectModel() {
+   400→      try {
+   401→        const res = await fetch(`/api/ai/project-model?projectId=${selectedProject.id}`);
+   402→        const json = await res.json();
+   403→        if (json.success) {
+   404→          setProjectModel(json.data.model);
+   405→        }
+   406→      } catch {
+   407→        // silently ignore
+   408→      }
+   409→    }
+   410→    fetchProjectModel();
+   411→  }, [selectedProject]);
+   412→
+   413→  // Handle model change
+   414→  const handleModelChange = async (newModel: string) => {
+   415→    if (!selectedProject) return;
+   416→    setIsModelLoading(true);
+   417→    try {
+   418→      const res = await fetch("/api/ai/project-model", {
+   419→        method: "PUT",
+   420→        headers: { "Content-Type": "application/json" },
+   421→        body: JSON.stringify({
+   422→          projectId: selectedProject.id,
+   423→          model: newModel === "__default__" ? null : newModel,
+   424→        }),
+   425→      });
+   426→      const json = await res.json();
+   427→      if (json.success) {
+   428→        setProjectModel(json.data.model);
+   429→      }
+   430→    } catch {
+   431→      console.error("Failed to update model");
+   432→    } finally {
+   433→      setIsModelLoading(false);
+   434→    }
+   435→  };
+   436→
+   437→  const sendMessage = useCallback(async () => {
+   438→    if (!inputValue.trim() || !selectedProject || isLoading) return;
+   439→
+   440→    const content = inputValue.trim();
+   441→    setInputValue("");
+   442→    setError(null);
+   443→    setIsLoading(true);
+   444→
+   445→    // Optimistically add user message
+   446→    const optimisticUserMsg: ChatMessage = {
+   447→      id: `temp-${Date.now()}`,
+   448→      role: "user",
+   449→      content,
+   450→      timestamp: new Date().toISOString(),
+   451→      userName: user?.name || "You",
+   452→    };
+   453→    setActiveToolSteps([]);
+   454→    setMessages((prev) => [...prev, optimisticUserMsg]);
+   455→
+   456→    try {
+   457→      const body: Record<string, unknown> = {
+   458→        projectId: selectedProject.id,
+   459→        content,
+   460→      };
+   461→      // Send images as array
+   462→      if (attachedFiles.length > 0) {
+   463→        body.files = attachedFiles;
+   464→        setAttachedFiles([]);
+   465→      }
+   466→
+   467→      const res = await fetch("/api/ai/chat", {
+   468→        method: "POST",
+   469→        headers: { "Content-Type": "application/json" },
+   470→        body: JSON.stringify(body),
+   471→      });
+   472→
+   473→      const json = await res.json();
+   474→
+   475→      if (json.success) {
+   476→        setMessages((prev) => {
+   477→          const filtered = prev.filter((m) => m.id !== optimisticUserMsg.id);
+   478→          return [
+   479→            ...filtered,
+   480→            {
+   481→              id: json.data.userMessage.id,
+   482→              role: json.data.userMessage.role,
+   483→              content: safeContent(json.data.userMessage.content),
+   484→              timestamp: new Date().toISOString(),
+   485→              userName: user?.name || "You",
+   486→            },
+   487→            {
+   488→              id: json.data.aiMessage.id,
+   489→              role: json.data.aiMessage.role,
+   490→              content: safeContent(json.data.aiMessage.content),
+   491→              timestamp: new Date().toISOString(),
+   492→              userName: "Karma Space AI",
+   493→              toolExecutions: json.data.toolExecutions || undefined,
+   494→              modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
+   495→              documentInfo: json.data.documentInfo || undefined,
+   496→            },
+   497→          ];
+   498→        });
+   499→      } else {
+   500→        setError(typeof json.error === "string" ? json.error : "Failed to send message");
+   501→      }
+   502→    } catch (err) {
+   503→      console.error("[sendMessage] Error:", err);
+   504→      setError("Network error. Please check your connection and try again.");
+   505→    } finally {
+   506→      setIsLoading(false);
+   507→      setActiveToolSteps([]);
+   508→      inputRef.current?.focus();
+   509→    }
+   510→  }, [inputValue, selectedProject, isLoading, attachedFiles, user?.name]);
+   511→
+   512→  const handleKeyDown = (e: React.KeyboardEvent) => {
+   513→    if (e.key === "Enter" && !e.shiftKey) {
+   514→      e.preventDefault();
+   515→      sendMessage();
+   516→    }
+   517→  };
+   518→
+   519→  const handleCommandClick = (command: string) => {
+   520→    if (!selectedProject || isLoading) return;
+   521→    // Directly send the command instead of just filling the input
+   522→    setInputValue(command);
+   523→    // Use setTimeout to ensure state is set before sending
+   524→    setTimeout(() => {
+   525→      const content = command.trim();
+   526→      setInputValue("");
+   527→      setError(null);
+   528→      setIsLoading(true);
+   529→
+   530→      const optimisticUserMsg: ChatMessage = {
+   531→        id: `temp-${Date.now()}`,
+   532→        role: "user",
+   533→        content,
+   534→        timestamp: new Date().toISOString(),
+   535→        userName: user?.name || "You",
+   536→      };
+   537→      setActiveToolSteps([]);
+   538→      setMessages((prev) => [...prev, optimisticUserMsg]);
+   539→
+   540→      fetch("/api/ai/chat", {
+   541→        method: "POST",
+   542→        headers: { "Content-Type": "application/json" },
+   543→        body: JSON.stringify({ projectId: selectedProject.id, content }),
+   544→      })
+   545→        .then((res) => res.json())
+   546→        .then((json) => {
+   547→          if (json.success) {
+   548→            setMessages((prev) => {
+   549→              const filtered = prev.filter((m) => m.id !== optimisticUserMsg.id);
+   550→              return [
+   551→                ...filtered,
+   552→                {
+   553→                  id: json.data.userMessage.id,
+   554→                  role: json.data.userMessage.role,
+   555→                  content: safeContent(json.data.userMessage.content),
+   556→                  timestamp: new Date().toISOString(),
+   557→                  userName: user?.name || "You",
+   558→                },
+   559→                {
+   560→                  id: json.data.aiMessage.id,
+   561→                  role: json.data.aiMessage.role,
+   562→                  content: safeContent(json.data.aiMessage.content),
+   563→                  timestamp: new Date().toISOString(),
+   564→                  userName: "Karma Space AI",
+   565→                  toolExecutions: json.data.toolExecutions || undefined,
+   566→                  modelRouteReason: json.data.modelAutoRouted ? json.data.modelRouteReason : undefined,
+   567→                  documentInfo: json.data.documentInfo || undefined,
+   568→                },
+   569→              ];
+   570→            });
+   571→          } else {
+   572→            setError(typeof json.error === "string" ? json.error : "Failed to send message");
+   573→          }
+   574→        })
+   575→        .catch((err) => {
+   576→          console.error("[handleCommandClick] Error:", err);
+   577→          setError(safeError(err, "Network error. Please check your connection and try again."));
+   578→        })
+   579→        .finally(() => {
+   580→          setIsLoading(false);
+   581→          setActiveToolSteps([]);
+   582→          inputRef.current?.focus();
+   583→        });
+   584→    }, 0);
+   585→  };
+   586→
+   587→  // Download AI message as PDF
+   588→  const handleDownloadPdf = async (msg: ChatMessage) => {
+   589→    if (!msg.id || downloadingPdf) return;
+   590→    setDownloadingPdf(msg.id);
+   591→    try {
+   592→      const title = msg.content.split("\n")[0]?.replace(/[#*`]/g, "").trim().slice(0, 60) || "Document";
+   593→      const res = await fetch(`/api/ai/export-pdf?messageId=${msg.id}&filename=${encodeURIComponent(title)}`);
+   594→      if (!res.ok) {
+   595→        // Try to parse error message from the API response
+   596→        let errorMsg = "Failed to export PDF";
+   597→        try {
+   598→          const errJson = await res.json();
+   599→          if (errJson.error) errorMsg = errJson.error;
+   600→        } catch { /* response wasn't JSON */ }
+   601→        throw new Error(errorMsg);
+   602→      }
+   603→      const blob = await res.blob();
+   604→      if (blob.size < 100) {
+   605→        throw new Error("Generated PDF is empty or corrupted");
+   606→      }
+   607→      const url = URL.createObjectURL(blob);
+   608→      const a = document.createElement("a");
+   609→      a.href = url;
+   610→      a.download = `${title.replace(/\s+/g, "_")}.pdf`;
+   611→      document.body.appendChild(a);
+   612→      a.click();
+   613→      document.body.removeChild(a);
+   614→      URL.revokeObjectURL(url);
+   615→    } catch (err) {
+   616→      console.error("[handleDownloadPdf] Error:", err);
+   617→      setError(err instanceof Error ? err.message : "Failed to export PDF");
+   618→    } finally {
+   619→      setDownloadingPdf(null);
+   620→    }
+   621→  };
+   622→
+   623→  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+   624→    const files = e.target.files;
+   625→    if (!files || files.length === 0) return;
+   626→
+   627→    const MAX_FILES = 5;
+   628→    const MAX_SIZE_MB = 10;
+   629→
+   630→    for (let i = 0; i < Math.min(files.length, MAX_FILES - attachedFiles.length); i++) {
+   631→      const file = files[i];
+   632→
+   633→      if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+   634→        setError(`"${file.name}" is too large. Max ${MAX_SIZE_MB}MB.`);
+   635→        continue;
+   636→      }
+   637→
+   638→      const reader = new FileReader();
+   639→      reader.onload = () => {
+   640→        const base64 = (reader.result as string).split(",")[1];
+   641→        setAttachedFiles((prev) => [
+   642→          ...prev,
+   643→          { data: base64, name: file.name, type: file.type },
+   644→        ]);
+   645→      };
+   646→      reader.readAsDataURL(file);
+   647→    }
+   648→
+   649→    if (fileInputRef.current) {
+   650→      fileInputRef.current.value = "";
+   651→    }
+   652→  };
+   653→
+   654→  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+   655→    const clipboardData = e.clipboardData;
+   656→    if (!clipboardData) return;
+   657→
+   658→    const items = clipboardData.items;
+   659→    const imageItems: File[] = [];
+   660→
+   661→    for (let i = 0; i < items.length; i++) {
+   662→      if (items[i].type.startsWith("image/")) {
+   663→        const file = items[i].getAsFile();
+   664→        if (file) imageItems.push(file);
+   665→      }
+   666→    }
+   667→
+   668→    // No images in clipboard — let normal text paste happen
+   669→    if (imageItems.length === 0) return;
+   670→
+   671→    // Prevent the default paste only when images are present
+   672→    // (some browsers insert the image as a blank text otherwise)
+   673→    e.preventDefault();
+   674→
+   675→    const MAX_FILES = 5;
+   676→    const MAX_SIZE_MB = 10;
+   677→
+   678→    for (let i = 0; i < Math.min(imageItems.length, MAX_FILES - attachedFiles.length); i++) {
+   679→      const file = imageItems[i];
+   680→
+   681→      if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+   682→        setError(`"Pasted image" (${(file.size / (1024 * 1024)).toFixed(1)}MB) is too large. Max ${MAX_SIZE_MB}MB.`);
+   683→        continue;
+   684→      }
+   685→
+   686→      const reader = new FileReader();
+   687→      reader.onload = () => {
+   688→        const base64 = (reader.result as string).split(",")[1];
+   689→        const mimeType = file.type || "image/png";
+   690→        // Generate a name based on timestamp for pasted images
+   691→        const name = `pasted-${Date.now()}-${i}.${mimeType.split("/")[1] || "png"}`;
+   692→        setAttachedFiles((prev) => [
+   693→          ...prev,
+   694→          { data: base64, name, type: mimeType },
+   695→        ]);
+   696→      };
+   697→      reader.readAsDataURL(file);
+   698→    }
+   699→
+   700→    // If clipboard also has text alongside images, append it to input
+   701→    const textData = clipboardData.getData("text/plain");
+   702→    if (textData) {
+   703→      setInputValue((prev) => prev + textData);
+   704→    }
+   705→  };
+   706→
+   707→  const removeAttachedFile = (index: number) => {
+   708→    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+   709→  };
+   710→
+   711→  // Download stored document PDF by document ID
+   712→  const handleDownloadDocumentPdf = async (docId: string, docTitle: string) => {
+   713→    if (!docId || downloadingDocPdf) return;
+   714→    setDownloadingDocPdf(docId);
+   715→    try {
+   716→      const res = await fetch("/api/ai/documents/" + docId + "?download=true");
+   717→      if (!res.ok) {
+   718→        let errorMsg = "Failed to download PDF";
+   719→        try {
+   720→          const errJson = await res.json();
+   721→          if (errJson.error) errorMsg = errJson.error;
+   722→        } catch { /* response wasn't JSON */ }
+   723→        throw new Error(errorMsg);
+   724→      }
+   725→      const blob = await res.blob();
+   726→      if (blob.size < 100) throw new Error("PDF is empty or corrupted");
+   727→      const url = URL.createObjectURL(blob);
+   728→      const a = document.createElement("a");
+   729→      a.href = url;
+   730→      a.download = (docTitle.replace(/\s+/g, "_") || "Document") + ".pdf";
+   731→      document.body.appendChild(a);
+   732→      a.click();
+   733→      document.body.removeChild(a);
+   734→      URL.revokeObjectURL(url);
+   735→    } catch (err) {
+   736→      console.error("[handleDownloadDocumentPdf] Error:", err);
+   737→      setError(err instanceof Error ? err.message : "Failed to download document PDF");
+   738→    } finally {
+   739→      setDownloadingDocPdf(null);
+   740→    }
+   741→  };
+   742→
+   743→  // Check if project has generated documents (for "Download All" button) — useMemo instead of useEffect
+   744→  const hasDocuments = useMemo(() => {
+   745→    if (!selectedProject || messages.length === 0) return false;
+   746→
+   747→    const DOC_SIGNATURES = [
+   748→      ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements"],
+   749→      ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements"],
+   750→      ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns"],
+   751→      ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Accessibility"],
+   752→      ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data"],
+   753→      ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Risk Register", "Quality Gates"],
+   754→    ];
+   755→
+   756→    const isDocument = (content: string): boolean => {
+   757→      if (content.length < 1500) return false;
+   758→      const lower = content.toLowerCase();
+   759→      return DOC_SIGNATURES.some(keywords =>
+   760→        keywords.filter(kw => lower.includes(kw.toLowerCase())).length >= 3
+   761→      );
+   762→    };
+   763→
+   764→    return messages.some(m => m.role === "assistant" && isDocument(m.content));
+   765→  }, [messages, selectedProject]);
+   766→
+   767→  // Check if project has ProjectDocument records for onboarding
+   768→  useEffect(() => {
+   769→    if (!selectedProject || onboardingPhase === "complete") return;
+   770→    async function checkDocs() {
+   771→      try {
+   772→        const res = await fetch("/api/ai/onboarding?projectId=" + selectedProject.id);
+   773→        const json = await res.json();
+   774→        if (json.success) {
+   775→          // If project has documents OR existing chat history, skip onboarding
+   776→          if (json.data.isOnboarded || json.data.hasChatHistory) {
+   777→            setOnboardingPhase("complete");
+   778→          } else if (onboardingPhase === "idle") {
+   779→            setOnboardingPhase("requirements");
+   780→          }
+   781→        }
+   782→      } catch {
+   783→        // If onboarding check fails, default to showing chat (not onboarding)
+   784→        setOnboardingPhase("complete");
+   785→      }
+   786→    }
+   787→    checkDocs();
+   788→  }, [selectedProject, onboardingPhase]);
+   789→
+   790→  // Parse tool execution results to populate file tree and terminal output
+   791→  useEffect(() => {
+   792→    const allDirItems: Array<{ name: string; path: string; type: string; size?: number }> = [];
+   793→    const allTerminalEntries: TerminalEntry[] = [];
+   794→
+   795→    for (const msg of messages) {
+   796→      if (!msg.toolExecutions) continue;
+   797→      for (const tool of msg.toolExecutions) {
+   798→        // Parse fs_list_dir results → file tree
+   799→        if (tool.toolName === "fs_list_dir" && tool.status === "success") {
+   800→          try {
+   801→            const data = JSON.parse(tool.displayMessage);
+   802→            if (Array.isArray(data.items)) {
+   803→              allDirItems.push(...data.items);
+   804→            } else if (Array.isArray(data)) {
+   805→              allDirItems.push(...data);
+   806→            }
+   807→          } catch {
+   808→            // Not valid JSON — skip
+   809→          }
+   810→        }
+   811→        // Parse exec_command results → terminal entries
+   812→        if (tool.toolName === "exec_command" && (tool.status === "success" || tool.status === "error")) {
+   813→          try {
+   814→            const data = JSON.parse(tool.displayMessage);
+   815→            if (data.command) {
+   816→              allTerminalEntries.push({
+   817→                id: `term-${msg.id}-${allTerminalEntries.length}`,
+   818→                command: data.command,
+   819→                status: data.status || (tool.status === "error" ? "error" : "success"),
+   820→                output: data.output || "",
+   821→                conclusion: data.conclusion,
+   822→                runUrl: data.runUrl,
+   823→                timestamp: new Date(msg.timestamp),
+   824→              });
+   825→            }
+   826→          } catch {
+   827→            // Not valid JSON — skip
+   828→          }
+   829→        }
+   830→      }
+   831→    }
+   832→
+   833→    if (allDirItems.length > 0) {
+   834→      setFileTree(buildFileTree(allDirItems));
+   835→    }
+   836→    if (allTerminalEntries.length > 0) {
+   837→      setTerminalOutput(allTerminalEntries);
+   838→    }
+   839→  }, [messages]);
+   840→
+   841→  // Handle onboarding submission
+   842→  const handleOnboardingSubmit = useCallback(async () => {
+   843→    if (!selectedProject || onboardingSubmitting) return;
+   844→    if (onboardingTab === "write" && !onboardingText.trim()) {
+   845→      setError("Please enter your project requirements or upload a PDF.");
+   846→      return;
+   847→    }
+   848→    if (onboardingTab === "upload" && !onboardingFile) {
+   849→      setError("Please select a PDF file to upload.");
+   850→      return;
+   851→    }
+   852→    setOnboardingSubmitting(true);
+   853→    setError(null);
+   854→    try {
+   855→      const body: Record<string, unknown> = {
+   856→        projectId: selectedProject.id,
+   857→        type: onboardingTab === "upload" ? "pdf" : "text",
+   858→      };
+   859→      if (onboardingTab === "upload" && onboardingFile) {
+   860→        const reader = new FileReader();
+   861→        const base64Promise = new Promise<string>((resolve) => {
+   862→          reader.onload = () => resolve((reader.result as string).split(",")[1]);
+   863→        });
+   864→        reader.readAsDataURL(onboardingFile);
+   865→        const base64 = await base64Promise;
+   866→        body.fileData = base64;
+   867→      } else {
+   868→        body.content = onboardingText.trim();
+   869→      }
+   870→      const res = await fetch("/api/ai/onboarding", {
+   871→        method: "POST",
+   872→        headers: { "Content-Type": "application/json" },
+   873→        body: JSON.stringify(body),
+   874→      });
+   875→      const json = await res.json();
+   876→      if (json.success) {
+   877→        setOnboardingPhase("complete");
+   878→      } else {
+   879→        setError(safeError(json.error, "Failed to submit requirements."));
+   880→      }
+   881→    } catch (err) {
+   882→      setError(safeError(err, "Failed to submit. Please try again."));
+   883→    } finally {
+   884→      setOnboardingSubmitting(false);
+   885→    }
+   886→  }, [selectedProject, onboardingTab, onboardingText, onboardingFile, onboardingSubmitting]);
+   887→
+   888→  // Download all documents as one combined PDF
+   889→  const handleExportAllDocs = async () => {
+   890→    if (!selectedProject || isExportingAll) return;
+   891→    setIsExportingAll(true);
+   892→    try {
+   893→      const res = await fetch(`/api/ai/export-all-docs?projectId=${selectedProject.id}`);
+   894→      if (!res.ok) {
+   895→        let errorMsg = "Failed to export documents";
+   896→        try {
+   897→          const errJson = await res.json();
+   898→          if (errJson.error) errorMsg = errJson.error;
+   899→        } catch { /* not JSON */ }
+   900→        throw new Error(errorMsg);
+   901→      }
+   902→      const blob = await res.blob();
+   903→      if (blob.size < 100) throw new Error("Generated PDF is empty or corrupted");
+   904→      const url = URL.createObjectURL(blob);
+   905→      const a = document.createElement("a");
+   906→      a.href = url;
+   907→      a.download = `${selectedProject.name.replace(/\s+/g, "_")}_All_Documents.pdf`;
+   908→      document.body.appendChild(a);
+   909→      a.click();
+   910→      document.body.removeChild(a);
+   911→      URL.revokeObjectURL(url);
+   912→    } catch (err) {
+   913→      console.error("[handleExportAllDocs] Error:", err);
+   914→      setError(err instanceof Error ? err.message : "Failed to export documents");
+   915→    } finally {
+   916→      setIsExportingAll(false);
+   917→    }
+   918→  };
+   919→
+   920→  const handleExportPdf = async () => {
+   921→    if (!selectedProject) return;
+   922→    setIsExporting(true);
+   923→    try {
+   924→      const res = await fetch(
+   925→        `/api/ai/project-pdf?projectId=${selectedProject.id}`
+   926→      );
+   927→      if (!res.ok) throw new Error("Failed to export PDF");
+   928→      const blob = await res.blob();
+   929→      const url = URL.createObjectURL(blob);
+   930→      const a = document.createElement("a");
+   931→      a.href = url;
+   932→      a.download = `${selectedProject.name.replace(/\s+/g, "_")}_Report.pdf`;
+   933→      document.body.appendChild(a);
+   934→      a.click();
+   935→      document.body.removeChild(a);
+   936→      URL.revokeObjectURL(url);
+   937→    } catch (err) {
+   938→      setError(safeError(err, "Failed to export PDF"));
+   939→    } finally {
+   940→      setIsExporting(false);
+   941→    }
+   942→  };
+   943→
+   944→  const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+   945→  const toggleDocExpand = useCallback((id: string) => {
+   946→    setExpandedDocs((prev) => {
+   947→      const next = new Set(prev);
+   948→      if (next.has(id)) next.delete(id);
+   949→      else next.add(id);
+   950→      return next;
+   951→    });
+   952→  }, []);
+   953→
+   954→  // Launch Codex — bridge to z.ai API, display response in KarmaBoard chat
+   955→  const handleStartCodex = async () => {
+   956→    if (!selectedProject || codexLoading) return;
+   957→    setCodexLoading(true);
+   958→    setError(null);
+   959→    try {
+   960→      const res = await fetch("/api/ai/zai-bridge", {
+   961→        method: "POST",
+   962→        headers: { "Content-Type": "application/json" },
+   963→        body: JSON.stringify({ projectId: selectedProject.id }),
+   964→      });
+   965→      const json = await res.json();
+   966→      if (json.success) {
+   967→        toast.success(`${json.chatName} connected via z.ai!`);
+   968→        // Add the z.ai Codex response as a message in the chat
+   969→        const codexMsg: ChatMessage = {
+   970→          id: `codex-${Date.now()}`,
+   971→          role: "assistant",
+   972→          content: json.aiResponse || `Project context sent to z.ai (${json.documentsFound} documents, ${json.chatMessagesFound} chat messages). The AI will use this context for all future responses in this session. Model: ${json.modelName}`,
+   973→          timestamp: new Date().toISOString(),
+   974→          userName: "z.ai Codex",
+   975→          zaiBridge: {
+   976→            chatId: json.chatId,
+   977→            chatUrl: json.chatUrl,
+   978→            context: json.context,
+   979→            modelName: json.modelName,
+   980→            documentsFound: json.documentsFound,
+   981→            chatMessagesFound: json.chatMessagesFound,
+   982→            docsSource: json.docsSource,
+   983→            isNewChat: json.isNewChat,
+   984→            aiResponse: json.aiResponse,
+   985→            apiError: json.apiError,
+   986→            chunksTotal: json.chunksTotal,
+   987→            chunksSent: json.chunksSent,
+   988→            chunkProgress: json.chunkProgress,
+   989→          },
+   990→        };
+   991→        setMessages((prev) => [...prev, codexMsg]);
+   992→      } else {
+   993→        setError(safeError(json.error, "Failed to launch Codex. Ask your Super Admin to configure z.ai Bridge in Settings."));
+   994→      }
+   995→    } catch (err) {
+   996→      console.error("[handleStartCodex] Error:", err);
+   997→      setError("Network error launching Codex. Please try again.");
+   998→    } finally {
+   999→      setCodexLoading(false);
+  1000→    }
+  1001→  };
+  1002→
+  1003→  // Send message to embedded z.ai Codex chat
+  1004→  const handleSendZaiChat = async (codexMsg: ChatMessage) => {
+  1005→    if (!selectedProject || !zaiChatInput.trim() || zaiChatLoading) return;
+  1006→    const userContent = zaiChatInput.trim();
+  1007→    setZaiChatInput("");
+  1008→    setZaiChatLoading(true);
+  1009→    setZaiChatExpanded(true);
+  1010→
+  1011→    // Add user message
+  1012→    setZaiChatMessages((prev) => [...prev, { role: "user", content: userContent }]);
+  1013→
+  1014→    try {
+  1015→      const messagesToSend = [
+  1016→        // Include the initial Codex AI response as context
+  1017→        ...(codexMsg.zaiBridge?.aiResponse ? [{ role: "assistant" as const, content: codexMsg.zaiBridge.aiResponse }] : []),
+  1018→        // Include previous chat messages
+  1019→        ...zaiChatMessages,
+  1020→        { role: "user" as const, content: userContent },
+  1021→      ];
+  1022→
+  1023→      const res = await fetch("/api/ai/zai-chat", {
+  1024→        method: "POST",
+  1025→        headers: { "Content-Type": "application/json" },
+  1026→        body: JSON.stringify({
+  1027→          projectId: selectedProject.id,
+  1028→          messages: messagesToSend,
+  1029→          contextSummary: codexMsg.zaiBridge?.context?.slice(0, 2000) || undefined,
+  1030→        }),
+  1031→      });
+  1032→
+  1033→      const json = await res.json();
+  1034→      if (json.success) {
+  1035→        setZaiChatMessages((prev) => [...prev, { role: "assistant", content: json.content }]);
+  1036→      } else {
+  1037→        setZaiChatMessages((prev) => [
+  1038→          ...prev,
+  1039→          { role: "assistant", content: `Error: ${json.error || "Failed to get response from z.ai"}` },
+  1040→        ]);
+  1041→      }
+  1042→    } catch (err) {
+  1043→      setZaiChatMessages((prev) => [
+  1044→        ...prev,
+  1045→        { role: "assistant", content: `Network error: ${err instanceof Error ? err.message : "Please try again"}` },
+  1046→      ]);
+  1047→    } finally {
+  1048→      setZaiChatLoading(false);
+  1049→    }
+  1050→  };
+  1051→
+  1052→  // Handle z.ai bridge — auto-redirect to z.ai and copy context
+  1053→  const [zaiCopiedId, setZaiCopiedId] = useState<string | null>(null);
+  1054→  const [errorCopied, setErrorCopied] = useState(false);
+  1055→  const [zaiRedirected, setZaiRedirected] = useState<string | null>(null);
+  1056→  const handleOpenZai = async (msg: ChatMessage) => {
+  1057→    if (!msg.zaiBridge) return;
+  1058→    // Auto-copy context to clipboard first
+  1059→    let copied = false;
+  1060→    try {
+  1061→      await navigator.clipboard.writeText(msg.zaiBridge.context);
+  1062→      copied = true;
+  1063→    } catch {
+  1064→      // Clipboard API may fail in some browsers/contexts
+  1065→    }
+  1066→
+  1067→    // Open z.ai chat in new tab
+  1068→    window.open(msg.zaiBridge.chatUrl, "_blank", "noopener,noreferrer");
+  1069→
+  1070→    if (copied) {
+  1071→      toast.success("z.ai opened in new tab! Project context auto-copied — just paste it in the chat.", {
+  1072→        duration: 5000,
+  1073→      });
+  1074→    } else {
+  1075→      toast.info("z.ai opened in new tab. Use 'Copy Context' button to copy your project docs and paste them in z.ai.", {
+  1076→        duration: 5000,
+  1077→      });
+  1078→    }
+  1079→  };
+  1080→  const handleCopyZaiContext = async (msg: ChatMessage) => {
+  1081→    if (!msg.zaiBridge) return;
+  1082→    try {
+  1083→      await navigator.clipboard.writeText(msg.zaiBridge.context);
+  1084→      setZaiCopiedId(msg.id);
+  1085→      toast.success("Project context copied! Paste it in z.ai chat.");
+  1086→      setTimeout(() => setZaiCopiedId(null), 3000);
+  1087→    } catch {
+  1088→      toast.error("Failed to copy to clipboard");
+  1089→    }
+  1090→  };
+  1091→
+  1092→  // Stable callback refs for memoized ChatMessageItem — useMemo prevents
+  1093→  // ALL messages from re-rendering on every keystroke (inputValue changes).
+  1094→  // Only re-create when these specific states actually change.
+  1095→  const messageCallbacks: ChatMessageCallbacks = useMemo(() => ({
+  1096→    isMobile,
+  1097→    downloadingPdf,
+  1098→    downloadingDocPdf,
+  1099→    expandedDocs,
+  1100→    zaiCopiedId,
+  1101→    zaiChatExpanded,
+  1102→    zaiChatMessages,
+  1103→    zaiChatLoading,
+  1104→    onToggleDocExpand: toggleDocExpand,
+  1105→    onDownloadPdf: handleDownloadPdf,
+  1106→    onDownloadDocPdf: handleDownloadDocumentPdf,
+  1107→    onOpenZai: handleOpenZai,
+  1108→    onCopyZaiContext: handleCopyZaiContext,
+  1109→    onToggleZaiChat: () => setZaiChatExpanded((prev) => !prev),
+  1110→    onSendZaiChat: handleSendZaiChat,
+  1111→  // eslint-disable-next-line react-hooks/exhaustive-deps
+  1112→  }), [isMobile, downloadingPdf, downloadingDocPdf, expandedDocs, zaiCopiedId, zaiChatExpanded, zaiChatMessages, zaiChatLoading]);
+  1113→
+  1114→  const filteredProjects = useMemo(() => projects.filter(
+  1115→    (p) =>
+  1116→      p.status !== "ARCHIVED" &&
+  1117→      (p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+  1118→        p.description?.toLowerCase().includes(projectSearch.toLowerCase()))
+  1119→  ), [projects, projectSearch]);
+  1120→
+  1121→  return (
+  1122→    <TooltipProvider>
+  1123→      <div className="flex flex-col h-[calc(100vh-3.5rem)] -m-4 sm:-m-6 lg:-m-8">
+  1124→        {/* Top Bar */}
+  1125→        <div className="flex items-center justify-between border-b px-2 sm:px-4 py-2 sm:py-3 bg-card shrink-0 min-h-0">
+  1126→          <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
+  1127→            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+  1128→              <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+  1129→                <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary" />
+  1130→              </div>
+  1131→              <h1 className="font-semibold text-sm sm:text-lg">Karma Space</h1>
+  1132→            </div>
+  1133→
+  1134→            {/* Project Selector */}
+  1135→            <Popover
+  1136→              open={projectPopoverOpen}
+  1137→              onOpenChange={setProjectPopoverOpen}
+  1138→            >
+  1139→              <PopoverTrigger asChild>
+  1140→                <Button
+  1141→                  variant="outline"
+  1142→                  className="ml-1 sm:ml-2 gap-1.5 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 max-w-[140px] sm:max-w-[240px]"
+  1143→                >
+  1144→                  {selectedProject ? (
+  1145→                    <>
+  1146→                      {selectedProject.color && (
+  1147→                        <span
+  1148→                          className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full shrink-0"
+  1149→                          style={{
+  1150→                            backgroundColor: selectedProject.color,
+  1151→                          }}
+  1152→                        />
+  1153→                      )}
+  1154→                      <span className="truncate">
+  1155→                        {selectedProject.name}
+  1156→                      </span>
+  1157→                    </>
+  1158→                  ) : (
+  1159→                    <>
+  1160→                      <Search className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+  1161→                      <span className="text-muted-foreground hidden sm:inline">
+  1162→                        Select Project...
+  1163→                      </span>
+  1164→                    </>
+  1165→                  )}
+  1166→                  <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 opacity-50" />
+  1167→                </Button>
+  1168→              </PopoverTrigger>
+  1169→              <PopoverContent className="w-72 p-0" align="start">
+  1170→                <Command>
+  1171→                  <CommandInput
+  1172→                    placeholder="Search projects..."
+  1173→                    value={projectSearch}
+  1174→                    onValueChange={setProjectSearch}
+  1175→                  />
+  1176→                  <CommandList>
+  1177→                    <CommandEmpty>No projects found.</CommandEmpty>
+  1178→                    <CommandGroup>
+  1179→                      {filteredProjects.map((project) => (
+  1180→                        <CommandItem
+  1181→                          key={project.id}
+  1182→                          value={project.id}
+  1183→                          onSelect={() => {
+  1184→                            setSelectedProject(project);
+  1185→                            setProjectPopoverOpen(false);
+  1186→                            setProjectSearch("");
+  1187→                          }}
+  1188→                        >
+  1189→                          <div className="flex items-center gap-2 flex-1 min-w-0">
+  1190→                            {project.color && (
+  1191→                              <span
+  1192→                                className="h-2.5 w-2.5 rounded-full shrink-0"
+  1193→                                style={{
+  1194→                                  backgroundColor: project.color,
+  1195→                                }}
+  1196→                              />
+  1197→                            )}
+  1198→                            <span className="truncate text-sm">
+  1199→                              {project.name}
+  1200→                            </span>
+  1201→                          </div>
+  1202→                          <Badge variant="secondary" className="text-[10px] shrink-0">
+  1203→                            {project.status}
+  1204→                          </Badge>
+  1205→                        </CommandItem>
+  1206→                      ))}
+  1207→                    </CommandGroup>
+  1208→                  </CommandList>
+  1209→                </Command>
+  1210→              </PopoverContent>
+  1211→            </Popover>
+  1212→          </div>
+  1213→
+  1214→          {/* Right side: Model selector + Export PDF */}
+  1215→          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+  1216→            {isSuperAdmin && selectedProject && (
+  1217→              <Tooltip>
+  1218→                <TooltipTrigger asChild>
+  1219→                  <div className="hidden sm:flex items-center gap-1.5">
+  1220→                    {isModelLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+  1221→                    <Select
+  1222→                      value={projectModel || "__default__"}
+  1223→                      onValueChange={handleModelChange}
+  1224→                      disabled={isModelLoading}
+  1225→                    >
+  1226→                      <SelectTrigger className="w-auto gap-1.5 h-9 text-xs font-normal border-dashed">
+  1227→                        <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+  1228→                        <SelectValue placeholder="Default Model" />
+  1229→                      </SelectTrigger>
+  1230→                      <SelectContent>
+  1231→                        <SelectItem value="__default__">
+  1232→                          <span className="text-muted-foreground">Global Default</span>
+  1233→                        </SelectItem>
+  1234→                        {(() => {
+  1235→                          const categories = Array.from(new Set(AVAILABLE_MODELS.map((m) => m.category)));
+  1236→                          return categories.map((cat) => (
+  1237→                            <SelectGroup key={cat}>
+  1238→                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">{cat}</SelectLabel>
+  1239→                              {AVAILABLE_MODELS.filter((m) => m.category === cat).map((m) => (
+  1240→                                <SelectItem key={m.id} value={m.id}>
+  1241→                                  <div className="flex flex-col">
+  1242→                                    <span>{m.name}</span>
+  1243→                                    <span className="text-[10px] text-muted-foreground">{m.description} ({m.contextWindow})</span>
+  1244→                                  </div>
+  1245→                                </SelectItem>
+  1246→                              ))}
+  1247→                            </SelectGroup>
+  1248→                          ));
+  1249→                        })()}
+  1250→                      </SelectContent>
+  1251→                    </Select>
+  1252→                  </div>
+  1253→                </TooltipTrigger>
+  1254→                <TooltipContent>
+  1255→                  {projectModel
+  1256→                    ? `Using: ${AVAILABLE_MODELS.find((m) => m.id === projectModel)?.name || projectModel}`
+  1257→                    : "Using global default model"}
+  1258→                </TooltipContent>
+  1259→              </Tooltip>
+  1260→            )}
+  1261→
+  1262→            {isSuperAdmin && selectedProject && (
+  1263→              <Tooltip>
+  1264→                <TooltipTrigger asChild>
+  1265→                  <Button
+  1266→                    variant="outline"
+  1267→                    size="sm"
+  1268→                    className="gap-1.5 sm:gap-2"
+  1269→                    onClick={handleExportPdf}
+  1270→                    disabled={isExporting}
+  1271→                  >
+  1272→                    {isExporting ? (
+  1273→                      <Loader2 className="h-4 w-4 animate-spin" />
+  1274→                    ) : (
+  1275→                      <Download className="h-4 w-4" />
+  1276→                    )}
+  1277→                    <span className="hidden sm:inline">Export PDF</span>
+  1278→                  </Button>
+  1279→                </TooltipTrigger>
+  1280→                <TooltipContent>Export project report as PDF</TooltipContent>
+  1281→              </Tooltip>
+  1282→            )}
+  1283→
+  1284→            {/* Delete Chat button — visible when project is selected and has messages */}
+  1285→            {selectedProject && messages.length > 0 && !isSuperAdmin && (
+  1286→              <Tooltip>
+  1287→                <TooltipTrigger asChild>
+  1288→                  <Button
+  1289→                    variant="outline"
+  1290→                    size="sm"
+  1291→                    className="gap-1.5 text-destructive hover:text-destructive border-destructive/30 hover:border-destructive/50 hover:bg-destructive/5"
+  1292→                    onClick={() => { setDeleteDialogOpen(true); setDeleteError(null); setDeletePassword(""); }}
+  1293→                  >
+  1294→                    <Trash2 className="h-4 w-4" />
+  1295→                    <span className="hidden sm:inline">Delete Chat</span>
+  1296→                  </Button>
+  1297→                </TooltipTrigger>
+  1298→                <TooltipContent>Delete all chat messages for this project</TooltipContent>
+  1299→              </Tooltip>
+  1300→            )}
+  1301→
+  1302→            {/* Pending delete requests badge — SUPERADMIN */}
+  1303→            {isSuperAdmin && deleteRequests.length > 0 && (
+  1304→              <Tooltip>
+  1305→                <TooltipTrigger asChild>
+  1306→                  <Button
+  1307→                    variant="outline"
+  1308→                    size="sm"
+  1309→                    className="gap-1.5 text-amber-600 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:border-amber-700 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
+  1310→                    onClick={() => setDeleteReviewDialogOpen(true)}
+  1311→                  >
+  1312→                    <Bell className="h-4 w-4" />
+  1313→                    <span className="hidden sm:inline">{deleteRequests.length} Pending</span>
+  1314→                  </Button>
+  1315→                </TooltipTrigger>
+  1316→                <TooltipContent>{deleteRequests.length} chat delete request{deleteRequests.length > 1 ? "s" : ""} pending review</TooltipContent>
+  1317→              </Tooltip>
+  1318→            )}
+  1319→
+  1320→            {/* Start Karmaspace Codex — bridge to z.ai */}
+  1321→            {selectedProject && (
+  1322→              <Tooltip>
+  1323→                <TooltipTrigger asChild>
+  1324→                  <Button
+  1325→                    variant="default"
+  1326→                    size="sm"
+  1327→                    className="gap-1.5 sm:gap-2 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground shadow-sm hover:shadow-md"
+  1328→                    onClick={handleStartCodex}
+  1329→                    disabled={codexLoading}
+  1330→                  >
+  1331→                    {codexLoading ? (
+  1332→                      <>
+  1333→                        <Loader2 className="h-4 w-4 animate-spin" />
+  1334→                        <span className="hidden sm:inline">Sending to z.ai...</span>
+  1335→                        <span className="sm:hidden">Sending...</span>
+  1336→                      </>
+  1337→                    ) : (
+  1338→                      <>
+  1339→                        <Rocket className="h-4 w-4" />
+  1340→                        <span className="hidden sm:inline">Launch Codex</span>
+  1341→                        <span className="sm:hidden">Codex</span>
+  1342→                      </>
+  1343→                    )}
+  1344→                  </Button>
+  1345→                </TooltipTrigger>
+  1346→                <TooltipContent>Launch agentic AI coding session in z.ai with all project documents and chat context</TooltipContent>
+  1347→              </Tooltip>
+  1348→            )}
+  1349→
+  1350→            {/* Download All Documents button */}
+  1351→            {isSuperAdmin && selectedProject && hasDocuments && (
+  1352→              <Tooltip>
+  1353→                <TooltipTrigger asChild>
+  1354→                  <Button
+  1355→                    variant="default"
+  1356→                    size="sm"
+  1357→                    className="gap-1.5 sm:gap-2 bg-primary text-primary-foreground"
+  1358→                    onClick={handleExportAllDocs}
+  1359→                    disabled={isExportingAll}
+  1360→                  >
+  1361→                    {isExportingAll ? (
+  1362→                      <Loader2 className="h-4 w-4 animate-spin" />
+  1363→                    ) : (
+  1364→                      <FileDown className="h-4 w-4" />
+  1365→                    )}
+  1366→                    <span className="hidden sm:inline">All Documents</span>
+  1367→                  </Button>
+  1368→                </TooltipTrigger>
+  1369→                <TooltipContent>Download all generated documents as one PDF</TooltipContent>
+  1370→              </Tooltip>
+  1371→            )}
+  1372→          </div>
+  1373→        </div>
+  1374→
+  1375→        {/* Main Content Area — split into IDE layout */}
+  1376→        <div className="flex-1 overflow-hidden">
+  1377→          <IdeLayout
+  1378→            fileExplorerOpen={fileExplorerOpen}
+  1379→            terminalOpen={terminalOpen}
+  1380→            onFileExplorerOpenChange={setFileExplorerOpen}
+  1381→            onTerminalOpenChange={setTerminalOpen}
+  1382→            isMobile={isMobile}
+  1383→            fileExplorerContent={
+  1384→              <FileExplorer
+  1385→                files={fileTree}
+  1386→                onToggle={() => setFileExplorerOpen(false)}
+  1387→                onSelectFile={(path) => {
+  1388→                  setInputValue("Show me the contents of " + path);
+  1389→                  inputRef.current?.focus();
+  1390→                }}
+  1391→              />
+  1392→            }
+  1393→            terminalContent={
+  1394→              <TerminalPanel
+  1395→                entries={terminalOutput}
+  1396→                onToggle={() => setTerminalOpen((prev) => !prev)}
+  1397→                isMinimized={!terminalOpen}
+  1398→                onClear={() => setTerminalOutput([])}
+  1399→              />
+  1400→            }
+  1401→          >
+  1402→            <div className="flex flex-col h-full">
+  1403→              {/* Messages Area — fills remaining space, scrolls independently */}
+  1404→              <div className="flex-1 overflow-hidden">
+  1405→          {!selectedProject ? (
+  1406→            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+  1407→              <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
+  1408→                <Bot className="h-8 w-8 text-primary" />
+  1409→              </div>
+  1410→              <h2 className="text-xl font-semibold mb-2">Welcome to Karma Space</h2>
+  1411→              <p className="text-muted-foreground max-w-md">
+  1412→                Select a project from the dropdown above to start chatting with
+  1413→                Karma Space AI and generate comprehensive project documentation.
+  1414→              </p>
+  1415→            </div>
+  1416→          ) : onboardingPhase === "requirements" ? (
+  1417→            /* Onboarding Screen */
+  1418→            <div className="h-full overflow-y-auto">
+  1419→            <div className="flex flex-col items-center justify-start min-h-full px-4 py-8">
+  1420→              <div className="w-full max-w-lg space-y-6">
+  1421→                <div className="text-center">
+  1422→                  <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4 mx-auto">
+  1423→                    <Rocket className="h-7 w-7 text-primary" />
+  1424→                  </div>
+  1425→                  <h2 className="text-xl font-semibold">Welcome to <span className="text-primary">{selectedProject.name}</span></h2>
+  1426→                  <p className="text-muted-foreground mt-2">Let's set up your project documentation</p>
+  1427→                </div>
+  1428→
+  1429→                <div className="rounded-xl border bg-card p-6 space-y-4">
+  1430→                  <p className="text-sm text-muted-foreground">
+  1431→                    Provide your product requirements to get started. You can either upload an existing PDF document or type/paste your requirements below.
+  1432→                  </p>
+  1433→
+  1434→                  {/* Tab Switcher */}
+  1435→                  <div className="flex gap-2">
+  1436→                    <button
+  1437→                      onClick={() => setOnboardingTab("upload")}
+  1438→                      className={"flex-1 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors " + (onboardingTab === "upload" ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent")}
+  1439→                    >
+  1440→                      <FileUp className="h-4 w-4" />
+  1441→                      Upload PDF
+  1442→                    </button>
+  1443→                    <button
+  1444→                      onClick={() => setOnboardingTab("write")}
+  1445→                      className={"flex-1 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-colors " + (onboardingTab === "write" ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent")}
+  1446→                    >
+  1447→                      <FileText className="h-4 w-4" />
+  1448→                      Write Requirements
+  1449→                    </button>
+  1450→                  </div>
+  1451→
+  1452→                  {/* Upload Tab Content */}
+  1453→                  {onboardingTab === "upload" && (
+  1454→                    <div className="space-y-3">
+  1455→                      <div
+  1456→                        onClick={() => onboardingFileInputRef.current?.click()}
+  1457→                        className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
+  1458→                      >
+  1459→                        <Upload className="h-8 w-8 text-muted-foreground mb-3" />
+  1460→                        <p className="text-sm font-medium">Click to upload a PDF</p>
+  1461→                        <p className="text-xs text-muted-foreground mt-1">Accepts .pdf files</p>
+  1462→                        {onboardingFile && (
+  1463→                          <div className="mt-3 flex items-center gap-2 text-sm text-primary">
+  1464→                            <FileText className="h-4 w-4" />
+  1465→                            <span className="truncate max-w-[200px]">{onboardingFile.name}</span>
+  1466→                            <button
+  1467→                              onClick={(e) => { e.stopPropagation(); setOnboardingFile(null); }}
+  1468→                              className="text-muted-foreground hover:text-foreground"
+  1469→                            >
+  1470→                              <X className="h-3.5 w-3.5" />
+  1471→                            </button>
+  1472→                          </div>
+  1473→                        )}
+  1474→                      </div>
+  1475→                      <input
+  1476→                        type="file"
+  1477→                        ref={onboardingFileInputRef}
+  1478→                        className="hidden"
+  1479→                        accept=".pdf"
+  1480→                        onChange={(e) => {
+  1481→                          if (e.target.files && e.target.files[0]) {
+  1482→                            setOnboardingFile(e.target.files[0]);
+  1483→                          }
+  1484→                        }}
+  1485→                      />
+  1486→                    </div>
+  1487→                  )}
+  1488→
+  1489→                  {/* Write Tab Content */}
+  1490→                  {onboardingTab === "write" && (
+  1491→                    <div className="space-y-3">
+  1492→                      <Textarea
+  1493→                        placeholder="Describe your product requirements here... Include the product vision, target users, key features, and any constraints or preferences you have."
+  1494→                        value={onboardingText}
+  1495→                        onChange={(e) => setOnboardingText(e.target.value)}
+  1496→                        className="min-h-[200px] w-full resize-none"
+  1497→                      />
+  1498→                    </div>
+  1499→                  )}
+  1500→
+  1501→                  <Button
+  1502→                    onClick={handleOnboardingSubmit}
+  1503→                    disabled={onboardingSubmitting || (onboardingTab === "write" && !onboardingText.trim()) || (onboardingTab === "upload" && !onboardingFile)}
+  1504→                    className="w-full"
+  1505→                  >
+  1506→                    {onboardingSubmitting ? (
+  1507→                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+  1508→                    ) : (
+  1509→                      <CheckCircle className="h-4 w-4 mr-2" />
+  1510→                    )}
+  1511→                    {onboardingSubmitting ? "Submitting..." : "Submit Requirements"}
+  1512→                  </Button>
+  1513→                </div>
+  1514→              </div>
+  1515→            </div>
+  1516→          ) : messages.length === 0 ? (
+  1517→            <div className="flex flex-col items-center justify-center h-full text-center px-4">
+  1518→              <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
+  1519→                <MessageSquare className="h-8 w-8 text-primary" />
+  1520→              </div>
+  1521→              <h2 className="text-xl font-semibold mb-2">
+  1522→                {selectedProject.name}
+  1523→              </h2>
+  1524→              <p className="text-muted-foreground max-w-md mb-6">
+  1525→                Start a conversation or use a quick command to generate
+  1526→                documentation.
+  1527→              </p>
+  1528→              <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+  1529→                {Object.entries(COMMAND_DESCRIPTIONS).map(([cmd, info]) => (
+  1530→                  <Button
+  1531→                    key={cmd}
+  1532→                    variant="outline"
+  1533→                    size="sm"
+  1534→                    className="gap-1.5"
+  1535→                    onClick={() => handleCommandClick(cmd)}
+  1536→                  >
+  1537→                    <span>{info.icon}</span>
+  1538→                    <span>{info.label}</span>
+  1539→                  </Button>
+  1540→                ))}
+  1541→              </div>
+  1542→            </div>
+  1543→            </div>
+  1544→          ) : (
+  1545→            /* Chat container — native scroll, newest at bottom */
+  1546→            <div
+  1547→              ref={chatContainerRef}
+  1548→              className="h-full overflow-y-auto"
+  1549→            >
+  1550→              <div className="max-w-3xl mx-auto px-4 py-4 space-y-4">
+  1551→                {messages.map((message) => (
+  1552→                  <ChatMessageItem
+  1553→                    key={message.id}
+  1554→                    message={message}
+  1555→                    userName={user?.name}
+  1556→                    zaiChatInput={zaiChatInput}
+  1557→                    onZaiChatInputChange={setZaiChatInput}
+  1558→                    callbacks={messageCallbacks}
+  1559→                  />
+  1560→                ))}
+  1561→
+  1562→                {/* Loading indicator */}
+  1563→                {isLoading && (
+  1564→                  <div className="flex items-start justify-start">
+  1565→                    <div className="flex items-start gap-2" style={{ maxWidth: "80%" }}>
+  1566→                      <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center text-muted-foreground shrink-0 mt-0.5">
+  1567→                        <Bot className="h-3.5 w-3.5" />
+  1568→                      </div>
+  1569→                      <div className="rounded-2xl px-3.5 py-2.5 bg-muted">
+  1570→                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+  1571→                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+  1572→                          <span>Karma Space is thinking...</span>
+  1573→                        </div>
+  1574→                      </div>
+  1575→                    </div>
+  1576→                  </div>
+  1577→                )}
+  1578→              </div>
+  1579→            </div>
+  1580→          )}
+  1581→        </div>
+  1582→
+  1583→        {/* Error Banner */}
+  1584→        {error && (
+  1585→          <div className="border-t px-3 sm:px-4 py-2 bg-destructive/10 flex items-center gap-2 shrink-0">
+  1586→            <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+  1587→            <p className="text-sm text-destructive flex-1 break-words">{error}</p>
+  1588→            <Button
+  1589→              variant="ghost"
+  1590→              size="sm"
+  1591→              className="h-7 px-2 shrink-0"
+  1592→              onClick={async () => {
+  1593→                try {
+  1594→                  await navigator.clipboard.writeText(`[${new Date().toISOString()}] ${error}`);
+  1595→                  setErrorCopied(true);
+  1596→                  toast.success("Error copied");
+  1597→                  setTimeout(() => setErrorCopied(false), 2000);
+  1598→                } catch { /* ignore */ }
+  1599→              }}
+  1600→              title="Copy error"
+  1601→            >
+  1602→              {errorCopied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+  1603→            </Button>
+  1604→            <Button
+  1605→              variant="ghost"
+  1606→              size="sm"
+  1607→              className="h-7 px-2 shrink-0"
+  1608→              onClick={() => setError(null)}
+  1609→            >
+  1610→              <X className="h-3.5 w-3.5" />
+  1611→            </Button>
+  1612→          </div>
+  1613→        )}
+  1614→
+  1615→        {/* Command Shortcuts */}
+  1616→        {selectedProject && (
+  1617→          <div className="border-t px-4 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0 bg-card/50 scrollbar-none">
+  1618→            <span className="text-xs text-muted-foreground shrink-0 mr-1">
+  1619→              Commands:
+  1620→            </span>
+  1621→            {Object.entries(COMMAND_DESCRIPTIONS).map(([cmd, info]) => (
+  1622→              <Tooltip key={cmd}>
+  1623→                <TooltipTrigger asChild>
+  1624→                  <button
+  1625→                    onClick={() => handleCommandClick(cmd)}
+  1626→                    className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap shrink-0"
+  1627→                  >
+  1628→                    <span>{info.icon}</span>
+  1629→                    <span>{cmd}</span>
+  1630→                  </button>
+  1631→                </TooltipTrigger>
+  1632→                <TooltipContent>{info.label}</TooltipContent>
+  1633→              </Tooltip>
+  1634→            ))}
+  1635→          </div>
+  1636→        )}
+  1637→
+  1638→        {/* Attached Files Preview */}
+  1639→        {attachedFiles.length > 0 && (
+  1640→          <div className="border-t px-4 py-2 flex items-center gap-2 overflow-x-auto shrink-0 bg-muted/50 scrollbar-none">
+  1641→            <div className="flex gap-2">
+  1642→              {attachedFiles.map((file, idx) => (
+  1643→                <div
+  1644→                  key={idx}
+  1645→                  className="relative group flex items-center gap-1.5 bg-background rounded-lg border px-1.5 py-1.5 shrink-0 overflow-hidden"
+  1646→                >
+  1647→                  {file.type.startsWith("image/") ? (
+  1648→                    <img
+  1649→                      src={`data:${file.type};base64,${file.data}`}
+  1650→                      alt={file.name}
+  1651→                      className="h-10 w-10 object-cover rounded shrink-0"
+  1652→                    />
+  1653→                  ) : (
+  1654→                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+  1655→                  )}
+  1656→                  <span className="text-xs truncate max-w-[100px]">{file.name}</span>
+  1657→                  <Button
+  1658→                    variant="ghost"
+  1659→                    size="sm"
+  1660→                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+  1661→                    onClick={() => removeAttachedFile(idx)}
+  1662→                  >
+  1663→                    <X className="h-3 w-3" />
+  1664→                  </Button>
+  1665→                </div>
+  1666→              ))}
+  1667→              {attachedFiles.length < 5 && (
+  1668→                <Button
+  1669→                  variant="ghost"
+  1670→                  size="sm"
+  1671→                  className="h-8 gap-1.5 shrink-0 text-xs text-muted-foreground"
+  1672→                  onClick={() => fileInputRef.current?.click()}
+  1673→                >
+  1674→                  <ImagePlus className="h-3.5 w-3.5" />
+  1675→                  <span>Add more</span>
+  1676→                </Button>
+  1677→              )}
+  1678→            </div>
+  1679→            <Badge variant="secondary" className="text-[10px] shrink-0">
+  1680→              {attachedFiles.length}/5
+  1681→            </Badge>
+  1682→          </div>
+  1683→        )}
+  1684→
+  1685→        {/* Input Bar */}
+  1686→        <div className="border-t px-4 py-3 bg-card shrink-0">
+  1687→          <div className="max-w-3xl mx-auto">
+  1688→            <div className="flex items-end gap-2">
+  1689→              {/* IDE Panel Toggles — Files & Terminal */}
+  1690→              {selectedProject && (
+  1691→                <div className="flex items-center gap-0.5 shrink-0">
+  1692→                  <Tooltip>
+  1693→                    <TooltipTrigger asChild>
+  1694→                      <Button
+  1695→                        variant="ghost"
+  1696→                        size="icon"
+  1697→                        className={`h-10 w-10 ${fileExplorerOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+  1698→                        onClick={() => setFileExplorerOpen((prev) => !prev)}
+  1699→                      >
+  1700→                        <FolderTree className="h-4 w-4" />
+  1701→                      </Button>
+  1702→                    </TooltipTrigger>
+  1703→                    <TooltipContent>{fileExplorerOpen ? "Hide Files" : "Show Files"}</TooltipContent>
+  1704→                  </Tooltip>
+  1705→                  <Tooltip>
+  1706→                    <TooltipTrigger asChild>
+  1707→                      <Button
+  1708→                        variant="ghost"
+  1709→                        size="icon"
+  1710→                        className={`h-10 w-10 ${terminalOpen ? "bg-muted text-foreground" : "text-muted-foreground"}`}
+  1711→                        onClick={() => setTerminalOpen((prev) => !prev)}
+  1712→                      >
+  1713→                        <TerminalSquare className="h-4 w-4" />
+  1714→                      </Button>
+  1715→                    </TooltipTrigger>
+  1716→                    <TooltipContent>{terminalOpen ? "Hide Terminal" : "Show Terminal"}</TooltipContent>
+  1717→                  </Tooltip>
+  1718→                </div>
+  1719→              )}
+  1720→
+  1721→              {/* File Upload (hidden input) */}
+  1722→              <input
+  1723→                type="file"
+  1724→                ref={fileInputRef}
+  1725→                className="hidden"
+  1726→                accept="image/*"
+  1727→                multiple
+  1728→                onChange={handleFileChange}
+  1729→              />
+  1730→              <Tooltip>
+  1731→                <TooltipTrigger asChild>
+  1732→                  <Button
+  1733→                    variant="outline"
+  1734→                    size="icon"
+  1735→                    className="shrink-0 h-10 w-10"
+  1736→                    onClick={() => fileInputRef.current?.click()}
+  1737→                    disabled={!selectedProject || isLoading}
+  1738→                  >
+  1739→                    <Paperclip className="h-4 w-4" />
+  1740→                  </Button>
+  1741→                </TooltipTrigger>
+  1742→                <TooltipContent>Attach images (up to 5) or paste from clipboard</TooltipContent>
+  1743→              </Tooltip>
+  1744→
+  1745→              {/* Text Input */}
+  1746→              <div className="flex-1 relative">
+  1747→                <textarea
+  1748→                  ref={inputRef}
+  1749→                  value={inputValue}
+  1750→                  onChange={(e) => setInputValue(e.target.value)}
+  1751→                  onKeyDown={handleKeyDown}
+  1752→                  onPaste={handlePaste}
+  1753→                  placeholder={
+  1754→                    selectedProject
+  1755→                      ? "Type a message, use a command, or paste an image..."
+  1756→                      : "Select a project to start..."
+  1757→                  }
+  1758→                  disabled={!selectedProject || isLoading}
+  1759→                  className="w-full resize-none rounded-xl border bg-background px-4 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+  1760→                  rows={1}
+  1761→                  style={{
+  1762→                    height: "42px",
+  1763→                    maxHeight: "120px",
+  1764→                    overflow: "hidden",
+  1765→                  }}
+  1766→                  onInput={(e) => {
+  1767→                    const target = e.target as HTMLTextAreaElement;
+  1768→                    target.style.height = "auto";
+  1769→                    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+  1770→                  }}
+  1771→                />
+  1772→              </div>
+  1773→
+  1774→              {/* Send Button */}
+  1775→              <Tooltip>
+  1776→                <TooltipTrigger asChild>
+  1777→                  <Button
+  1778→                    size="icon"
+  1779→                    className="shrink-0 h-10 w-10"
+  1780→                    onClick={sendMessage}
+  1781→                    disabled={
+  1782→                      !selectedProject || isLoading || !inputValue.trim()
+  1783→                    }
+  1784→                  >
+  1785→                    {isLoading ? (
+  1786→                      <Loader2 className="h-4 w-4 animate-spin" />
+  1787→                    ) : (
+  1788→                      <Send className="h-4 w-4" />
+  1789→                    )}
+  1790→                  </Button>
+  1791→                </TooltipTrigger>
+  1792→                <TooltipContent>Send message</TooltipContent>
+  1793→              </Tooltip>
+  1794→            </div>
+  1795→          </div>
+  1796→        </div>
+  1797→            </div>
+  1798→          </IdeLayout>
+  1799→        </div>
+  1800→      </div>
+  1801→        {/* ===== Delete Chat Confirmation Dialog ===== */}
+  1802→        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+  1803→          <DialogContent className="sm:max-w-md">
+  1804→            <DialogHeader>
+  1805→              <DialogTitle className="flex items-center gap-2 text-destructive">
+  1806→                <Trash2 className="h-5 w-5" />
+  1807→                Delete Chat
+  1808→              </DialogTitle>
+  1809→              <DialogDescription>
+  1810→                This action will send a delete request to the super admin. Once approved, all chat messages, generated documents, and project protocols for <strong>{selectedProject?.name}</strong> will be permanently deleted and cannot be restored.
+  1811→              </DialogDescription>
+  1812→            </DialogHeader>
+  1813→            <div className="space-y-4">
+  1814→              <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+  1815→                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+  1816→                <p className="text-sm text-amber-800 dark:text-amber-200">
+  1817→                  This cannot be undone. All messages and documents will be permanently removed.
+  1818→                </p>
+  1819→              </div>
+  1820→              <div className="space-y-2">
+  1821→                <label className="text-sm font-medium flex items-center gap-1.5">
+  1822→                  <KeyRound className="h-3.5 w-3.5" />
+  1823→                  Enter your password to confirm
+  1824→                </label>
+  1825→                <input
+  1826→                  type="password"
+  1827→                  placeholder="Your current password"
+  1828→                  value={deletePassword}
+  1829→                  onChange={(e) => setDeletePassword(e.target.value)}
+  1830→                  onKeyDown={(e) => { if (e.key === "Enter" && !deleteSubmitting) handleDeleteChat(); }}
+  1831→                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+  1832→                  autoFocus
+  1833→                />
+  1834→              </div>
+  1835→              {deleteError && (
+  1836→                <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+  1837→                  <XCircle className="h-4 w-4 text-destructive shrink-0" />
+  1838→                  <p className="text-sm text-destructive flex-1 break-words">{deleteError}</p>
+  1839→                  <button
+  1840→                    onClick={async () => {
+  1841→                      try { await navigator.clipboard.writeText(deleteError); toast.success("Error copied"); } catch { /* ignore */ }
+  1842→                    }}
+  1843→                    className="shrink-0 p-1 hover:bg-destructive/10 rounded"
+  1844→                    title="Copy error"
+  1845→                  >
+  1846→                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+  1847→                  </button>
+  1848→                </div>
+  1849→              )}
+  1850→            </div>
+  1851→            <DialogFooter className="gap-2">
+  1852→              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleteSubmitting}>
+  1853→                Cancel
+  1854→              </Button>
+  1855→              <Button variant="destructive" onClick={handleDeleteChat} disabled={deleteSubmitting || !deletePassword.trim()}>
+  1856→                {deleteSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+  1857→                Request Deletion
+  1858→              </Button>
+  1859→            </DialogFooter>
+  1860→          </DialogContent>
+  1861→        </Dialog>
+  1862→
+  1863→        {/* ===== Delete Request Status Banner ===== */}
+  1864→        {deleteRequestStatus && (
+  1865→          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-md w-full px-4">
+  1866→            <div className="flex items-center gap-3 rounded-xl border bg-card shadow-lg p-4">
+  1867→              {deleteRequestStatus.status === "PENDING" ? (
+  1868→                <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0 dark:bg-amber-900/40">
+  1869→                  <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+  1870→                </div>
+  1871→              ) : deleteRequestStatus.status === "APPROVED" ? (
+  1872→                <div className="h-9 w-9 rounded-full bg-green-100 flex items-center justify-center shrink-0 dark:bg-green-900/40">
+  1873→                  <ShieldCheck className="h-4 w-4 text-green-600" />
+  1874→                </div>
+  1875→              ) : (
+  1876→                <div className="h-9 w-9 rounded-full bg-red-100 flex items-center justify-center shrink-0 dark:bg-red-900/40">
+  1877→                  <ShieldX className="h-4 w-4 text-red-600" />
+  1878→                </div>
+  1879→              )}
+  1880→              <div className="flex-1 min-w-0">
+  1881→                <p className="text-sm font-medium">{deleteRequestStatus.message}</p>
+  1882→              </div>
+  1883→              <button onClick={() => setDeleteRequestStatus(null)} className="text-muted-foreground hover:text-foreground shrink-0">
+  1884→                <X className="h-4 w-4" />
+  1885→              </button>
+  1886→            </div>
+  1887→          </div>
+  1888→        )}
+  1889→
+  1890→        {/* ===== Super Admin: Pending Delete Requests Dialog ===== */}
+  1891→        <Dialog open={deleteReviewDialogOpen} onOpenChange={setDeleteReviewDialogOpen}>
+  1892→          <DialogContent className="sm:max-w-lg">
+  1893→            <DialogHeader>
+  1894→              <DialogTitle className="flex items-center gap-2">
+  1895→                <ShieldAlert className="h-5 w-5 text-amber-500" />
+  1896→                Chat Delete Requests
+  1897→                {deleteRequests.length > 0 && (
+  1898→                  <Badge variant="secondary" className="text-xs">{deleteRequests.length} pending</Badge>
+  1899→                )}
+  1900→              </DialogTitle>
+  1901→              <DialogDescription>
+  1902→                Review and approve or decline chat deletion requests from team members.
+  1903→              </DialogDescription>
+  1904→            </DialogHeader>
+  1905→            <div className="max-h-[400px] overflow-y-auto space-y-3 pr-1">
+  1906→              {deleteRequests.length === 0 ? (
+  1907→                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+  1908→                  <CheckCircle className="h-8 w-8 mb-2 text-green-500" />
+  1909→                  <p className="text-sm">No pending requests</p>
+  1910→                </div>
+  1911→              ) : (
+  1912→                deleteRequests.map((req) => (
+  1913→                  <div key={req.id} className="rounded-xl border bg-muted/30 p-4 space-y-3">
+  1914→                    <div className="flex items-start justify-between gap-3">
+  1915→                      <div className="min-w-0">
+  1916→                        <p className="font-medium text-sm truncate">{req.projectName}</p>
+  1917→                        <p className="text-xs text-muted-foreground mt-0.5">
+  1918→                          Requested by <strong>{req.userName}</strong> ({req.userEmail})
+  1919→                        </p>
+  1920→                        <p className="text-xs text-muted-foreground mt-0.5">
+  1921→                          {new Date(req.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+  1922→                        </p>
+  1923→                      </div>
+  1924→                      <Badge variant="outline" className="text-xs shrink-0 border-amber-300 text-amber-600">Pending</Badge>
+  1925→                    </div>
+  1926→                    <div className="flex items-center gap-2">
+  1927→                      <Button
+  1928→                        size="sm"
+  1929→                        variant="destructive"
+  1930→                        className="gap-1.5 text-xs h-8"
+  1931→                        disabled={reviewingRequestId === req.id}
+  1932→                        onClick={() => handleReviewDeleteRequest(req.id, "approve")}
+  1933→                      >
+  1934→                        {reviewingRequestId === req.id ? (
+  1935→                          <Loader2 className="h-3 w-3 animate-spin" />
+  1936→                        ) : (
+  1937→                          <Trash2 className="h-3 w-3" />
+  1938→                        )}
+  1939→                        Approve & Delete
+  1940→                      </Button>
+  1941→                      <Button
+  1942→                        size="sm"
+  1943→                        variant="outline"
+  1944→                        className="gap-1.5 text-xs h-8"
+  1945→                        disabled={reviewingRequestId === req.id}
+  1946→                        onClick={() => handleReviewDeleteRequest(req.id, "decline")}
+  1947→                      >
+  1948→                        <XCircle className="h-3 w-3" />
+  1949→                        Decline
+  1950→                      </Button>
+  1951→                    </div>
+  1952→                  </div>
+  1953→                ))
+  1954→              )}
+  1955→            </div>
+  1956→            <DialogFooter>
+  1957→              <Button variant="outline" onClick={() => setDeleteReviewDialogOpen(false)}>Close</Button>
+  1958→            </DialogFooter>
+  1959→          </DialogContent>
+  1960→        </Dialog>
+  1961→    </TooltipProvider>
+  1962→  );
+  1963→}

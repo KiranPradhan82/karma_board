@@ -36,6 +36,9 @@ export {
   isModelConfigured,
   getProviderConfig,
   getFallbackModels,
+  getProviderConfigAsync,
+  isAiConfiguredAsync,
+  getConfiguredModelsAsync,
 } from "./ai-models";
 export type { AiModelOption, ModelCapability, ProviderConfig, ModelRouteResult } from "./ai-models";
 

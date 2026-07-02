@@ -702,6 +702,38 @@ export async function sendChatDeleteResultEmail(params: {
   if (!result.success) {
     console.warn(`[email] Gmail SMTP failed for delete ${action} notification: ${result.error}`);
   }
+}
 
-  return result;
+// ===== Security Code Email =====
+
+export async function sendSecurityCodeEmail(
+  to: string,
+  code: string,
+  userName: string
+): Promise<void> {
+  const config = await getEmailConfig();
+
+  const subject = `KarmaBoard Security Code: ${code}`;
+  const html = `
+    <div style="max-width:480px;margin:0 auto;font-family:system-ui,sans-serif;color:#1a1a1a;">
+      <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:24px 32px;border-radius:12px 12px 0 0;text-align:center;">
+        <h2 style="color:#fff;margin:0;font-size:20px;">KarmaBoard Security Verification</h2>
+      </div>
+      <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;">
+        <p style="font-size:16px;color:#374151;margin:0 0 16px;">Hi ${userName},</p>
+        <p style="font-size:16px;color:#374151;margin:0 0 24px;">You are accessing the AI chat. Please enter this security code to continue:</p>
+        <div style="background:#f1f5f9;border:2px dashed #94a3b8;border-radius:8px;padding:16px;text-align:center;margin:0 0 24px;">
+          <span style="font-family:monospace;font-size:32px;letter-spacing:8px;font-weight:700;color:#0f172a;">${code}</span>
+        </div>
+        <p style="font-size:13px;color:#64748b;margin:0 0 8px;">This code expires in <strong>5 minutes</strong> and can only be used once.</p>
+        <p style="font-size:13px;color:#64748b;margin:0;">If you did not request this, please ignore this email.</p>
+      </div>
+    </div>
+  `;
+
+  if (config.provider === "resend") {
+    await sendViaResend(config, to, subject, html);
+  } else {
+    await sendViaGmailSmtp(config, to, subject, html);
+  }
 }
