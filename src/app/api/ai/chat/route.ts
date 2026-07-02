@@ -435,10 +435,11 @@ export async function POST(request: NextRequest) {
 
     // Detect command type (needed before loading history to determine history limit)
     const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan", "/init"].includes(command);
+    const isSkillCommand = !!command && ["/standup", "/risks", "/summarize", "/code-review", "/knowledge"].includes(command);
 
     // Load recent chat messages for context
     // For doc commands: only last 6 messages (saves tokens, avoids bloated context)
-    // For regular chat: last 20 messages for natural conversation flow
+    // For skill commands & regular chat: last 20 messages for context-aware analysis
     const historyLimit = isDocCommand ? 6 : 20;
     const historyResult = await client.execute({
       sql: `SELECT role, content FROM "AiChat"
@@ -574,6 +575,7 @@ export async function POST(request: NextRequest) {
     // knowledge_research is REMOVED from doc commands — it wastes agentic loop rounds
     // create/update/add_member are irrelevant for doc generation
     // For /init: add save_github_config tool so AI can save credentials
+    // For skill commands: pass ALL role-appropriate tools (they need data access)
     let availableTools = getToolsForRole(user.role);
     if (isDocCommand && command !== "/init") {
       availableTools = availableTools.filter((tool) =>
@@ -584,6 +586,7 @@ export async function POST(request: NextRequest) {
         ["save_github_config", "save_database_config"].includes(tool.function.name)
       );
     }
+    // Skill commands (/standup, /risks, /summarize, /code-review, /knowledge) keep ALL tools
 
     // For vision, use the appropriate vision-capable model
     const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;

@@ -9,6 +9,11 @@ export const COMMAND_DESCRIPTIONS: Record<string, { label: string; description: 
   "/schema": { label: "Schema", description: "Generate Backend Schema Document" },
   "/plan": { label: "Plan", description: "Generate Implementation Plan" },
   "/init": { label: "Init Project", description: "Initialize project with GitHub, database, and API keys" },
+  "/standup": { label: "Daily Standup", description: "Generate a concise standup summary from recent task updates" },
+  "/risks": { label: "Risk Analyzer", description: "Identify potential project risks based on task delays and dependencies" },
+  "/summarize": { label: "Meeting Summarizer", description: "Summarize meeting notes into action items, decisions, and open questions" },
+  "/code-review": { label: "Code Review", description: "Review code for bugs, style issues, and security vulnerabilities" },
+  "/knowledge": { label: "Knowledge Search", description: "Search across project documents and chat history for relevant context" },
   "/help": { label: "Help", description: "Show all available commands" },
 };
 
@@ -499,6 +504,184 @@ Use professional Markdown. Use tables for all structured data. Be specific with 
   "/help": "SHOW_HELP",
 
   "/init": "SHOW_INIT",
+
+  // ===== Skill Commands (Blueprint Integration) =====
+
+  "/standup": `You are generating a **Daily Standup Summary** for this project.
+
+## Instructions
+
+Use the \`get_project_info\` tool to fetch the project's current status and recent task data. Then analyze the information to produce a concise standup report.
+
+## Output Format
+
+### Daily Standup — [Project Name]
+**Date**: [Today's date]
+
+**1. What Was Accomplished**
+- [List completed tasks, milestones reached, documents generated]
+- Highlight any significant progress or blockers resolved
+
+**2. What's In Progress**
+- [List tasks currently being worked on with their status]
+- Note any dependencies or collaboration needed
+
+**3. What's Blocked / At Risk**
+- [Identify any stalled tasks, overdue items, or pending decisions]
+- For each blocker, suggest a specific next action or escalation path
+
+**4. Today's Priorities**
+- [Recommend 3-5 specific tasks or actions to focus on today]
+- Prioritize by impact and deadline proximity
+
+**5. Key Metrics Snapshot**
+| Metric | Value |
+|--------|-------|
+| Total Tasks | [count] |
+| Completed | [count] |
+| In Progress | [count] |
+| Pending | [count] |
+| Overdue | [count] |
+
+Keep the report concise (under 400 words). Be specific with task names and statuses. If you don't have enough data, say so and suggest what information would help.`,
+
+  "/risks": `You are running a **Project Risk Analysis** for this project.
+
+## Instructions
+
+Use the \`get_project_info\` tool to fetch project data including tasks, deadlines, and team info. Analyze all available data to identify and assess risks.
+
+## Output Format
+
+### Risk Analysis Report — [Project Name]
+
+**Overall Risk Score**: [Low / Medium / High / Critical] — [calculated justification]
+
+**Risk Register**
+
+| # | Risk | Category | Impact | Probability | Score | Mitigation Strategy | Owner |
+|---|------|----------|--------|-------------|-------|---------------------|-------|
+| R1 | [description] | Schedule/Resource/Scope/Tech | H/M/L | H/M/L | H/M/L | [specific action] | [role] |
+
+**Risk Categories Analyzed**:
+1. **Schedule Risk** — Deadline feasibility based on remaining work and velocity
+2. **Resource Risk** — Team capacity, skill gaps, single points of failure
+3. **Scope Creep Risk** — Uncontrolled feature expansion, undefined requirements
+4. **Technical Debt Risk** — Accumulated shortcuts, outdated dependencies, architecture gaps
+5. **Dependency Risk** — External APIs, third-party services, blocked tasks
+
+**Top 3 Immediate Actions**:
+1. [Most critical risk + specific mitigation step]
+2. [Second priority + action]
+3. [Third priority + action]
+
+Be specific and data-driven. Reference actual task names, dates, and team members where possible. If data is limited, clearly state assumptions.`,
+
+  "/summarize": `You are a **Meeting Summarizer**. The user will provide meeting notes, transcript, or key points.
+
+## Instructions
+
+If the user provided text after the /summarize command, use that as the meeting content. If they only typed /summarize, ask them to paste the meeting notes or transcript.
+
+## Output Format
+
+### Meeting Summary — [Date/Topic]
+
+**Attendees**: [if mentioned, otherwise "Not specified"]
+
+**Key Decisions**
+1. [Decision] — [Rationale or context]
+2. [Decision] — [Rationale or context]
+
+**Action Items**
+
+| # | Action | Owner | Deadline | Priority |
+|---|--------|-------|----------|----------|
+| 1 | [specific action] | [name/role] | [date] | H/M/L |
+| 2 | [specific action] | [name/role] | [date] | H/M/L |
+
+**Open Questions**
+- [Unresolved items needing follow-up]
+- [ ] [Question 1]
+- [ ] [Question 2]
+
+**Next Steps**
+1. [Immediate next action]
+2. [Follow-up needed by whom and when]
+
+Keep the summary focused and actionable. If the user has a project with todos, suggest creating tasks for the action items.`,
+
+  "/code-review": `You are an expert **Code Reviewer**. The user will provide code for review.
+
+## Instructions
+
+If the user provided code after the /code-review command, review it thoroughly. If they only typed the command, ask them to paste the code or provide a file path (you can use \`fs_read_file\` to read from GitHub if configured).
+
+## Review Checklist
+
+**1. Bugs & Logic Errors**
+- [List any bugs, off-by-one errors, null/undefined risks, race conditions]
+
+**2. Security Vulnerabilities**
+- [Check for: SQL injection, XSS, CSRF, hardcoded secrets, insufficient input validation, insecure auth patterns]
+
+**3. Performance Issues**
+- [Identify: N+1 queries, unnecessary re-renders, memory leaks, missing indexes, unbounded loops]
+
+**4. Code Quality**
+- [Assess: naming conventions, function length, DRY violations, type safety, error handling]
+
+**5. Best Practices**
+- [Check: proper use of framework patterns, separation of concerns, testability]
+
+## Output Format
+
+### Code Review Summary
+
+**Overall Assessment**: [Approved / Needs Changes / Request Changes]
+**Severity**: [Critical (must fix) / Major (should fix) / Minor (nice to have)]
+
+| # | Issue | Severity | File/Line | Description | Suggested Fix |
+|---|-------|----------|-----------|-------------|---------------|
+
+**Positive Notes** (what's done well):
+- [Highlight good patterns]
+
+Be constructive and specific. Provide actual code suggestions for fixes, not just descriptions of problems.`,
+
+  "/knowledge": `You are a **Project Knowledge Search** assistant. Search across all project information to answer the user's question.
+
+## Instructions
+
+The user's question follows the /knowledge command. Use available tools to gather information:
+- Use \`get_project_info\` for project details, tasks, and team data
+- Use \`list_projects\` for cross-project information if relevant
+- Use \`fs_read_file\` and \`fs_search_code\` to search the codebase (if GitHub is configured)
+- Use \`web_search\` for external information if needed
+
+## Approach
+
+1. **Understand** the user's question and identify what information is needed
+2. **Search** across all available sources: project data, documents, chat history, codebase
+3. **Synthesize** findings into a clear, comprehensive answer
+4. **Reference** specific sources (document names, task IDs, file paths, chat context)
+5. **Suggest** related information or follow-up actions
+
+## Output Format
+
+### Knowledge Result
+
+**Question**: [User's question]
+
+**Answer**: [Comprehensive response with specific references]
+
+**Sources Consulted**:
+- [List specific sources: project data, documents, files, etc.]
+
+**Related Topics**:
+- [Suggest related questions or areas to explore]
+
+Be thorough but concise. If information is not available in the project, clearly state what's missing and suggest how to find it.`,
 };
 
 const DOCUMENT_FORMATTING = `
@@ -944,7 +1127,9 @@ ${getDocWorkflowFooter("Project Overview & PRD", 1, "/trd", firstName, false)}
   }
 
   // ---- Individual document commands ----
-  if (command && command !== "/help" && command !== "/docs" && command !== "/init" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP" && COMMAND_PROMPTS[command] !== "SHOW_INIT") {
+  // Exclude skill commands (/standup, /risks, /summarize, /code-review, /knowledge) — they use the skill prompt directly
+  const SKILL_COMMANDS = ["/standup", "/risks", "/summarize", "/code-review", "/knowledge"];
+  if (command && !SKILL_COMMANDS.includes(command) && command !== "/help" && command !== "/docs" && command !== "/init" && COMMAND_PROMPTS[command] && COMMAND_PROMPTS[command] !== "SHOW_HELP" && COMMAND_PROMPTS[command] !== "SHOW_INIT") {
     // Determine next command in the sequence
     const docSequence: [string, string, number, string | null, boolean][] = [
       ["/prd", "Product Requirements Document (PRD)", 1, "/trd", false],
@@ -1147,14 +1332,35 @@ Then provide:
     return initPrompt;
   }
 
+  // ---- Skill Commands (Blueprint Integration) ----
+  if (command && SKILL_COMMANDS.includes(command) && COMMAND_PROMPTS[command]) {
+    return `# Karma Space — Skill: ${COMMAND_DESCRIPTIONS[command]?.label || command}
+
+You are **Karma Space**, the AI assistant inside **KarmaBoard** (a project management app). Address the user as **${firstName}** (${roleLabel}).
+
+${projectContextBlock}
+
+---
+
+${COMMAND_PROMPTS[command]}`;
+  }
+
   // ---- General assistant mode ----
   return `${basePrompt}${projectContextBlock}
 
 ${chitChatRule}
 
 ## Available Slash Commands
-The user can type these for document generation:
-${commandList}
+
+### Document Generation
+The user can type these for structured document generation:
+${Object.entries(COMMAND_DESCRIPTIONS)
+    .filter(([cmd]) => !SKILL_COMMANDS.includes(cmd) && cmd !== "/help")
+    .map(([cmd, info]) => `- \`/${cmd.slice(1)}\` — **${info.label}**: ${info.description}`)
+    .join("\n")}
+
+### AI Skills (Blueprint)
+${SKILL_COMMANDS.map((cmd) => `- \`/${cmd.slice(1)}\` — **${COMMAND_DESCRIPTIONS[cmd]?.label}**: ${COMMAND_DESCRIPTIONS[cmd]?.description}`).join("\n")}
 
 ### Tip: Use /docs for the Full Protocol
 Running \`/docs\` immediately generates the Project Overview and PRD. Then use individual commands (\`/trd\`, \`/flow\`, \`/ux\`, \`/schema\`, \`/plan\`) for the remaining documents.
@@ -1164,8 +1370,11 @@ When relevant, proactively use your tools to help the user or suggest actions:
 - "Want me to create a new project? Just tell me the name and details."
 - "Want me to generate all pre-coding docs? Just type /docs for the full protocol."
 - "Need a specific document? Try /prd, /trd, /flow, /ux, /schema, or /plan."
-- "I can update this project's status — just say the word!"
-- "Need to add someone to the team? I can do that for you."
+- "Want a daily standup? Type /standup for a quick status summary."
+- "Need a risk analysis? Type /risks to identify project risks."
+- "Have meeting notes? Type /summarize to extract action items."
+- "Need code reviewed? Type /code-review and paste the code."
+- "Looking for information? Type /knowledge followed by your question."
 
 Remember: You are talking to **${firstName}** (${roleLabel}). Be personal, helpful, and specific. When they ask you to DO something, use your tools to do it autonomously.`;
 }

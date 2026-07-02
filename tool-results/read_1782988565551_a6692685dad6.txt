@@ -1,0 +1,747 @@
+     1→import { NextRequest, NextResponse } from "next/server";
+     2→import { getAuthUser, requireRole, getTursoClient, logActivity, getClientIp } from "@/lib/api-auth";
+     3→import PDFDocument from "pdfkit";
+     4→
+     5→interface RouteContext {
+     6→  params: Promise<{}>;
+     7→}
+     8→
+     9→// Extend timeout for bulk PDF generation
+    10→export const maxDuration = 60;
+    11→
+    12→// ===== DEFAULT THEME COLORS =====
+    13→const DEFAULT_THEME = {
+    14→  primary: "#1E40AF",
+    15→  primaryLight: "#3B82F6",
+    16→  primaryBg: "#EFF6FF",
+    17→  altRowBg: "#F9FAFB",
+    18→  headingText: "#111827",
+    19→  bodyText: "#374151",
+    20→  mutedText: "#6B7280",
+    21→  borderColor: "#E5E7EB",
+    22→  white: "#FFFFFF",
+    23→  coverGradientTop: "#1E3A8A",
+    24→  coverGradientBottom: "#1E40AF",
+    25→  accent: "#059669",
+    26→  warning: "#D97706",
+    27→  danger: "#DC2626",
+    28→};
+    29→
+    30→type PdfTheme = typeof DEFAULT_THEME;
+    31→
+    32→// ===== SANITIZATION =====
+    33→function sanitizeForPdf(text: string): string {
+    34→  return text.replace(/[\u{10000}-\u{10FFFF}]/gu, "").replace(/[^\x20-\x7E\xA1-\xFF]/g, "").trim();
+    35→}
+    36→
+    37→// ===== MARKDOWN PARSER (structured — supports tables) =====
+    38→type MdElement =
+    39→  | { type: "h1"; text: string }
+    40→  | { type: "h2"; text: string }
+    41→  | { type: "h3"; text: string }
+    42→  | { type: "bullet"; text: string; indent: number }
+    43→  | { type: "normal"; text: string }
+    44→  | { type: "table"; headers: string[]; rows: string[][] }
+    45→  | { type: "code"; text: string }
+    46→  | { type: "hr" };
+    47→
+    48→function parseMarkdown(md: string): MdElement[] {
+    49→  const elements: MdElement[] = [];
+    50→  const lines = md.split("\n");
+    51→  let i = 0;
+    52→
+    53→  while (i < lines.length) {
+    54→    const raw = lines[i];
+    55→    const line = raw.trim();
+    56→    if (!line) { i++; continue; }
+    57→
+    58→    if (/^#{1}\s+/.test(line) && !line.startsWith("##")) {
+    59→      elements.push({ type: "h1", text: sanitizeForPdf(line.replace(/^#\s+/, "")) });
+    60→      i++; continue;
+    61→    }
+    62→    if (/^#{2}\s+/.test(line) && !line.startsWith("###")) {
+    63→      elements.push({ type: "h2", text: sanitizeForPdf(line.replace(/^##\s+/, "")) });
+    64→      i++; continue;
+    65→    }
+    66→    if (/^#{3}\s+/.test(line) && !line.startsWith("####")) {
+    67→      elements.push({ type: "h3", text: sanitizeForPdf(line.replace(/^###\s+/, "")) });
+    68→      i++; continue;
+    69→    }
+    70→    if (/^#{4}\s+/.test(line)) {
+    71→      elements.push({ type: "h3", text: sanitizeForPdf(line.replace(/^####\s+/, "")) });
+    72→      i++; continue;
+    73→    }
+    74→    if (/^---+$/.test(line) || /^={3,}$/.test(line)) {
+    75→      elements.push({ type: "hr" });
+    76→      i++; continue;
+    77→    }
+    78→    if (line.startsWith("```")) {
+    79→      const codeLines: string[] = [];
+    80→      i++;
+    81→      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+    82→        codeLines.push(sanitizeForPdf(lines[i].trimEnd()));
+    83→        i++;
+    84→      }
+    85→      i++;
+    86→      elements.push({ type: "code", text: codeLines.join("\n") });
+    87→      continue;
+    88→    }
+    89→    // Table — collect all consecutive | lines into a structured table element
+    90→    if (line.startsWith("|")) {
+    91→      const headers: string[] = [];
+    92→      const rows: string[][] = [];
+    93→      let isHeader = true;
+    94→
+    95→      while (i < lines.length && lines[i].trim().startsWith("|")) {
+    96→        const cells = lines[i].split("|")
+    97→          .filter(c => c.trim() !== "")
+    98→          .map(c => sanitizeForPdf(c.trim().replace(/\*\*/g, "")));
+    99→
+   100→        if (cells.every(c => /^[-:]+$/.test(c))) {
+   101→          isHeader = false;
+   102→          i++; continue;
+   103→        }
+   104→
+   105→        if (isHeader) {
+   106→          headers.push(...cells);
+   107→        } else {
+   108→          rows.push(cells);
+   109→        }
+   110→        i++;
+   111→      }
+   112→      if (headers.length > 0) {
+   113→        elements.push({ type: "table", headers, rows });
+   114→      }
+   115→      continue;
+   116→    }
+   117→    if (line.match(/^[-*]\s+/) || line.match(/^\d+\.\s+/)) {
+   118→      const indentMatch = line.match(/^(\s*)/);
+   119→      const indent = indentMatch ? Math.min(Math.floor(indentMatch[1].length / 2), 3) : 0;
+   120→      const clean = line.replace(/^\s*[-*]\s+/, "").replace(/^\s*\d+\.\s+/, "");
+   121→      elements.push({ type: "bullet", text: sanitizeForPdf(clean.replace(/\*\*/g, "")), indent });
+   122→      i++; continue;
+   123→    }
+   124→    const paraLines: string[] = [];
+   125→    while (i < lines.length) {
+   126→      const pLine = lines[i].trim();
+   127→      if (!pLine) break;
+   128→      if (pLine.startsWith("#") || pLine.startsWith("|") || pLine.startsWith("```") ||
+   129→          /^---+$/.test(pLine) || /^={3,}$/.test(pLine)) break;
+   130→      if (pLine.match(/^[-*]\s+/) || pLine.match(/^\d+\.\s+/)) break;
+   131→      paraLines.push(sanitizeForPdf(pLine.replace(/\*\*/g, "").replace(/\*/g, "").replace(/`([^`]+)`/g, "$1")));
+   132→      i++;
+   133→    }
+   134→    if (paraLines.length > 0) {
+   135→      elements.push({ type: "normal", text: paraLines.join(" ") });
+   136→    }
+   137→  }
+   138→
+   139→  return elements;
+   140→}
+   141→
+   142→// ===== Document type keyword signatures =====
+   143→const DOC_SIGNATURES = [
+   144→  {
+   145→    label: "Project Overview & PRD",
+   146→    keywords: ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements", "Scope & Constraints", "Risks & Mitigations"],
+   147→  },
+   148→  {
+   149→    label: "Technical Requirements Document",
+   150→    keywords: ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements", "Deployment & Infrastructure", "Testing Strategy"],
+   151→  },
+   152→  {
+   153→    label: "Application Flow Document",
+   154→    keywords: ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns", "Data Flow", "Error Handling & Edge Cases"],
+   155→  },
+   156→  {
+   157→    label: "UI/UX Design Brief",
+   158→    keywords: ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Motion & Animation", "Accessibility", "Dark Mode Strategy"],
+   159→  },
+   160→  {
+   161→    label: "Backend Schema Document",
+   162→    keywords: ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data", "Migration Strategy", "API-Database Mapping"],
+   163→  },
+   164→  {
+   165→    label: "Implementation Plan",
+   166→    keywords: ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Dependency Map", "Risk Register", "Quality Gates", "Deployment Plan", "Success Metrics"],
+   167→  },
+   168→];
+   169→
+   170→function countKeywordMatches(content: string, keywords: string[]): number {
+   171→  const lower = content.toLowerCase();
+   172→  return keywords.filter(kw => lower.includes(kw.toLowerCase())).length;
+   173→}
+   174→
+   175→function detectDocumentMessages(messages: { id: string; role: string; content: string; timestamp: string }[]) {
+   176→  const MIN_CONTENT_LENGTH = 1500;
+   177→  const MIN_KEYWORD_MATCHES = 3;
+   178→
+   179→  const docMessages = messages.filter((msg) => {
+   180→    if (msg.role !== "assistant") return false;
+   181→    if (msg.content.length < MIN_CONTENT_LENGTH) return false;
+   182→    return DOC_SIGNATURES.some(sig => countKeywordMatches(msg.content, sig.keywords) >= MIN_KEYWORD_MATCHES);
+   183→  });
+   184→
+   185→  return docMessages.slice(-6);
+   186→}
+   187→
+   188→// ===== TABLE RENDERER =====
+   189→const MARGIN = 50;
+   190→const CONTENT_WIDTH = 595.28 - (MARGIN * 2);
+   191→
+   192→function calculateColumnWidths(headers: string[], rows: string[][], colCount: number): number[] {
+   193→  const maxLenPerCol: number[] = [];
+   194→  for (let c = 0; c < colCount; c++) {
+   195→    const headerLen = (headers[c] || "").length;
+   196→    const maxRowLen = rows.reduce((max, row) => Math.max(max, (row[c] || "").length), 0);
+   197→    maxLenPerCol.push(Math.max(headerLen * 1.1, maxRowLen, 8));
+   198→  }
+   199→  const totalLen = maxLenPerCol.reduce((a, b) => a + b, 0);
+   200→  return maxLenPerCol.map(len => Math.max(60, (len / totalLen) * CONTENT_WIDTH));
+   201→}
+   202→
+   203→function renderTableOnDoc(doc: PDFDocument, headers: string[], rows: string[][], theme: PdfTheme) {
+   204→  if (headers.length === 0) return;
+   205→
+   206→  const colCount = Math.max(headers.length, ...rows.map(r => r.length));
+   207→  const colWidths = calculateColumnWidths(headers, rows, colCount);
+   208→  const cellPadding = 6;
+   209→  const fontSize = 8;
+   210→  const headerFontSize = 8.5;
+   211→  const headerHeight = headerFontSize + (cellPadding * 2) + 4;
+   212→
+   213→  const ensureSpace = (needed: number) => {
+   214→    if (doc.y + needed > 780) {
+   215→      doc.addPage();
+   216→      doc.save();
+   217→      doc.rect(0, 0, 595.28, 3).fill(theme.primary);
+   218→      doc.restore();
+   219→      doc.y = 18;
+   220→    }
+   221→  };
+   222→
+   223→  ensureSpace(200);
+   224→
+   225→  const tableX = MARGIN;
+   226→  let y = doc.y;
+   227→
+   228→  // Header background
+   229→  doc.save();
+   230→  doc.rect(tableX, y, CONTENT_WIDTH, headerHeight).fill(theme.primaryBg);
+   231→  doc.rect(tableX, y, 3, headerHeight).fill(theme.primaryLight);
+   232→  doc.restore();
+   233→
+   234→  // Header borders + vertical lines
+   235→  doc.save();
+   236→  doc.rect(tableX, y, CONTENT_WIDTH, headerHeight).stroke(theme.borderColor);
+   237→  let xPos = tableX;
+   238→  for (let c = 0; c < colCount - 1; c++) {
+   239→    xPos += colWidths[c];
+   240→    doc.moveTo(xPos, y).lineTo(xPos, y + headerHeight).stroke(theme.borderColor);
+   241→  }
+   242→  doc.restore();
+   243→
+   244→  // Header text
+   245→  doc.fillColor(theme.primary);
+   246→  let cellX = tableX;
+   247→  for (let c = 0; c < colCount; c++) {
+   248→    doc.fontSize(headerFontSize).font("Helvetica-Bold")
+   249→      .text(headers[c] || "", cellX + cellPadding, y + cellPadding + 1, {
+   250→        width: colWidths[c] - (cellPadding * 2),
+   251→        height: headerHeight,
+   252→      });
+   253→    cellX += colWidths[c];
+   254→  }
+   255→  y += headerHeight;
+   256→
+   257→  // Rows
+   258→  for (let r = 0; r < rows.length; r++) {
+   259→    const row = rows[r];
+   260→    const isAlt = r % 2 === 1;
+   261→
+   262→    let rowHeight = fontSize + (cellPadding * 2);
+   263→    for (let c = 0; c < colCount; c++) {
+   264→      const h = doc.heightOfString(row[c] || "", { width: colWidths[c] - (cellPadding * 2), fontSize });
+   265→      rowHeight = Math.max(rowHeight, h + (cellPadding * 2));
+   266→    }
+   267→
+   268→    // Page break mid-table: redraw header
+   269→    if (y + rowHeight > 780) {
+   270→      doc.save();
+   271→      doc.moveTo(tableX, y).lineTo(tableX + CONTENT_WIDTH, y).stroke(theme.borderColor);
+   272→      doc.restore();
+   273→      doc.addPage();
+   274→      doc.save();
+   275→      doc.rect(0, 0, 595.28, 3).fill(theme.primary);
+   276→      doc.restore();
+   277→      y = 18;
+   278→
+   279→      doc.save();
+   280→      doc.rect(tableX, y, CONTENT_WIDTH, headerHeight).fill(theme.primaryBg);
+   281→      doc.rect(tableX, y, 3, headerHeight).fill(theme.primaryLight);
+   282→      doc.restore();
+   283→      doc.save();
+   284→      doc.rect(tableX, y, CONTENT_WIDTH, headerHeight).stroke(theme.borderColor);
+   285→      let xPos2 = tableX;
+   286→      for (let c = 0; c < colCount - 1; c++) {
+   287→        xPos2 += colWidths[c];
+   288→        doc.moveTo(xPos2, y).lineTo(xPos2, y + headerHeight).stroke(theme.borderColor);
+   289→      }
+   290→      doc.restore();
+   291→      doc.fillColor(theme.primary);
+   292→      let cellX2 = tableX;
+   293→      for (let c = 0; c < colCount; c++) {
+   294→        doc.fontSize(headerFontSize).font("Helvetica-Bold")
+   295→          .text(headers[c] || "", cellX2 + cellPadding, y + cellPadding + 1, {
+   296→            width: colWidths[c] - (cellPadding * 2),
+   297→            height: headerHeight,
+   298→          });
+   299→        cellX2 += colWidths[c];
+   300→      }
+   301→      y += headerHeight;
+   302→    }
+   303→
+   304→    // Alternating row background
+   305→    if (isAlt) {
+   306→      doc.save();
+   307→      doc.rect(tableX, y, CONTENT_WIDTH, rowHeight).fill(theme.altRowBg);
+   308→      doc.restore();
+   309→    }
+   310→
+   311→    // Row border + vertical lines
+   312→    doc.save();
+   313→    doc.rect(tableX, y, CONTENT_WIDTH, rowHeight).stroke(theme.borderColor);
+   314→    let xPos3 = tableX;
+   315→    for (let c = 0; c < colCount - 1; c++) {
+   316→      xPos3 += colWidths[c];
+   317→      doc.moveTo(xPos3, y).lineTo(xPos3, y + rowHeight).stroke(theme.borderColor);
+   318→    }
+   319→    doc.restore();
+   320→
+   321→    // Row text
+   322→    doc.fillColor(theme.bodyText);
+   323→    let cellX3 = tableX;
+   324→    for (let c = 0; c < colCount; c++) {
+   325→      doc.fontSize(fontSize).font("Helvetica")
+   326→        .text(row[c] || "", cellX3 + cellPadding, y + cellPadding, {
+   327→          width: colWidths[c] - (cellPadding * 2),
+   328→          height: rowHeight,
+   329→        });
+   330→      cellX3 += colWidths[c];
+   331→    }
+   332→    y += rowHeight;
+   333→  }
+   334→
+   335→  doc.y = y + 8;
+   336→}
+   337→
+   338→// ===== DOCUMENT CONTENT RENDERER =====
+   339→function renderDocumentContent(doc: PDFDocument, content: string, theme: PdfTheme, skipFirstH1: boolean) {
+   340→  const elements = parseMarkdown(content);
+   341→  let didSkipFirst = false;
+   342→
+   343→  const ensureSpace = (needed: number) => {
+   344→    if (doc.y + needed > 780) {
+   345→      doc.addPage();
+   346→      doc.save();
+   347→      doc.rect(0, 0, 595.28, 3).fill(theme.primary);
+   348→      doc.restore();
+   349→      doc.y = 18;
+   350→    }
+   351→  };
+   352→
+   353→  for (const el of elements) {
+   354→    try {
+   355→      switch (el.type) {
+   356→        case "h1": {
+   357→          if (skipFirstH1 && !didSkipFirst) { didSkipFirst = true; break; }
+   358→          ensureSpace(50);
+   359→          doc.moveDown(0.6);
+   360→          const y1 = doc.y;
+   361→          doc.save();
+   362→          doc.rect(MARGIN, y1, 4, 22).fill(theme.primary);
+   363→          doc.restore();
+   364→          doc.fontSize(18).font("Helvetica-Bold").fillColor(theme.headingText)
+   365→            .text(el.text, MARGIN + 12, y1 + 2, { width: CONTENT_WIDTH - 12 });
+   366→          doc.moveDown(0.15);
+   367→          doc.save();
+   368→          doc.moveTo(MARGIN, doc.y).lineTo(MARGIN + CONTENT_WIDTH, doc.y).stroke(theme.borderColor);
+   369→          doc.restore();
+   370→          doc.moveDown(0.4);
+   371→          break;
+   372→        }
+   373→        case "h2": {
+   374→          ensureSpace(40);
+   375→          doc.moveDown(0.5);
+   376→          const y2 = doc.y;
+   377→          doc.save();
+   378→          doc.rect(MARGIN, y2, 3, 16).fill(theme.primaryLight);
+   379→          doc.restore();
+   380→          doc.fontSize(14).font("Helvetica-Bold").fillColor(theme.headingText)
+   381→            .text(el.text, MARGIN + 10, y2 + 1, { width: CONTENT_WIDTH - 10 });
+   382→          doc.moveDown(0.1);
+   383→          doc.save();
+   384→          doc.moveTo(MARGIN + 10, doc.y).lineTo(MARGIN + CONTENT_WIDTH, doc.y)
+   385→            .strokeColor(theme.borderColor).lineWidth(0.5).stroke();
+   386→          doc.restore();
+   387→          doc.moveDown(0.35);
+   388→          break;
+   389→        }
+   390→        case "h3": {
+   391→          ensureSpace(30);
+   392→          doc.moveDown(0.35);
+   393→          doc.fontSize(11.5).font("Helvetica-Bold").fillColor(theme.primary)
+   394→            .text(el.text, { width: CONTENT_WIDTH });
+   395→          doc.moveDown(0.2);
+   396→          break;
+   397→        }
+   398→        case "bullet": {
+   399→          ensureSpace(18);
+   400→          const bulletX = MARGIN + (el.indent * 16);
+   401→          const bulletColor = el.indent === 0 ? theme.primaryLight : theme.mutedText;
+   402→          doc.save();
+   403→          doc.circle(bulletX + 2, doc.y + 5, 2).fill(bulletColor);
+   404→          doc.restore();
+   405→          doc.fontSize(9.5).font("Helvetica").fillColor(theme.bodyText)
+   406→            .text(el.text, bulletX + 10, doc.y - 2, {
+   407→              width: CONTENT_WIDTH - (el.indent * 16) - 10,
+   408→              lineGap: 1.5,
+   409→            });
+   410→          doc.moveDown(0.15);
+   411→          break;
+   412→        }
+   413→        case "normal": {
+   414→          ensureSpace(20);
+   415→          doc.fontSize(9.5).font("Helvetica").fillColor(theme.bodyText)
+   416→            .text(el.text, MARGIN, doc.y, {
+   417→              width: CONTENT_WIDTH,
+   418→              lineGap: 2.5,
+   419→              paragraphGap: 4,
+   420→            });
+   421→          doc.moveDown(0.2);
+   422→          break;
+   423→        }
+   424→        case "table": {
+   425→          renderTableOnDoc(doc, el.headers, el.rows, theme);
+   426→          break;
+   427→        }
+   428→        case "code": {
+   429→          ensureSpace(40);
+   430→          doc.moveDown(0.3);
+   431→          const codeLines = el.text.split("\n");
+   432→          const codeHeight = codeLines.length * 12 + 16;
+   433→          const codeY = doc.y;
+   434→
+   435→          if (codeY + Math.min(codeHeight, 300) > 780) {
+   436→            doc.addPage();
+   437→            doc.save();
+   438→            doc.rect(0, 0, 595.28, 3).fill(theme.primary);
+   439→            doc.restore();
+   440→            doc.y = 18;
+   441→          }
+   442→
+   443→          const finalCodeY = doc.y;
+   444→          const finalCodeHeight = Math.min(codeHeight, 760 - finalCodeY);
+   445→          doc.save();
+   446→          doc.rect(MARGIN, finalCodeY, CONTENT_WIDTH, finalCodeHeight).fill("#F3F4F6");
+   447→          doc.rect(MARGIN, finalCodeY, 3, finalCodeHeight).fill(theme.mutedText);
+   448→          doc.restore();
+   449→
+   450→          doc.fontSize(8).font("Courier").fillColor(theme.bodyText)
+   451→            .text(el.text, MARGIN + 12, finalCodeY + 8, {
+   452→              width: CONTENT_WIDTH - 20,
+   453→              lineGap: 3,
+   454→            });
+   455→          doc.y = finalCodeY + finalCodeHeight + 8;
+   456→          doc.moveDown(0.3);
+   457→          break;
+   458→        }
+   459→        case "hr": {
+   460→          ensureSpace(20);
+   461→          doc.moveDown(0.5);
+   462→          doc.save();
+   463→          const hrY = doc.y;
+   464→          doc.moveTo(MARGIN + 50, hrY).lineTo(MARGIN + CONTENT_WIDTH - 50, hrY)
+   465→            .strokeColor(theme.borderColor).lineWidth(0.5).stroke();
+   466→          doc.restore();
+   467→          doc.moveDown(0.5);
+   468→          break;
+   469→        }
+   470→      }
+   471→    } catch (elErr) {
+   472→      console.error("[export-all-docs] Error rendering element:", elErr instanceof Error ? elErr.message : elErr);
+   473→    }
+   474→  }
+   475→}
+   476→
+   477→// ===== Generate combined PDF =====
+   478→async function generateCombinedPdf(
+   479→  documents: { title: string; content: string; timestamp: string }[],
+   480→  projectName: string,
+   481→  theme: PdfTheme = DEFAULT_THEME,
+   482→  superAdminName: string = "",
+   483→): Promise<Buffer> {
+   484→  const buffers: Buffer[] = [];
+   485→  const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
+   486→  doc.on("data", (chunk: Buffer) => buffers.push(chunk));
+   487→
+   488→  doc.info["Title"] = `${projectName} - All Documents`;
+   489→  doc.info["Producer"] = "KarmaBoard - Karma Space AI";
+   490→  if (superAdminName) {
+   491→    doc.info["Author"] = superAdminName;
+   492→  }
+   493→
+   494→  const generatedDate = new Date().toLocaleDateString("en-US", {
+   495→    year: "numeric", month: "long", day: "numeric",
+   496→  });
+   497→
+   498→  // ===== COVER PAGE =====
+   499→  const coverHeight = 320;
+   500→  doc.save();
+   501→  doc.rect(0, 0, 595.28, coverHeight).fill(theme.coverGradientTop);
+   502→  doc.rect(0, coverHeight, 595.28, 5).fill(theme.primaryLight);
+   503→  doc.rect(0, coverHeight + 5, 595.28, 2).fill("#60A5FA");
+   504→  doc.restore();
+   505→
+   506→  doc.fontSize(28).font("Helvetica-Bold").fillColor(theme.white)
+   507→    .text(projectName, MARGIN, 60, { width: CONTENT_WIDTH });
+   508→
+   509→  doc.fontSize(16).font("Helvetica").fillColor("#93C5FD")
+   510→    .text("Complete Documentation Package", MARGIN, 100, { width: CONTENT_WIDTH });
+   511→
+   512→  doc.fontSize(11).font("Helvetica").fillColor("#BFDBFE")
+   513→    .text(`${documents.length} Document${documents.length !== 1 ? "s" : ""}`, MARGIN, 130, { width: CONTENT_WIDTH });
+   514→
+   515→  doc.fontSize(9).font("Helvetica").fillColor("#93C5FD")
+   516→    .text(`Generated: ${generatedDate}`, MARGIN, 180, { width: CONTENT_WIDTH });
+   517→  if (superAdminName) {
+   518→    doc.text(`Prepared by: ${superAdminName}`, MARGIN, 195, { width: CONTENT_WIDTH });
+   519→  }
+   520→  doc.text("Powered by KarmaBoard", MARGIN, 215, { width: CONTENT_WIDTH });
+   521→
+   522→  doc.moveTo(MARGIN, 250).lineTo(MARGIN + CONTENT_WIDTH, 250).stroke("#60A5FA");
+   523→
+   524→  doc.fontSize(10).font("Helvetica-Bold").fillColor(theme.white)
+   525→    .text("Included Documents:", MARGIN, 265, { width: CONTENT_WIDTH });
+   526→  doc.moveDown(0.3);
+   527→  for (let i = 0; i < documents.length; i++) {
+   528→    const docTitle = documents[i].title.length > 60 ? documents[i].title.slice(0, 57) + "..." : documents[i].title;
+   529→    doc.fontSize(9).font("Helvetica").fillColor("#BFDBFE")
+   530→      .text(`  ${i + 1}. ${docTitle}`, MARGIN, doc.y, { width: CONTENT_WIDTH });
+   531→    doc.moveDown(0.15);
+   532→  }
+   533→
+   534→  // ===== CONTENT PAGES =====
+   535→  for (let docIdx = 0; docIdx < documents.length; docIdx++) {
+   536→    const { title, content } = documents[docIdx];
+   537→
+   538→    if (docIdx > 0) {
+   539→      doc.addPage();
+   540→      doc.save();
+   541→      doc.rect(0, 0, 595.28, 4).fill(theme.primary);
+   542→      doc.rect(0, 4, 595.28, 1).fill(theme.primaryLight);
+   543→      doc.restore();
+   544→      doc.y = 20;
+   545→    }
+   546→
+   547→    // Document title header
+   548→    doc.moveDown(0.5);
+   549→    const h1Y = doc.y;
+   550→    doc.save();
+   551→    doc.rect(MARGIN, h1Y, 4, 24).fill(theme.primary);
+   552→    doc.restore();
+   553→    doc.fontSize(20).font("Helvetica-Bold").fillColor(theme.headingText)
+   554→      .text(`Document ${docIdx + 1}: ${sanitizeForPdf(title)}`, MARGIN + 14, h1Y + 2, {
+   555→        width: CONTENT_WIDTH - 14,
+   556→      });
+   557→    doc.moveDown(0.2);
+   558→    doc.save();
+   559→    doc.moveTo(MARGIN, doc.y).lineTo(MARGIN + CONTENT_WIDTH, doc.y).stroke(theme.primaryLight);
+   560→    doc.restore();
+   561→    doc.moveDown(0.8);
+   562→
+   563→    // Render content with proper table support
+   564→    renderDocumentContent(doc, content, theme, true);
+   565→
+   566→    // Separator between docs
+   567→    if (docIdx < documents.length - 1) {
+   568→      doc.moveDown(1);
+   569→      doc.save();
+   570→      doc.moveTo(MARGIN + 40, doc.y).lineTo(MARGIN + CONTENT_WIDTH - 40, doc.y)
+   571→        .strokeColor(theme.primaryLight).lineWidth(0.5).stroke();
+   572→      doc.restore();
+   573→      doc.moveDown(0.5);
+   574→    }
+   575→  }
+   576→
+   577→  // ===== PAGE NUMBERS =====
+   578→  try {
+   579→    const internalDoc = doc as unknown as { bufferedPages: unknown[] };
+   580→    const pageCount = internalDoc.bufferedPages?.length || 1;
+   581→    for (let i = 0; i < pageCount; i++) {
+   582→      doc.switchToPage(i);
+   583→      doc.fontSize(8).font("Helvetica").fillColor(theme.mutedText)
+   584→        .text(`Page ${i + 1} of ${pageCount}`, MARGIN, doc.page.height - 30, {
+   585→          width: CONTENT_WIDTH, align: "center",
+   586→        });
+   587→      const footerText = superAdminName
+   588→        ? `Prepared by ${superAdminName}  |  KarmaBoard`
+   589→        : "Generated by KarmaBoard";
+   590→      doc.fontSize(7).font("Helvetica").fillColor("#D1D5DB")
+   591→        .text(footerText, MARGIN, doc.page.height - 30, {
+   592→          width: CONTENT_WIDTH, align: "right",
+   593→        });
+   594→    }
+   595→  } catch (pageErr) {
+   596→    console.error("[export-all-docs] Page numbering failed (non-fatal):", pageErr);
+   597→  }
+   598→
+   599→  doc.fillColor(theme.bodyText);
+   600→  doc.end();
+   601→  await new Promise<void>((resolve) => doc.on("end", resolve));
+   602→  return Buffer.concat(buffers);
+   603→}
+   604→
+   605→// ===== API ROUTE =====
+   606→export async function GET(request: NextRequest) {
+   607→  try {
+   608→    const user = await getAuthUser(request);
+   609→    if (!user) {
+   610→      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+   611→    }
+   612→
+   613→    const { searchParams } = new URL(request.url);
+   614→    const projectId = searchParams.get("projectId");
+   615→    if (!projectId) {
+   616→      return NextResponse.json({ success: false, error: "projectId is required" }, { status: 400 });
+   617→    }
+   618→
+   619→    console.log("[GET /api/ai/export-all-docs] Project:", projectId);
+   620→
+   621→    const client = getTursoClient();
+   622→    const ip = getClientIp(request);
+   623→
+   624→    // Fetch project name
+   625→    const projectResult = await client.execute({
+   626→      sql: 'SELECT name FROM "Project" WHERE id = ?',
+   627→      args: [projectId],
+   628→    });
+   629→    const projectName = projectResult.rows.length > 0
+   630→      ? (projectResult.rows[0].name as string)
+   631→      : "Project";
+   632→
+   633→    // Fetch PDF theme
+   634→    let theme = { ...DEFAULT_THEME };
+   635→    try {
+   636→      const themeResult = await client.execute({
+   637→        sql: 'SELECT value FROM "Settings" WHERE key = ?',
+   638→        args: ["PDF_THEME"],
+   639→      });
+   640→      if (themeResult.rows.length > 0) {
+   641→        theme = { ...DEFAULT_THEME, ...JSON.parse(themeResult.rows[0].value as string) };
+   642→      }
+   643→    } catch { /* use defaults */ }
+   644→
+   645→    // Fetch SUPERADMIN name
+   646→    let superAdminName = "";
+   647→    try {
+   648→      const adminResult = await client.execute({
+   649→        sql: 'SELECT name FROM "User" WHERE role = ? LIMIT 1',
+   650→        args: ["SUPERADMIN"],
+   651→      });
+   652→      if (adminResult.rows.length > 0) {
+   653→        superAdminName = sanitizeForPdf(adminResult.rows[0].name as string);
+   654→      }
+   655→    } catch { /* ignore */ }
+   656→
+   657→    // ===== Try fetching from ProjectDocument table first =====
+   658→    let documents: { title: string; content: string; timestamp: string }[] = [];
+   659→
+   660→    try {
+   661→      const storedDocs = await client.execute({
+   662→        sql: 'SELECT "docType", title, content, "updatedAt" FROM "ProjectDocument" WHERE "projectId" = ? ORDER BY "docType" ASC',
+   663→        args: [projectId],
+   664→      });
+   665→
+   666→      if (storedDocs.rows.length > 0) {
+   667→        console.log("[GET /api/ai/export-all-docs] Using " + storedDocs.rows.length + " stored ProjectDocuments");
+   668→        documents = storedDocs.rows.map(row => ({
+   669→          title: (row.title as string) || (row.docType as string).toUpperCase() + " Document",
+   670→          content: (row.content as string),
+   671→          timestamp: (row.updatedAt as string),
+   672→        }));
+   673→      }
+   674→    } catch (storedErr) {
+   675→      console.error("[GET /api/ai/export-all-docs] Error fetching stored documents (falling back):", storedErr);
+   676→    }
+   677→
+   678→    // ===== Fallback: detect from chat messages if no stored docs =====
+   679→    if (documents.length === 0) {
+   680→      const chatResult = await client.execute({
+   681→        sql: 'SELECT id, role, content, timestamp FROM "AiChat" WHERE "projectId" = ? AND role = ? ORDER BY "timestamp" ASC',
+   682→        args: [projectId, "assistant"],
+   683→      });
+   684→
+   685→      if (chatResult.rows.length === 0) {
+   686→        return NextResponse.json({ success: false, error: "No messages found for this project" }, { status: 404 });
+   687→      }
+   688→
+   689→      const allMessages = chatResult.rows.map(row => ({
+   690→        id: row.id as string,
+   691→        role: row.role as string,
+   692→        content: row.content as string,
+   693→        timestamp: row.timestamp as string,
+   694→      }));
+   695→      const docMessages = detectDocumentMessages(allMessages);
+   696→
+   697→      if (docMessages.length === 0) {
+   698→        return NextResponse.json({ success: false, error: "No document messages found. Generate documents first using /docs, /prd, /trd, etc." }, { status: 404 });
+   699→      }
+   700→
+   701→      console.log("[GET /api/ai/export-all-docs] Using " + docMessages.length + " detected document messages (fallback)");
+   702→
+   703→      documents = docMessages.map(msg => {
+   704→        const firstLine = msg.content.split("\n").find(l => {
+   705→          const trimmed = l.trim();
+   706→          return trimmed.startsWith("#") && trimmed.length > 2;
+   707→        });
+   708→        const title = firstLine
+   709→          ? firstLine.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim().slice(0, 80)
+   710→          : msg.content.split("\n")[0]?.slice(0, 80) || "Untitled Document";
+   711→        return { title, content: msg.content, timestamp: msg.timestamp };
+   712→      });
+   713→    }
+   714→
+   715→    // Generate combined PDF with proper table rendering
+   716→    const pdfBuffer = await generateCombinedPdf(documents, projectName, theme, superAdminName);
+   717→
+   718→    console.log(`[GET /api/ai/export-all-docs] PDF generated: ${pdfBuffer.length} bytes (${documents.length} docs)`);
+   719→
+   720→    // Log activity
+   721→    await logActivity({
+   722→      userId: user.id,
+   723→      action: "EXPORT_ALL_DOCS_PDF",
+   724→      details: `Exported ${documents.length} documents as combined PDF for project: ${projectName}`,
+   725→      entity: "project",
+   726→      entityId: projectId,
+   727→      ipAddress: ip,
+   728→      tursoClient: client,
+   729→    });
+   730→
+   731→    const safeFilename = `${projectName.replace(/[^a-zA-Z0-9_-]/g, "_")}_All_Documents.pdf`;
+   732→
+   733→    return new NextResponse(pdfBuffer, {
+   734→      headers: {
+   735→        "Content-Type": "application/pdf",
+   736→        "Content-Disposition": `attachment; filename="${safeFilename}"`,
+   737→      },
+   738→    });
+   739→  } catch (error) {
+   740→    console.error("[GET /api/ai/export-all-docs] Error:", error);
+   741→    return NextResponse.json({
+   742→      success: false,
+   743→      error: `Failed to generate PDF: ${error instanceof Error ? error.message : "Unknown error"}`,
+   744→    }, { status: 500 });
+   745→  }
+   746→}
+   747→

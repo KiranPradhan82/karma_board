@@ -1,0 +1,2002 @@
+     1→     1→/**
+     2→     2→ * AI Tool Executor for Agentic Karma Space
+     3→     3→ *
+     4→     4→ * Executes tool calls from the AI against the KarmaBoard database.
+     5→     5→ * Each tool function performs proper RBAC checks and returns structured results.
+     6→     6→ */
+     7→     7→
+     8→     8→import type { AiToolCall, AiToolResult } from "./ai-tools";
+     9→     9→import { encrypt, decrypt } from "./encryption";
+    10→    10→
+    11→    11→interface ExecutorContext {
+    12→    12→  userId: string;
+    13→    13→  userRole: string;
+    14→    14→  userName: string;
+    15→    15→  tursoClient: ReturnType<typeof import("@/lib/api-auth").getTursoClient>;
+    16→    16→}
+    17→    17→
+    18→    18→// ===== Tool: create_project =====
+    19→    19→
+    20→    20→async function createProject(
+    21→    21→  args: { name: string; description?: string; priority?: string; deadline?: string; color?: string; clientName?: string },
+    22→    22→  ctx: ExecutorContext
+    23→    23→): Promise<AiToolResult> {
+    24→    24→  const { tursoClient, userId, userRole } = ctx;
+    25→    25→
+    26→    26→  // RBAC: ADMIN+ or SUPERADMIN only
+    27→    27→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+    28→    28→    return {
+    29→    29→      toolCallId: "",
+    30→    30→      toolName: "create_project",
+    31→    31→      success: false,
+    32→    32→      result: "Permission denied: Only ADMIN and SUPERADMIN can create projects.",
+    33→    33→      displayMessage: "Permission denied — only admins can create projects.",
+    34→    34→    };
+    35→    35→  }
+    36→    36→
+    37→    37→  // Validate
+    38→    38→  if (!args.name || args.name.trim().length === 0) {
+    39→    39→    return {
+    40→    40→      toolCallId: "",
+    41→    41→      toolName: "create_project",
+    42→    42→      success: false,
+    43→    43→      result: "Project name is required.",
+    44→    44→      displayMessage: "Missing project name.",
+    45→    45→    };
+    46→    46→  }
+    47→    47→
+    48→    48→  if (args.name.length > 100) {
+    49→    49→    return {
+    50→    50→      toolCallId: "",
+    51→    51→      toolName: "create_project",
+    52→    52→      success: false,
+    53→    53→      result: "Project name must be 100 characters or less.",
+    54→    54→      displayMessage: "Project name is too long (max 100 chars).",
+    55→    55→    };
+    56→    56→  }
+    57→    57→
+    58→    58→  const priority = args.priority || "MEDIUM";
+    59→    59→  const deadline = args.deadline || null;
+    60→    60→
+    61→    61→  try {
+    62→    62→    const projectId = crypto.randomUUID();
+    63→    63→    await tursoClient.execute({
+    64→    64→      sql: `INSERT INTO "Project" (id, name, description, status, priority, "clientName", color, deadline, "createdAt", "updatedAt")
+    65→    65→            VALUES (?, ?, ?, 'ACTIVE', ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    66→    66→      args: [
+    67→    67→        projectId,
+    68→    68→        args.name.trim(),
+    69→    69→        args.description?.trim() || null,
+    70→    70→        priority,
+    71→    71→        args.clientName?.trim() || null,
+    72→    72→        args.color || null,
+    73→    73→        deadline,
+    74→    74→      ],
+    75→    75→    });
+    76→    76→
+    77→    77→    // Auto-add the creator as LEAD
+    78→    78→    await tursoClient.execute({
+    79→    79→      sql: `INSERT INTO "ProjectMember" (id, "projectId", "userId", role, "joinedAt")
+    80→    80→            VALUES (?, ?, ?, 'LEAD', datetime('now'))`,
+    81→    81→      args: [crypto.randomUUID(), projectId, userId],
+    82→    82→    });
+    83→    83→
+    84→    84→    return {
+    85→    85→      toolCallId: "",
+    86→    86→      toolName: "create_project",
+    87→    87→      success: true,
+    88→    88→      result: JSON.stringify({ projectId, name: args.name.trim(), priority, deadline, clientName: args.clientName?.trim() || null }),
+    89→    89→      displayMessage: `Created project "${args.name.trim()}" with ${priority} priority.${deadline ? ` Deadline: ${deadline}.` : ""}`,
+    90→    90→    };
+    91→    91→  } catch (error) {
+    92→    92→    console.error("[createProject tool] DB error:", error);
+    93→    93→    return {
+    94→    94→      toolCallId: "",
+    95→    95→      toolName: "create_project",
+    96→    96→      success: false,
+    97→    97→      result: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
+    98→    98→      displayMessage: "Failed to create project due to a database error.",
+    99→    99→    };
+   100→   100→  }
+   101→   101→}
+   102→   102→
+   103→   103→// ===== Tool: list_projects =====
+   104→   104→
+   105→   105→async function listProjects(
+   106→   106→  args: { status?: string },
+   107→   107→  ctx: ExecutorContext
+   108→   108→): Promise<AiToolResult> {
+   109→   109→  const { tursoClient, userId, userRole } = ctx;
+   110→   110→
+   111→   111→  try {
+   112→   112→    let rows;
+   113→   113→    if (userRole === "SUPERADMIN") {
+   114→   114→      if (args.status) {
+   115→   115→        rows = (await tursoClient.execute({
+   116→   116→          sql: `SELECT id, name, description, status, priority, deadline, "clientName", color
+   117→   117→                FROM "Project"
+   118→   118→                WHERE status = ? AND status != 'ARCHIVED'
+   119→   119→                ORDER BY "createdAt" DESC`,
+   120→   120→          args: [args.status],
+   121→   121→        })).rows;
+   122→   122→      } else {
+   123→   123→        rows = (await tursoClient.execute({
+   124→   124→          sql: `SELECT id, name, description, status, priority, deadline, "clientName", color
+   125→   125→                FROM "Project"
+   126→   126→                WHERE status != 'ARCHIVED'
+   127→   127→                ORDER BY "createdAt" DESC`,
+   128→   128→          args: [],
+   129→   129→        })).rows;
+   130→   130→      }
+   131→   131→    } else {
+   132→   132→      if (args.status) {
+   133→   133→        rows = (await tursoClient.execute({
+   134→   134→          sql: `SELECT p.id, p.name, p.description, p.status, p.priority, p.deadline, p."clientName", p.color
+   135→   135→                FROM "Project" p
+   136→   136→                JOIN "ProjectMember" pm ON p.id = pm."projectId"
+   137→   137→                WHERE pm."userId" = ? AND pm."removedAt" IS NULL AND p.status = ? AND p.status != 'ARCHIVED'
+   138→   138→                ORDER BY p."createdAt" DESC`,
+   139→   139→          args: [userId, args.status],
+   140→   140→        })).rows;
+   141→   141→      } else {
+   142→   142→        rows = (await tursoClient.execute({
+   143→   143→          sql: `SELECT p.id, p.name, p.description, p.status, p.priority, p.deadline, p."clientName", p.color
+   144→   144→                FROM "Project" p
+   145→   145→                JOIN "ProjectMember" pm ON p.id = pm."projectId"
+   146→   146→                WHERE pm."userId" = ? AND pm."removedAt" IS NULL AND p.status != 'ARCHIVED'
+   147→   147→                ORDER BY p."createdAt" DESC`,
+   148→   148→          args: [userId],
+   149→   149→        })).rows;
+   150→   150→      }
+   151→   151→    }
+   152→   152→
+   153→   153→    const projects = rows.map((row) => ({
+   154→   154→      id: row.id,
+   155→   155→      name: row.name,
+   156→   156→      description: row.description || null,
+   157→   157→      status: row.status,
+   158→   158→      priority: row.priority,
+   159→   159→      deadline: row.deadline || null,
+   160→   160→      clientName: row.clientName || null,
+   161→   161→      color: row.color || null,
+   162→   162→    }));
+   163→   163→
+   164→   164→    return {
+   165→   165→      toolCallId: "",
+   166→   166→      toolName: "list_projects",
+   167→   167→      success: true,
+   168→   168→      result: JSON.stringify({ count: projects.length, projects }),
+   169→   169→      displayMessage: `Found ${projects.length} project${projects.length !== 1 ? "s" : ""}.`,
+   170→   170→    };
+   171→   171→  } catch (error) {
+   172→   172→    console.error("[listProjects tool] DB error:", error);
+   173→   173→    return {
+   174→   174→      toolCallId: "",
+   175→   175→      toolName: "list_projects",
+   176→   176→      success: false,
+   177→   177→      result: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
+   178→   178→      displayMessage: "Failed to list projects.",
+   179→   179→    };
+   180→   180→  }
+   181→   181→}
+   182→   182→
+   183→   183→// ===== Tool: get_project_info =====
+   184→   184→
+   185→   185→async function getProjectInfo(
+   186→   186→  args: { projectId: string },
+   187→   187→  ctx: ExecutorContext
+   188→   188→): Promise<AiToolResult> {
+   189→   189→  const { tursoClient, userId, userRole } = ctx;
+   190→   190→
+   191→   191→  // Check access
+   192→   192→  if (userRole !== "SUPERADMIN") {
+   193→   193→    const access = await tursoClient.execute({
+   194→   194→      sql: `SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL`,
+   195→   195→      args: [args.projectId, userId],
+   196→   196→    });
+   197→   197→    if (access.rows.length === 0) {
+   198→   198→      return {
+   199→   199→        toolCallId: "",
+   200→   200→        toolName: "get_project_info",
+   201→   201→        success: false,
+   202→   202→        result: "You don't have access to this project.",
+   203→   203→        displayMessage: "You don't have access to this project.",
+   204→   204→      };
+   205→   205→    }
+   206→   206→  }
+   207→   207→
+   208→   208→  try {
+   209→   209→    const projectRows = await tursoClient.execute({
+   210→   210→      sql: `SELECT id, name, description, status, priority, deadline, "clientName", color, "createdAt", "updatedAt"
+   211→   211→            FROM "Project" WHERE id = ?`,
+   212→   212→      args: [args.projectId],
+   213→   213→    });
+   214→   214→
+   215→   215→    if (projectRows.rows.length === 0) {
+   216→   216→      return {
+   217→   217→        toolCallId: "",
+   218→   218→        toolName: "get_project_info",
+   219→   219→        success: false,
+   220→   220→        result: "Project not found.",
+   221→   221→        displayMessage: "Project not found.",
+   222→   222→      };
+   223→   223→    }
+   224→   224→
+   225→   225→    const row = projectRows.rows[0];
+   226→   226→
+   227→   227→    // Get team count
+   228→   228→    const teamResult = await tursoClient.execute({
+   229→   229→      sql: `SELECT COUNT(*) as count FROM "ProjectMember" WHERE "projectId" = ? AND "removedAt" IS NULL`,
+   230→   230→      args: [args.projectId],
+   231→   231→    });
+   232→   232→    const teamCount = Number(teamResult.rows[0].count);
+   233→   233→
+   234→   234→    const project = {
+   235→   235→      id: row.id,
+   236→   236→      name: row.name,
+   237→   237→      description: row.description || null,
+   238→   238→      status: row.status,
+   239→   239→      priority: row.priority,
+   240→   240→      deadline: row.deadline || null,
+   241→   241→      clientName: row.clientName || null,
+   242→   242→      color: row.color || null,
+   243→   243→      teamMembers: teamCount,
+   244→   244→      createdAt: row.createdAt,
+   245→   245→      updatedAt: row.updatedAt,
+   246→   246→    };
+   247→   247→
+   248→   248→    return {
+   249→   249→      toolCallId: "",
+   250→   250→      toolName: "get_project_info",
+   251→   251→      success: true,
+   252→   252→      result: JSON.stringify(project),
+   253→   253→      displayMessage: `Retrieved details for "${project.name}" (Status: ${project.status}, Team: ${teamCount}).`,
+   254→   254→    };
+   255→   255→  } catch (error) {
+   256→   256→    console.error("[getProjectInfo tool] DB error:", error);
+   257→   257→    return {
+   258→   258→      toolCallId: "",
+   259→   259→      toolName: "get_project_info",
+   260→   260→      success: false,
+   261→   261→      result: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
+   262→   262→      displayMessage: "Failed to get project info.",
+   263→   263→    };
+   264→   264→  }
+   265→   265→}
+   266→   266→
+   267→   267→// ===== Tool: update_project =====
+   268→   268→
+   269→   269→async function updateProject(
+   270→   270→  args: {
+   271→   271→    projectId: string;
+   272→   272→    name?: string;
+   273→   273→    description?: string;
+   274→   274→    status?: string;
+   275→   275→    priority?: string;
+   276→   276→    deadline?: string;
+   277→   277→    color?: string;
+   278→   278→  },
+   279→   279→  ctx: ExecutorContext
+   280→   280→): Promise<AiToolResult> {
+   281→   281→  const { tursoClient, userRole } = ctx;
+   282→   282→
+   283→   283→  // RBAC: ADMIN+ or SUPERADMIN only
+   284→   284→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+   285→   285→    return {
+   286→   286→      toolCallId: "",
+   287→   287→      toolName: "update_project",
+   288→   288→      success: false,
+   289→   289→      result: "Permission denied: Only ADMIN and SUPERADMIN can update projects.",
+   290→   290→      displayMessage: "Permission denied — only admins can update projects.",
+   291→   291→    };
+   292→   292→  }
+   293→   293→
+   294→   294→  // Build dynamic UPDATE query
+   295→   295→  const updates: string[] = [];
+   296→   296→  const values: unknown[] = [];
+   297→   297→
+   298→   298→  if (args.name !== undefined) {
+   299→   299→    updates.push(`name = ?`);
+   300→   300→    values.push(args.name.trim());
+   301→   301→  }
+   302→   302→  if (args.description !== undefined) {
+   303→   303→    updates.push(`description = ?`);
+   304→   304→    values.push(args.description?.trim() || null);
+   305→   305→  }
+   306→   306→  if (args.status !== undefined) {
+   307→   307→    updates.push(`status = ?`);
+   308→   308→    values.push(args.status);
+   309→   309→  }
+   310→   310→  if (args.priority !== undefined) {
+   311→   311→    updates.push(`priority = ?`);
+   312→   312→    values.push(args.priority);
+   313→   313→  }
+   314→   314→  if (args.deadline !== undefined) {
+   315→   315→    updates.push(`deadline = ?`);
+   316→   316→    values.push(args.deadline || null);
+   317→   317→  }
+   318→   318→  if (args.color !== undefined) {
+   319→   319→    updates.push(`color = ?`);
+   320→   320→    values.push(args.color || null);
+   321→   321→  }
+   322→   322→
+   323→   323→  if (updates.length === 0) {
+   324→   324→    return {
+   325→   325→      toolCallId: "",
+   326→   326→      toolName: "update_project",
+   327→   327→      success: false,
+   328→   328→      result: "No fields to update.",
+   329→   329→      displayMessage: "No update fields provided.",
+   330→   330→    };
+   331→   331→  }
+   332→   332→
+   333→   333→  updates.push(`"updatedAt" = datetime('now')`);
+   334→   334→  values.push(args.projectId);
+   335→   335→
+   336→   336→  try {
+   337→   337→    await tursoClient.execute({
+   338→   338→      sql: `UPDATE "Project" SET ${updates.join(", ")} WHERE id = ?`,
+   339→   339→      args: values,
+   340→   340→    });
+   341→   341→
+   342→   342→    // Get updated project name for display
+   343→   343→    const nameResult = await tursoClient.execute({
+   344→   344→      sql: `SELECT name FROM "Project" WHERE id = ?`,
+   345→   345→      args: [args.projectId],
+   346→   346→    });
+   347→   347→    const projectName = nameResult.rows[0]?.name || "Project";
+   348→   348→
+   349→   349→    return {
+   350→   350→      toolCallId: "",
+   351→   351→      toolName: "update_project",
+   352→   352→      success: true,
+   353→   353→      result: JSON.stringify({ projectId: args.projectId, updatedFields: args }),
+   354→   354→      displayMessage: `Updated "${projectName}" successfully.`,
+   355→   355→    };
+   356→   356→  } catch (error) {
+   357→   357→    console.error("[updateProject tool] DB error:", error);
+   358→   358→    return {
+   359→   359→      toolCallId: "",
+   360→   360→      toolName: "update_project",
+   361→   361→      success: false,
+   362→   362→      result: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
+   363→   363→      displayMessage: "Failed to update project.",
+   364→   364→    };
+   365→   365→  }
+   366→   366→}
+   367→   367→
+   368→   368→// ===== Tool: add_project_member =====
+   369→   369→
+   370→   370→async function addProjectMember(
+   371→   371→  args: { projectId: string; userId: string; role?: string },
+   372→   372→  ctx: ExecutorContext
+   373→   373→): Promise<AiToolResult> {
+   374→   374→  const { tursoClient, userRole, userId } = ctx;
+   375→   375→
+   376→   376→  // RBAC: ADMIN, SUPERADMIN, or LEAD of this project
+   377→   377→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+   378→   378→    // Check if user is LEAD of this project
+   379→   379→    const leadCheck = await tursoClient.execute({
+   380→   380→      sql: `SELECT role FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL AND role = 'LEAD'`,
+   381→   381→      args: [args.projectId, userId],
+   382→   382→    });
+   383→   383→    if (leadCheck.rows.length === 0) {
+   384→   384→      return {
+   385→   385→        toolCallId: "",
+   386→   386→        toolName: "add_project_member",
+   387→   387→        success: false,
+   388→   388→        result: "Permission denied: Only ADMIN, SUPERADMIN, or project LEAD can add members.",
+   389→   389→        displayMessage: "Permission denied — only admins and project leads can add members.",
+   390→   390→      };
+   391→   391→    }
+   392→   392→  }
+   393→   393→
+   394→   394→  const memberRole = args.role || "MEMBER";
+   395→   395→
+   396→   396→  try {
+   397→   397→    // Check if user exists
+   398→   398→    const userExists = await tursoClient.execute({
+   399→   399→      sql: `SELECT id, name FROM "User" WHERE id = ?`,
+   400→   400→      args: [args.userId],
+   401→   401→    });
+   402→   402→    if (userExists.rows.length === 0) {
+   403→   403→      return {
+   404→   404→        toolCallId: "",
+   405→   405→        toolName: "add_project_member",
+   406→   406→        success: false,
+   407→   407→        result: "User not found.",
+   408→   408→        displayMessage: "User not found in the system.",
+   409→   409→      };
+   410→   410→    }
+   411→   411→
+   412→   412→    const memberName = userExists.rows[0].name as string;
+   413→   413→
+   414→   414→    // Check if already a member
+   415→   415→    const existing = await tursoClient.execute({
+   416→   416→      sql: `SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL`,
+   417→   417→      args: [args.projectId, args.userId],
+   418→   418→    });
+   419→   419→    if (existing.rows.length > 0) {
+   420→   420→      return {
+   421→   421→        toolCallId: "",
+   422→   422→        toolName: "add_project_member",
+   423→   423→        success: false,
+   424→   424→        result: "User is already a member of this project.",
+   425→   425→        displayMessage: `${memberName} is already a member of this project.`,
+   426→   426→      };
+   427→   427→    }
+   428→   428→
+   429→   429→    // Enforce single LEAD rule
+   430→   430→    if (memberRole === "LEAD") {
+   431→   431→      const existingLead = await tursoClient.execute({
+   432→   432→        sql: `SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND role = 'LEAD' AND "removedAt" IS NULL`,
+   433→   433→        args: [args.projectId],
+   434→   434→      });
+   435→   435→      if (existingLead.rows.length > 0) {
+   436→   436→        return {
+   437→   437→          toolCallId: "",
+   438→   438→          toolName: "add_project_member",
+   439→   439→          success: false,
+   440→   440→          result: "This project already has a LEAD. Remove the existing LEAD first or assign a different role.",
+   441→   441→          displayMessage: "This project already has a Lead. Only one Lead per project is allowed.",
+   442→   442→        };
+   443→   443→      }
+   444→   444→    }
+   445→   445→
+   446→   446→    await tursoClient.execute({
+   447→   447→      sql: `INSERT INTO "ProjectMember" (id, "projectId", "userId", role, "joinedAt")
+   448→   448→            VALUES (?, ?, ?, ?, datetime('now'))`,
+   449→   449→      args: [crypto.randomUUID(), args.projectId, args.userId, memberRole],
+   450→   450→    });
+   451→   451→
+   452→   452→    return {
+   453→   453→      toolCallId: "",
+   454→   454→      toolName: "add_project_member",
+   455→   455→      success: true,
+   456→   456→      result: JSON.stringify({ projectId: args.projectId, userId: args.userId, role: memberRole }),
+   457→   457→      displayMessage: `Added ${memberName} to the project as ${memberRole}.`,
+   458→   458→    };
+   459→   459→  } catch (error) {
+   460→   460→    console.error("[addProjectMember tool] DB error:", error);
+   461→   461→    return {
+   462→   462→      toolCallId: "",
+   463→   463→      toolName: "add_project_member",
+   464→   464→      success: false,
+   465→   465→      result: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
+   466→   466→      displayMessage: "Failed to add project member.",
+   467→   467→    };
+   468→   468→  }
+   469→   469→}
+   470→   470→
+   471→   471→// ===== Tool: knowledge_research (Knowledge-Based Research) =====
+   472→   472→
+   473→   473→async function knowledgeResearch(
+   474→   474→  args: { query: string; category?: string },
+   475→   475→  _ctx: ExecutorContext
+   476→   476→): Promise<AiToolResult> {
+   477→   477→  if (!args.query || args.query.trim().length === 0) {
+   478→   478→    return {
+   479→   479→      toolCallId: "",
+   480→   480→      toolName: "knowledge_research",
+   481→   481→      success: false,
+   482→   482→      result: "Research query is required.",
+   483→   483→      displayMessage: "Missing research query.",
+   484→   484→    };
+   485→   485→  }
+   486→   486→
+   487→   487→  const query = args.query.trim();
+   488→   488→  const category = args.category || "general";
+   489→   489→
+   490→   490→  // Knowledge-based research: return a structured prompt that guides the AI
+   491→   491→  // to use its extensive training knowledge for the topic. This avoids fake HTTP
+   492→   492→  // calls to non-existent endpoints while still providing valuable research context.
+   493→   493→  const categoryGuidance: Record<string, string> = {
+   494→   494→    competitors: `Provide a competitive analysis including: top 3-5 competitors/products in this space, their key features, pricing models, strengths/weaknesses, and what differentiates them. Include market positioning insights.`,
+   495→   495→    technology: `Provide a technology analysis including: current best practices, recommended tech stack options, version considerations, framework comparisons, performance implications, and community/ecosystem support.`,
+   496→   496→    ux_patterns: `Provide UX/design analysis including: current design trends, common UI patterns for this type of application, accessibility best practices (WCAG), responsive design considerations, and user experience benchmarks.`,
+   497→   497→    security: `Provide security analysis including: common vulnerabilities for this type of application, authentication best practices, data protection requirements, OWASP top 10 relevance, compliance considerations (GDPR, SOC2), and security testing approaches.`,
+   498→   498→    market_trends: `Provide market analysis including: current industry trends, growth projections, target market size, user adoption patterns, emerging technologies, and competitive landscape shifts.`,
+   499→   499→    general: `Provide comprehensive research insights on this topic including: key facts, current best practices, relevant examples, and actionable recommendations.`,
+   500→   500→  };
+   501→   501→
+   502→   502→  const guidance = categoryGuidance[category] || categoryGuidance.general;
+   503→   503→
+   504→   504→  const result = {
+   505→   505→    query,
+   506→   506→    category,
+   507→   507→    researchGuidance: guidance,
+   508→   508→    note: "Use your extensive training knowledge to provide detailed, specific, and current insights for this research topic. Include real product names, specific technologies, concrete examples, and actionable data points.",
+   509→   509→  };
+   510→   510→
+   511→   511→  return {
+   512→   512→    toolCallId: "",
+   513→   513→    toolName: "knowledge_research",
+   514→   514→    success: true,
+   515→   515→    result: JSON.stringify(result),
+   516→   516→    displayMessage: `Researching: "${query.slice(0, 50)}" (${category})`,
+   517→   517→  };
+   518→   518→}
+   519→   519→
+   520→   520→// ===== Tool: save_github_config =====
+   521→   521→
+   522→   522→async function upsertSetting(tursoClient: ExecutorContext["tursoClient"], key: string, value: string): Promise<void> {
+   523→   523→  const existing = await tursoClient.execute({
+   524→   524→    sql: `SELECT key FROM "Settings" WHERE key = ?`,
+   525→   525→    args: [key],
+   526→   526→  });
+   527→   527→  if (existing.rows.length > 0) {
+   528→   528→    await tursoClient.execute({
+   529→   529→      sql: `UPDATE "Settings" SET value = ?, "updatedAt" = datetime('now') WHERE key = ?`,
+   530→   530→      args: [value, key],
+   531→   531→    });
+   532→   532→  } else {
+   533→   533→    await tursoClient.execute({
+   534→   534→      sql: `INSERT INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+   535→   535→      args: [key, value],
+   536→   536→    });
+   537→   537→  }
+   538→   538→}
+   539→   539→
+   540→   540→async function saveGithubConfig(
+   541→   541→  args: { repoUrl: string; pat: string; patExpiry?: string },
+   542→   542→  ctx: ExecutorContext
+   543→   543→): Promise<AiToolResult> {
+   544→   544→  const { tursoClient, userRole } = ctx;
+   545→   545→
+   546→   546→  // RBAC: SUPERADMIN and ADMIN can save GitHub config
+   547→   547→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+   548→   548→    return {
+   549→   549→      toolCallId: "",
+   550→   550→      toolName: "save_github_config",
+   551→   551→      success: false,
+   552→   552→      result: "Permission denied: Only SUPERADMIN can save GitHub configuration.",
+   553→   553→      displayMessage: "Permission denied — only Super Admin can save GitHub config.",
+   554→   554→    };
+   555→   555→  }
+   556→   556→
+   557→   557→  if (!args.repoUrl || !args.pat) {
+   558→   558→    return {
+   559→   559→      toolCallId: "",
+   560→   560→      toolName: "save_github_config",
+   561→   561→      success: false,
+   562→   562→      result: "Both repoUrl and pat are required.",
+   563→   563→      displayMessage: "Missing GitHub URL or Personal Access Token.",
+   564→   564→    };
+   565→   565→  }
+   566→   566→
+   567→   567→  try {
+   568→   568→    const encryptedPat = encrypt(args.pat);
+   569→   569→
+   570→   570→    // Upsert GITHUB_REPO_URL, GITHUB_PAT, GITHUB_PAT_EXPIRY
+   571→   571→    await upsertSetting(tursoClient, "GITHUB_REPO_URL", args.repoUrl.trim());
+   572→   572→    await upsertSetting(tursoClient, "GITHUB_PAT", encryptedPat);
+   573→   573→
+   574→   574→    // Store expiry date (YYYY-MM-DD format, validated)
+   575→   575→    if (args.patExpiry) {
+   576→   576→      const expiryDate = new Date(args.patExpiry);
+   577→   577→      if (isNaN(expiryDate.getTime())) {
+   578→   578→        return {
+   579→   579→          toolCallId: "",
+   580→   580→          toolName: "save_github_config",
+   581→   581→          success: false,
+   582→   582→          result: "Invalid expiry date format. Use YYYY-MM-DD.",
+   583→   583→          displayMessage: "The expiry date format is invalid. Please provide a date like 2025-12-31.",
+   584→   584→        };
+   585→   585→      }
+   586→   586→      await upsertSetting(tursoClient, "GITHUB_PAT_EXPIRY", args.patExpiry);
+   587→   587→    }
+   588→   588→
+   589→   589→    const expiryNote = args.patExpiry ? ` Expiry reminder set for ${args.patExpiry}.` : "";
+   590→   590→    return {
+   591→   591→      toolCallId: "",
+   592→   592→      toolName: "save_github_config",
+   593→   593→      success: true,
+   594→   594→      result: JSON.stringify({ repoUrl: args.repoUrl.trim(), patExpiry: args.patExpiry || null, saved: true }),
+   595→   595→      displayMessage: `GitHub credentials saved securely. PAT encrypted and stored.${expiryNote}`,
+   596→   596→    };
+   597→   597→  } catch (error) {
+   598→   598→    console.error("[saveGithubConfig tool] DB error:", error);
+   599→   599→    return {
+   600→   600→      toolCallId: "",
+   601→   601→      toolName: "save_github_config",
+   602→   602→      success: false,
+   603→   603→      result: "Database error: " + (error instanceof Error ? error.message : "Unknown error"),
+   604→   604→      displayMessage: "Failed to save GitHub configuration.",
+   605→   605→    };
+   606→   606→  }
+   607→   607→}
+   608→   608→
+   609→   609→// ===== Tool: save_database_config =====
+   610→   610→
+   611→   611→async function saveDatabaseConfig(
+   612→   612→  args: { dbUrl: string; dbAuthToken: string; dbType: string; dbTokenExpiry?: string },
+   613→   613→  ctx: ExecutorContext
+   614→   614→): Promise<AiToolResult> {
+   615→   615→  const { tursoClient, userRole } = ctx;
+   616→   616→
+   617→   617→  // RBAC: SUPERADMIN and ADMIN can save database config
+   618→   618→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+   619→   619→    return {
+   620→   620→      toolCallId: "",
+   621→   621→      toolName: "save_database_config",
+   622→   622→      success: false,
+   623→   623→      result: "Permission denied: Only SUPERADMIN can save database configuration.",
+   624→   624→      displayMessage: "Permission denied — only Super Admin can save database config.",
+   625→   625→    };
+   626→   626→  }
+   627→   627→
+   628→   628→  if (!args.dbUrl || !args.dbAuthToken || !args.dbType) {
+   629→   629→    return {
+   630→   630→      toolCallId: "",
+   631→   631→      toolName: "save_database_config",
+   632→   632→      success: false,
+   633→   633→      result: "dbUrl, dbAuthToken, and dbType are required.",
+   634→   634→      displayMessage: "Missing database URL, auth token, or database type.",
+   635→   635→    };
+   636→   636→  }
+   637→   637→
+   638→   638→  try {
+   639→   639→    const encryptedToken = encrypt(args.dbAuthToken);
+   640→   640→
+   641→   641→    // Upsert DB_URL, DB_AUTH_TOKEN, DB_TYPE, DB_TOKEN_EXPIRY
+   642→   642→    await upsertSetting(tursoClient, "DB_URL", args.dbUrl.trim());
+   643→   643→    await upsertSetting(tursoClient, "DB_AUTH_TOKEN", encryptedToken);
+   644→   644→    await upsertSetting(tursoClient, "DB_TYPE", args.dbType.trim());
+   645→   645→
+   646→   646→    // Store expiry date (YYYY-MM-DD format, validated)
+   647→   647→    if (args.dbTokenExpiry) {
+   648→   648→      const expiryDate = new Date(args.dbTokenExpiry);
+   649→   649→      if (isNaN(expiryDate.getTime())) {
+   650→   650→        return {
+   651→   651→          toolCallId: "",
+   652→   652→          toolName: "save_database_config",
+   653→   653→          success: false,
+   654→   654→          result: "Invalid expiry date format. Use YYYY-MM-DD.",
+   655→   655→          displayMessage: "The expiry date format is invalid. Please provide a date like 2025-12-31.",
+   656→   656→        };
+   657→   657→      }
+   658→   658→      await upsertSetting(tursoClient, "DB_TOKEN_EXPIRY", args.dbTokenExpiry);
+   659→   659→    }
+   660→   660→
+   661→   661→    const expiryNote = args.dbTokenExpiry ? ` Token expiry reminder set for ${args.dbTokenExpiry}.` : "";
+   662→   662→    return {
+   663→   663→      toolCallId: "",
+   664→   664→      toolName: "save_database_config",
+   665→   665→      success: true,
+   666→   666→      result: JSON.stringify({ dbType: args.dbType.trim(), dbTokenExpiry: args.dbTokenExpiry || null, saved: true }),
+   667→   667→      displayMessage: `Database configuration saved securely. Auth token encrypted and stored.${expiryNote}`,
+   668→   668→    };
+   669→   669→  } catch (error) {
+   670→   670→    console.error("[saveDatabaseConfig tool] DB error:", error);
+   671→   671→    return {
+   672→   672→      toolCallId: "",
+   673→   673→      toolName: "save_database_config",
+   674→   674→      success: false,
+   675→   675→      result: "Database error: " + (error instanceof Error ? error.message : "Unknown error"),
+   676→   676→      displayMessage: "Failed to save database configuration.",
+   677→   677→    };
+   678→   678→  }
+   679→   679→}
+   680→   680→
+   681→   681→// ===== Tool: github_pull =====
+   682→   682→
+   683→   683→async function githubPull(
+   684→   684→  args: { path?: string; branch?: string },
+   685→   685→  ctx: ExecutorContext
+   686→   686→): Promise<AiToolResult> {
+   687→   687→  const { tursoClient, userRole } = ctx;
+   688→   688→
+   689→   689→  // RBAC: SUPERADMIN only
+   690→   690→  if (userRole !== "SUPERADMIN") {
+   691→   691→    return {
+   692→   692→      toolCallId: "",
+   693→   693→      toolName: "github_pull",
+   694→   694→      success: false,
+   695→   695→      result: "Permission denied: Only SUPERADMIN can pull from GitHub.",
+   696→   696→      displayMessage: "Permission denied — only Super Admin can use GitHub tools.",
+   697→   697→    };
+   698→   698→  }
+   699→   699→
+   700→   700→  // Load GitHub config
+   701→   701→  const repoResult = await tursoClient.execute({
+   702→   702→    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+   703→   703→    args: [],
+   704→   704→  });
+   705→   705→  const patResult = await tursoClient.execute({
+   706→   706→    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_PAT'`,
+   707→   707→    args: [],
+   708→   708→  });
+   709→   709→
+   710→   710→  if (repoResult.rows.length === 0) {
+   711→   711→    return {
+   712→   712→      toolCallId: "",
+   713→   713→      toolName: "github_pull",
+   714→   714→      success: false,
+   715→   715→      result: "GitHub not configured — run /init first.",
+   716→   716→      displayMessage: "GitHub is not configured. Please run /init to set up GitHub credentials.",
+   717→   717→    };
+   718→   718→  }
+   719→   719→
+   720→   720→  if (patResult.rows.length === 0) {
+   721→   721→    return {
+   722→   722→      toolCallId: "",
+   723→   723→      toolName: "github_pull",
+   724→   724→      success: false,
+   725→   725→      result: "GitHub PAT not configured — run /init first.",
+   726→   726→      displayMessage: "GitHub PAT is missing. Please run /init to set up GitHub credentials.",
+   727→   727→    };
+   728→   728→  }
+   729→   729→
+   730→   730→  const repoUrl = repoResult.rows[0].value as string;
+   731→   731→  let token: string;
+   732→   732→  try {
+   733→   733→    token = decrypt(patResult.rows[0].value as string);
+   734→   734→  } catch {
+   735→   735→    token = patResult.rows[0].value as string;
+   736→   736→  }
+   737→   737→
+   738→   738→  // Parse owner/repo from URL
+   739→   739→  const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/\s#?]+)/i);
+   740→   740→  if (!match) {
+   741→   741→    return {
+   742→   742→      toolCallId: "",
+   743→   743→      toolName: "github_pull",
+   744→   744→      success: false,
+   745→   745→      result: "Invalid GitHub repository URL: " + repoUrl,
+   746→   746→      displayMessage: "The GitHub repository URL is invalid.",
+   747→   747→    };
+   748→   748→  }
+   749→   749→
+   750→   750→  const owner = match[1];
+   751→   751→  const repo = match[2];
+   752→   752→  const branch = args.branch || "main";
+   753→   753→
+   754→   754→  try {
+   755→   755→    const headers: Record<string, string> = {
+   756→   756→      Authorization: "Bearer " + token,
+   757→   757→      Accept: "application/vnd.github.v3+json",
+   758→   758→      "User-Agent": "KarmaBoard/1.0",
+   759→   759→    };
+   760→   760→
+   761→   761→    if (args.path) {
+   762→   762→      // Fetch specific file
+   763→   763→      const res = await fetch(
+   764→   764→        `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+   765→   765→        { headers }
+   766→   766→      );
+   767→   767→
+   768→   768→      if (res.status === 404) {
+   769→   769→        return {
+   770→   770→          toolCallId: "",
+   771→   771→          toolName: "github_pull",
+   772→   772→          success: false,
+   773→   773→          result: `File not found: ${args.path}`,
+   774→   774→          displayMessage: `File '${args.path}' was not found in the repository.`,
+   775→   775→        };
+   776→   776→      }
+   777→   777→
+   778→   778→      if (!res.ok) {
+   779→   779→        const errText = await res.text().catch(() => "Unknown error");
+   780→   780→        if (res.status === 401 || res.status === 403) {
+   781→   781→          return {
+   782→   782→            toolCallId: "",
+   783→   783→            toolName: "github_pull",
+   784→   784→            success: false,
+   785→   785→            result: "GitHub PAT expired or invalid. Please update it in /init.",
+   786→   786→            displayMessage: "Your GitHub PAT appears to be expired or invalid. Please run /init to update it.",
+   787→   787→          };
+   788→   788→        }
+   789→   789→        return {
+   790→   790→          toolCallId: "",
+   791→   791→          toolName: "github_pull",
+   792→   792→          success: false,
+   793→   793→          result: `GitHub API error (${res.status}): ${errText}`,
+   794→   794→          displayMessage: `Failed to fetch from GitHub (${res.status}).`,
+   795→   795→        };
+   796→   796→      }
+   797→   797→
+   798→   798→      const data = await res.json();
+   799→   799→      // Decode base64 content
+   800→   800→      let fileContent: string;
+   801→   801→      if (data.encoding === "base64" && data.content) {
+   802→   802→        fileContent = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+   803→   803→      } else {
+   804→   804→        fileContent = data.content || "";
+   805→   805→      }
+   806→   806→
+   807→   807→      return {
+   808→   808→        toolCallId: "",
+   809→   809→        toolName: "github_pull",
+   810→   810→        success: true,
+   811→   811→        result: JSON.stringify({ path: data.path, sha: data.sha, size: data.size, content: fileContent }),
+   812→   812→        displayMessage: `Fetched '${data.path}' (${data.size} bytes) from ${branch}.`,
+   813→   813→      };
+   814→   814→    } else {
+   815→   815→      // List repo tree (top-level)
+   816→   816→      const res = await fetch(
+   817→   817→        `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`,
+   818→   818→        { headers }
+   819→   819→      );
+   820→   820→
+   821→   821→      if (!res.ok) {
+   822→   822→        const errText = await res.text().catch(() => "Unknown error");
+   823→   823→        if (res.status === 401 || res.status === 403) {
+   824→   824→          return {
+   825→   825→            toolCallId: "",
+   826→   826→            toolName: "github_pull",
+   827→   827→            success: false,
+   828→   828→            result: "GitHub PAT expired or invalid. Please update it in /init.",
+   829→   829→            displayMessage: "Your GitHub PAT appears to be expired or invalid. Please run /init to update it.",
+   830→   830→          };
+   831→   831→        }
+   832→   832→        return {
+   833→   833→          toolCallId: "",
+   834→   834→          toolName: "github_pull",
+   835→   835→          success: false,
+   836→   836→          result: `GitHub API error (${res.status}): ${errText}`,
+   837→   837→          displayMessage: `Failed to list repository tree (${res.status}).`,
+   838→   838→        };
+   839→   839→      }
+   840→   840→
+   841→   841→      const tree = await res.json();
+   842→   842→      const fileList = tree.map((item: any) => ({
+   843→   843→        name: item.name,
+   844→   844→        path: item.path,
+   845→   845→        type: item.type, // 'file' or 'dir'
+   846→   846→        size: item.size || 0,
+   847→   847→      }));
+   848→   848→
+   849→   849→      return {
+   850→   850→        toolCallId: "",
+   851→   851→        toolName: "github_pull",
+   852→   852→        success: true,
+   853→   853→        result: JSON.stringify({ branch, items: fileList }),
+   854→   854→        displayMessage: `Listed ${fileList.length} items in repository root (${branch}).`,
+   855→   855→      };
+   856→   856→    }
+   857→   857→  } catch (error) {
+   858→   858→    console.error("[githubPull tool] Error:", error);
+   859→   859→    return {
+   860→   860→      toolCallId: "",
+   861→   861→      toolName: "github_pull",
+   862→   862→      success: false,
+   863→   863→      result: `GitHub fetch error: ${error instanceof Error ? error.message : "Unknown error"}`,
+   864→   864→      displayMessage: "Failed to fetch from GitHub.",
+   865→   865→    };
+   866→   866→  }
+   867→   867→}
+   868→   868→
+   869→   869→// ===== Tool: create_or_update_file =====
+   870→   870→
+   871→   871→async function createOrUpdateFile(
+   872→   872→  args: { path: string; content: string; message: string },
+   873→   873→  ctx: ExecutorContext
+   874→   874→): Promise<AiToolResult> {
+   875→   875→  const { tursoClient, userRole, userId } = ctx;
+   876→   876→
+   877→   877→  // RBAC: SUPERADMIN only
+   878→   878→  if (userRole !== "SUPERADMIN") {
+   879→   879→    return {
+   880→   880→      toolCallId: "",
+   881→   881→      toolName: "create_or_update_file",
+   882→   882→      success: false,
+   883→   883→      result: "Permission denied: Only SUPERADMIN can create/update files.",
+   884→   884→      displayMessage: "Permission denied — only Super Admin can create or update files.",
+   885→   885→    };
+   886→   886→  }
+   887→   887→
+   888→   888→  if (!args.path || !args.content || !args.message) {
+   889→   889→    return {
+   890→   890→      toolCallId: "",
+   891→   891→      toolName: "create_or_update_file",
+   892→   892→      success: false,
+   893→   893→      result: "path, content, and message are required.",
+   894→   894→      displayMessage: "Missing required fields (path, content, message).",
+   895→   895→    };
+   896→   896→  }
+   897→   897→
+   898→   898→  try {
+   899→   899→    // Ensure AiProjectFile table exists (non-fatal)
+   900→   900→    try {
+   901→   901→      await tursoClient.execute({
+   902→   902→        sql: `CREATE TABLE IF NOT EXISTS "AiProjectFile" (
+   903→   903→          "id" TEXT NOT NULL PRIMARY KEY,
+   904→   904→          "projectId" TEXT NOT NULL,
+   905→   905→          "path" TEXT NOT NULL,
+   906→   906→          "content" TEXT NOT NULL,
+   907→   907→          "message" TEXT,
+   908→   908→          "status" TEXT NOT NULL DEFAULT 'staged',
+   909→   909→          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   910→   910→          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+   911→   911→        )`,
+   912→   912→        args: [],
+   913→   913→      });
+   914→   914→      await tursoClient.execute({
+   915→   915→        sql: `CREATE INDEX IF NOT EXISTS "AiProjectFile_projectId_idx" ON "AiProjectFile"("projectId")`,
+   916→   916→        args: [],
+   917→   917→      });
+   918→   918→    } catch (tableErr) {
+   919→   919→      console.error("[createOrUpdateFile] Table creation error (non-fatal):", tableErr);
+   920→   920→    }
+   921→   921→
+   922→   922→    // Find the user's active project (SUPERADMIN typically has access to all)
+   923→   923→    // We need a projectId — find the most recent project the user is a member of
+   924→   924→    const projectResult = await tursoClient.execute({
+   925→   925→      sql: `SELECT pm."projectId" FROM "ProjectMember" pm WHERE pm."userId" = ? AND pm."removedAt" IS NULL ORDER BY pm."joinedAt" DESC LIMIT 1`,
+   926→   926→      args: [userId],
+   927→   927→    });
+   928→   928→
+   929→   929→    if (projectResult.rows.length === 0) {
+   930→   930→      return {
+   931→   931→        toolCallId: "",
+   932→   932→        toolName: "create_or_update_file",
+   933→   933→        success: false,
+   934→   934→        result: "No active project found. Please select a project first.",
+   935→   935→        displayMessage: "No project found. Please make sure you have an active project.",
+   936→   936→      };
+   937→   937→    }
+   938→   938→
+   939→   939→    const projectId = projectResult.rows[0].projectId as string;
+   940→   940→
+   941→   941→    // Check if file already exists for this project+path
+   942→   942→    const existing = await tursoClient.execute({
+   943→   943→      sql: `SELECT id, status FROM "AiProjectFile" WHERE "projectId" = ? AND path = ?`,
+   944→   944→      args: [projectId, args.path],
+   945→   945→    });
+   946→   946→
+   947→   947→    if (existing.rows.length > 0) {
+   948→   948→      // Update existing file
+   949→   949→      const existingId = existing.rows[0].id as string;
+   950→   950→      await tursoClient.execute({
+   951→   951→        sql: `UPDATE "AiProjectFile" SET content = ?, message = ?, status = 'modified', "updatedAt" = datetime('now') WHERE id = ?`,
+   952→   952→        args: [args.content, args.message, existingId],
+   953→   953→      });
+   954→   954→      return {
+   955→   955→        toolCallId: "",
+   956→   956→        toolName: "create_or_update_file",
+   957→   957→        success: true,
+   958→   958→        result: JSON.stringify({ path: args.path, projectId, status: "modified" }),
+   959→   959→        displayMessage: `Updated file '${args.path}' (staged for push).`,
+   960→   960→      };
+   961→   961→    } else {
+   962→   962→      // Create new file
+   963→   963→      const fileId = crypto.randomUUID();
+   964→   964→      await tursoClient.execute({
+   965→   965→        sql: `INSERT INTO "AiProjectFile" (id, "projectId", path, content, message, status, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, 'created', datetime('now'), datetime('now'))`,
+   966→   966→        args: [fileId, projectId, args.path, args.content, args.message],
+   967→   967→      });
+   968→   968→      return {
+   969→   969→        toolCallId: "",
+   970→   970→        toolName: "create_or_update_file",
+   971→   971→        success: true,
+   972→   972→        result: JSON.stringify({ path: args.path, projectId, status: "created" }),
+   973→   973→        displayMessage: `Created file '${args.path}' (staged for push).`,
+   974→   974→      };
+   975→   975→    }
+   976→   976→  } catch (error) {
+   977→   977→    console.error("[createOrUpdateFile tool] Error:", error);
+   978→   978→    return {
+   979→   979→      toolCallId: "",
+   980→   980→      toolName: "create_or_update_file",
+   981→   981→      success: false,
+   982→   982→      result: `Database error: ${error instanceof Error ? error.message : "Unknown error"}`,
+   983→   983→      displayMessage: "Failed to create/update file.",
+   984→   984→    };
+   985→   985→  }
+   986→   986→}
+   987→   987→
+   988→   988→// ===== Tool: github_push_code =====
+   989→   989→
+   990→   990→async function githubPushCode(
+   991→   991→  args: { branch?: string },
+   992→   992→  ctx: ExecutorContext
+   993→   993→): Promise<AiToolResult> {
+   994→   994→  const { tursoClient, userRole, userId } = ctx;
+   995→   995→
+   996→   996→  // RBAC: SUPERADMIN only
+   997→   997→  if (userRole !== "SUPERADMIN") {
+   998→   998→    return {
+   999→   999→      toolCallId: "",
+  1000→  1000→      toolName: "github_push_code",
+  1001→  1001→      success: false,
+  1002→  1002→      result: "Permission denied: Only SUPERADMIN can push to GitHub.",
+  1003→  1003→      displayMessage: "Permission denied — only Super Admin can push to GitHub.",
+  1004→  1004→    };
+  1005→  1005→  }
+  1006→  1006→
+  1007→  1007→  // Load GitHub config
+  1008→  1008→  const repoResult = await tursoClient.execute({
+  1009→  1009→    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+  1010→  1010→    args: [],
+  1011→  1011→  });
+  1012→  1012→  const patResult = await tursoClient.execute({
+  1013→  1013→    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_PAT'`,
+  1014→  1014→    args: [],
+  1015→  1015→  });
+  1016→  1016→
+  1017→  1017→  if (repoResult.rows.length === 0 || patResult.rows.length === 0) {
+  1018→  1018→    return {
+  1019→  1019→      toolCallId: "",
+  1020→  1020→      toolName: "github_push_code",
+  1021→  1021→      success: false,
+  1022→  1022→      result: "GitHub not configured — run /init first.",
+  1023→  1023→      displayMessage: "GitHub is not configured. Please run /init first.",
+  1024→  1024→    };
+  1025→  1025→  }
+  1026→  1026→
+  1027→  1027→  const repoUrl = repoResult.rows[0].value as string;
+  1028→  1028→  let token: string;
+  1029→  1029→  try {
+  1030→  1030→    token = decrypt(patResult.rows[0].value as string);
+  1031→  1031→  } catch {
+  1032→  1032→    token = patResult.rows[0].value as string;
+  1033→  1033→  }
+  1034→  1034→
+  1035→  1035→  const branch = args.branch || "main";
+  1036→  1036→
+  1037→  1037→  // Parse owner/repo from URL
+  1038→  1038→  const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/\s#?]+)/i);
+  1039→  1039→  if (!match) {
+  1040→  1040→    return {
+  1041→  1041→      toolCallId: "",
+  1042→  1042→      toolName: "github_push_code",
+  1043→  1043→      success: false,
+  1044→  1044→      result: "Invalid GitHub repository URL: " + repoUrl,
+  1045→  1045→      displayMessage: "The GitHub repository URL is invalid.",
+  1046→  1046→    };
+  1047→  1047→  }
+  1048→  1048→
+  1049→  1049→  const owner = match[1];
+  1050→  1050→  const repo = match[2];
+  1051→  1051→
+  1052→  1052→  try {
+  1053→  1053→    // Find the user's active project
+  1054→  1054→    const projectResult = await tursoClient.execute({
+  1055→  1055→      sql: `SELECT pm."projectId" FROM "ProjectMember" pm WHERE pm."userId" = ? AND pm."removedAt" IS NULL ORDER BY pm."joinedAt" DESC LIMIT 1`,
+  1056→  1056→      args: [userId],
+  1057→  1057→    });
+  1058→  1058→
+  1059→  1059→    if (projectResult.rows.length === 0) {
+  1060→  1060→      return {
+  1061→  1061→        toolCallId: "",
+  1062→  1062→        toolName: "github_push_code",
+  1063→  1063→        success: false,
+  1064→  1064→        result: "No active project found.",
+  1065→  1065→        displayMessage: "No project found. Please make sure you have an active project.",
+  1066→  1066→      };
+  1067→  1067→    }
+  1068→  1068→
+  1069→  1069→    const projectId = projectResult.rows[0].projectId as string;
+  1070→  1070→
+  1071→  1071→    // Load staged/modified files
+  1072→  1072→    const filesResult = await tursoClient.execute({
+  1073→  1073→      sql: `SELECT id, path, content, message FROM "AiProjectFile" WHERE "projectId" = ? AND status IN ('staged', 'created', 'modified')`,
+  1074→  1074→      args: [projectId],
+  1075→  1075→    });
+  1076→  1076→
+  1077→  1077→    if (filesResult.rows.length === 0) {
+  1078→  1078→      return {
+  1079→  1079→        toolCallId: "",
+  1080→  1080→        toolName: "github_push_code",
+  1081→  1081→        success: false,
+  1082→  1082→        result: "No staged files to push. Use create_or_update_file first.",
+  1083→  1083→        displayMessage: "No staged files to push. Create or update files first using the create_or_update_file tool.",
+  1084→  1084→      };
+  1085→  1085→    }
+  1086→  1086→
+  1087→  1087→    const files = filesResult.rows.map((row) => ({
+  1088→  1088→      id: row.id as string,
+  1089→  1089→      path: row.path as string,
+  1090→  1090→      content: row.content as string,
+  1091→  1091→      message: row.message as string,
+  1092→  1092→    }));
+  1093→  1093→
+  1094→  1094→    // Build commit message from first file's message
+  1095→  1095→    const commitMsg = files[0].message || "chore: push files via Karma Space";
+  1096→  1096→
+  1097→  1097→    const headers: Record<string, string> = {
+  1098→  1098→      Authorization: "Bearer " + token,
+  1099→  1099→      Accept: "application/vnd.github.v3+json",
+  1100→  1100→      "User-Agent": "KarmaBoard/1.0",
+  1101→  1101→    };
+  1102→  1102→
+  1103→  1103→    // 1. Get the current commit SHA for the branch
+  1104→  1104→    const refRes = await fetch(
+  1105→  1105→      `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+  1106→  1106→      { headers }
+  1107→  1107→    );
+  1108→  1108→    if (!refRes.ok) {
+  1109→  1109→      const errText = await refRes.text().catch(() => "Unknown error");
+  1110→  1110→      return {
+  1111→  1111→        toolCallId: "",
+  1112→  1112→        toolName: "github_push_code",
+  1113→  1113→        success: false,
+  1114→  1114→        result: `Failed to get branch ref (${refRes.status}): ${errText}`,
+  1115→  1115→        displayMessage: `Failed to access branch '${branch}' on GitHub.`,
+  1116→  1116→      };
+  1117→  1117→    }
+  1118→  1118→    const refData = await refRes.json();
+  1119→  1119→    const baseSha = refData.object.sha;
+  1120→  1120→
+  1121→  1121→    // 2. Create blobs for each file
+  1122→  1122→    const treeEntries: { path: string; mode: string; type: string; sha: string }[] = [];
+  1123→  1123→
+  1124→  1124→    for (const file of files) {
+  1125→  1125→      const blobRes = await fetch(
+  1126→  1126→        `https://api.github.com/repos/${owner}/${repo}/git/blobs`,
+  1127→  1127→        {
+  1128→  1128→          method: "POST",
+  1129→  1129→          headers: { ...headers, "Content-Type": "application/json" },
+  1130→  1130→          body: JSON.stringify({ content: file.content, encoding: "utf-8" }),
+  1131→  1131→        }
+  1132→  1132→      );
+  1133→  1133→      if (!blobRes.ok) {
+  1134→  1134→        const errText = await blobRes.text().catch(() => "Unknown error");
+  1135→  1135→        return {
+  1136→  1136→          toolCallId: "",
+  1137→  1137→          toolName: "github_push_code",
+  1138→  1138→          success: false,
+  1139→  1139→          result: `Failed to create blob for ${file.path} (${blobRes.status}): ${errText}`,
+  1140→  1140→          displayMessage: `Failed to push file '${file.path}' to GitHub.`,
+  1141→  1141→        };
+  1142→  1142→      }
+  1143→  1143→      const blob = await blobRes.json();
+  1144→  1144→      treeEntries.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
+  1145→  1145→    }
+  1146→  1146→
+  1147→  1147→    // 3. Create a tree with all blobs
+  1148→  1148→    const treeRes = await fetch(
+  1149→  1149→      `https://api.github.com/repos/${owner}/${repo}/git/trees`,
+  1150→  1150→      {
+  1151→  1151→        method: "POST",
+  1152→  1152→        headers: { ...headers, "Content-Type": "application/json" },
+  1153→  1153→        body: JSON.stringify({ base_tree: baseSha, tree: treeEntries }),
+  1154→  1154→      }
+  1155→  1155→    );
+  1156→  1156→    if (!treeRes.ok) {
+  1157→  1157→      const errText = await treeRes.text().catch(() => "Unknown error");
+  1158→  1158→      return {
+  1159→  1159→        toolCallId: "",
+  1160→  1160→        toolName: "github_push_code",
+  1161→  1161→        success: false,
+  1162→  1162→        result: `Failed to create tree (${treeRes.status}): ${errText}`,
+  1163→  1163→        displayMessage: "Failed to create git tree on GitHub.",
+  1164→  1164→      };
+  1165→  1165→    }
+  1166→  1166→    const treeData = await treeRes.json();
+  1167→  1167→
+  1168→  1168→    // 4. Create a commit
+  1169→  1169→    const commitRes = await fetch(
+  1170→  1170→      `https://api.github.com/repos/${owner}/${repo}/git/commits`,
+  1171→  1171→      {
+  1172→  1172→        method: "POST",
+  1173→  1173→        headers: { ...headers, "Content-Type": "application/json" },
+  1174→  1174→        body: JSON.stringify({ message: commitMsg, tree: treeData.sha, parents: [baseSha] }),
+  1175→  1175→      }
+  1176→  1176→    );
+  1177→  1177→    if (!commitRes.ok) {
+  1178→  1178→      const errText = await commitRes.text().catch(() => "Unknown error");
+  1179→  1179→      return {
+  1180→  1180→        toolCallId: "",
+  1181→  1181→        toolName: "github_push_code",
+  1182→  1182→        success: false,
+  1183→  1183→        result: `Failed to create commit (${commitRes.status}): ${errText}`,
+  1184→  1184→        displayMessage: "Failed to create commit on GitHub.",
+  1185→  1185→      };
+  1186→  1186→    }
+  1187→  1187→    const commitData = await commitRes.json();
+  1188→  1188→
+  1189→  1189→    // 5. Update branch ref
+  1190→  1190→    const updateRes = await fetch(
+  1191→  1191→      `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+  1192→  1192→      {
+  1193→  1193→        method: "PATCH",
+  1194→  1194→        headers: { ...headers, "Content-Type": "application/json" },
+  1195→  1195→        body: JSON.stringify({ sha: commitData.sha }),
+  1196→  1196→      }
+  1197→  1197→    );
+  1198→  1198→    if (!updateRes.ok) {
+  1199→  1199→      const errText = await updateRes.text().catch(() => "Unknown error");
+  1200→  1200→      return {
+  1201→  1201→        toolCallId: "",
+  1202→  1202→        toolName: "github_push_code",
+  1203→  1203→        success: false,
+  1204→  1204→        result: `Failed to update branch ref (${updateRes.status}): ${errText}`,
+  1205→  1205→        displayMessage: `Failed to update branch '${branch}' on GitHub.`,
+  1206→  1206→      };
+  1207→  1207→    }
+  1208→  1208→
+  1209→  1209→    // 6. Update all file statuses to 'pushed'
+  1210→  1210→    for (const file of files) {
+  1211→  1211→      await tursoClient.execute({
+  1212→  1212→        sql: `UPDATE "AiProjectFile" SET status = 'pushed', "updatedAt" = datetime('now') WHERE id = ?`,
+  1213→  1213→        args: [file.id],
+  1214→  1214→      });
+  1215→  1215→    }
+  1216→  1216→
+  1217→  1217→    const pushedPaths = files.map((f) => f.path);
+  1218→  1218→    return {
+  1219→  1219→      toolCallId: "",
+  1220→  1220→      toolName: "github_push_code",
+  1221→  1221→      success: true,
+  1222→  1222→      result: JSON.stringify({ commitSha: commitData.sha, branch, filesPushed: pushedPaths, count: files.length }),
+  1223→  1223→      displayMessage: `Pushed ${files.length} file(s) to GitHub (${branch}). Commit: ${commitData.sha.slice(0, 7)}`,
+  1224→  1224→    };
+  1225→  1225→  } catch (error) {
+  1226→  1226→    console.error("[githubPushCode tool] Error:", error);
+  1227→  1227→    return {
+  1228→  1228→      toolCallId: "",
+  1229→  1229→      toolName: "github_push_code",
+  1230→  1230→      success: false,
+  1231→  1231→      result: `GitHub push error: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1232→  1232→      displayMessage: "Failed to push to GitHub.",
+  1233→  1233→    };
+  1234→  1234→  }
+  1235→  1235→}
+  1236→  1236→
+  1237→  1237→// ===== Helper: Load GitHub Config =====
+  1238→  1238→
+  1239→  1239→interface GithubConfig {
+  1240→  1240→  owner: string;
+  1241→  1241→  repo: string;
+  1242→  1242→  token: string;
+  1243→  1243→  headers: Record<string, string>;
+  1244→  1244→}
+  1245→  1245→
+  1246→  1246→async function loadGithubConfig(tursoClient: ExecutorContext["tursoClient"], branch?: string): Promise<GithubConfig | AiToolResult> {
+  1247→  1247→  const repoResult = await tursoClient.execute({
+  1248→  1248→    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+  1249→  1249→    args: [],
+  1250→  1250→  });
+  1251→  1251→  const patResult = await tursoClient.execute({
+  1252→  1252→    sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_PAT'`,
+  1253→  1253→    args: [],
+  1254→  1254→  });
+  1255→  1255→
+  1256→  1256→  if (repoResult.rows.length === 0) {
+  1257→  1257→    return {
+  1258→  1258→      toolCallId: "",
+  1259→  1259→      toolName: "",
+  1260→  1260→      success: false,
+  1261→  1261→      result: "GitHub not configured — run /init first.",
+  1262→  1262→      displayMessage: "GitHub is not configured. Please run /init to set up GitHub credentials.",
+  1263→  1263→    };
+  1264→  1264→  }
+  1265→  1265→
+  1266→  1266→  if (patResult.rows.length === 0) {
+  1267→  1267→    return {
+  1268→  1268→      toolCallId: "",
+  1269→  1269→      toolName: "",
+  1270→  1270→      success: false,
+  1271→  1271→      result: "GitHub PAT not configured — run /init first.",
+  1272→  1272→      displayMessage: "GitHub PAT is missing. Please run /init to set up GitHub credentials.",
+  1273→  1273→    };
+  1274→  1274→  }
+  1275→  1275→
+  1276→  1276→  const repoUrl = repoResult.rows[0].value as string;
+  1277→  1277→  let token: string;
+  1278→  1278→  try {
+  1279→  1279→    token = decrypt(patResult.rows[0].value as string);
+  1280→  1280→  } catch {
+  1281→  1281→    token = patResult.rows[0].value as string;
+  1282→  1282→  }
+  1283→  1283→
+  1284→  1284→  const match = repoUrl.match(/github\.com[\/:]([^\/]+)\/([^\/\s#?]+)/i);
+  1285→  1285→  if (!match) {
+  1286→  1286→    return {
+  1287→  1287→      toolCallId: "",
+  1288→  1288→      toolName: "",
+  1289→  1289→      success: false,
+  1290→  1290→      result: "Invalid GitHub repository URL: " + repoUrl,
+  1291→  1291→      displayMessage: "The GitHub repository URL is invalid.",
+  1292→  1292→    };
+  1293→  1293→  }
+  1294→  1294→
+  1295→  1295→  const headers: Record<string, string> = {
+  1296→  1296→    Authorization: "Bearer " + token,
+  1297→  1297→    Accept: "application/vnd.github.v3+json",
+  1298→  1298→    "User-Agent": "KarmaBoard/1.0",
+  1299→  1299→  };
+  1300→  1300→
+  1301→  1301→  return { owner: match[1], repo: match[2], token, headers };
+  1302→  1302→}
+  1303→  1303→
+  1304→  1304→// ===== Tool: fs_list_dir =====
+  1305→  1305→
+  1306→  1306→async function fsListDir(
+  1307→  1307→  args: { path?: string; branch?: string },
+  1308→  1308→  ctx: ExecutorContext
+  1309→  1309→): Promise<AiToolResult> {
+  1310→  1310→  const { tursoClient, userRole } = ctx;
+  1311→  1311→
+  1312→  1312→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+  1313→  1313→    return {
+  1314→  1314→      toolCallId: "", toolName: "fs_list_dir",
+  1315→  1315→      success: false, result: "Permission denied: Only ADMIN and SUPERADMIN can list directories.",
+  1316→  1316→      displayMessage: "Permission denied — only admins can list directories.",
+  1317→  1317→    };
+  1318→  1318→  }
+  1319→  1319→
+  1320→  1320→  const branch = args.branch || "main";
+  1321→  1321→  const config = await loadGithubConfig(tursoClient);
+  1322→  1322→  if (!("owner" in config)) return config as AiToolResult;
+  1323→  1323→
+  1324→  1324→  const { owner, repo, headers } = config;
+  1325→  1325→
+  1326→  1326→  try {
+  1327→  1327→    let items: { name: string; path: string; type: string; size: number }[] = [];
+  1328→  1328→
+  1329→  1329→    if (args.path) {
+  1330→  1330→      // Use contents API for a specific path
+  1331→  1331→      const res = await fetch(
+  1332→  1332→        `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+  1333→  1333→        { headers }
+  1334→  1334→      );
+  1335→  1335→
+  1336→  1336→      if (!res.ok) {
+  1337→  1337→        const errText = await res.text().catch(() => "Unknown error");
+  1338→  1338→        return {
+  1339→  1339→          toolCallId: "", toolName: "fs_list_dir",
+  1340→  1340→          success: false, result: `GitHub API error (${res.status}): ${errText}`,
+  1341→  1341→          displayMessage: `Failed to list directory '${args.path}' (${res.status}).`,
+  1342→  1342→        };
+  1343→  1343→      }
+  1344→  1344→
+  1345→  1345→      const data = await res.json();
+  1346→  1346→      items = Array.isArray(data)
+  1347→  1347→        ? data.map((item: any) => ({ name: item.name, path: item.path, type: item.type, size: item.size || 0 }))
+  1348→  1348→        : [{ name: data.name, path: data.path, type: data.type, size: data.size || 0 }];
+  1349→  1349→    } else {
+  1350→  1350→      // Use recursive tree API for full listing
+  1351→  1351→      const res = await fetch(
+  1352→  1352→        `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+  1353→  1353→        { headers }
+  1354→  1354→      );
+  1355→  1355→
+  1356→  1356→      if (!res.ok) {
+  1357→  1357→        const errText = await res.text().catch(() => "Unknown error");
+  1358→  1358→        return {
+  1359→  1359→          toolCallId: "", toolName: "fs_list_dir",
+  1360→  1360→          success: false, result: `GitHub API error (${res.status}): ${errText}`,
+  1361→  1361→          displayMessage: `Failed to list repository tree (${res.status}).`,
+  1362→  1362→        };
+  1363→  1363→      }
+  1364→  1364→
+  1365→  1365→      const data = await res.json();
+  1366→  1366→      items = (data.tree || []).map((item: any) => ({
+  1367→  1367→        name: item.path.split("/").pop() || item.path,
+  1368→  1368→        path: item.path,
+  1369→  1369→        type: item.type === "tree" ? "dir" : "file",
+  1370→  1370→        size: item.size || 0,
+  1371→  1371→      }));
+  1372→  1372→    }
+  1373→  1373→
+  1374→  1374→    return {
+  1375→  1375→      toolCallId: "", toolName: "fs_list_dir",
+  1376→  1376→      success: true,
+  1377→  1377→      result: JSON.stringify({ branch, path: args.path || "/", count: items.length, items }),
+  1378→  1378→      displayMessage: `Listed ${items.length} item(s) in '${args.path || "/"}' (${branch}).`,
+  1379→  1379→    };
+  1380→  1380→  } catch (error) {
+  1381→  1381→    console.error("[fsListDir tool] Error:", error);
+  1382→  1382→    return {
+  1383→  1383→      toolCallId: "", toolName: "fs_list_dir",
+  1384→  1384→      success: false, result: `Error listing directory: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1385→  1385→      displayMessage: "Failed to list directory.",
+  1386→  1386→    };
+  1387→  1387→  }
+  1388→  1388→}
+  1389→  1389→
+  1390→  1390→// ===== Tool: fs_read_file =====
+  1391→  1391→
+  1392→  1392→async function fsReadFile(
+  1393→  1393→  args: { path: string; branch?: string },
+  1394→  1394→  ctx: ExecutorContext
+  1395→  1395→): Promise<AiToolResult> {
+  1396→  1396→  const { tursoClient, userRole } = ctx;
+  1397→  1397→
+  1398→  1398→  if (userRole !== "SUPERADMIN" && userRole !== "ADMIN") {
+  1399→  1399→    return {
+  1400→  1400→      toolCallId: "", toolName: "fs_read_file",
+  1401→  1401→      success: false, result: "Permission denied: Only ADMIN and SUPERADMIN can read files.",
+  1402→  1402→      displayMessage: "Permission denied — only admins can read files.",
+  1403→  1403→    };
+  1404→  1404→  }
+  1405→  1405→
+  1406→  1406→  if (!args.path) {
+  1407→  1407→    return {
+  1408→  1408→      toolCallId: "", toolName: "fs_read_file",
+  1409→  1409→      success: false, result: "File path is required.",
+  1410→  1410→      displayMessage: "Missing file path.",
+  1411→  1411→    };
+  1412→  1412→  }
+  1413→  1413→
+  1414→  1414→  const branch = args.branch || "main";
+  1415→  1415→  const config = await loadGithubConfig(tursoClient);
+  1416→  1416→  if (!("owner" in config)) return config as AiToolResult;
+  1417→  1417→
+  1418→  1418→  const { owner, repo, headers } = config;
+  1419→  1419→
+  1420→  1420→  try {
+  1421→  1421→    const res = await fetch(
+  1422→  1422→      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+  1423→  1423→      { headers }
+  1424→  1424→    );
+  1425→  1425→
+  1426→  1426→    if (res.status === 404) {
+  1427→  1427→      return {
+  1428→  1428→        toolCallId: "", toolName: "fs_read_file",
+  1429→  1429→        success: false, result: `File not found: ${args.path}`,
+  1430→  1430→        displayMessage: `File '${args.path}' was not found in the repository.`,
+  1431→  1431→      };
+  1432→  1432→    }
+  1433→  1433→
+  1434→  1434→    if (!res.ok) {
+  1435→  1435→      const errText = await res.text().catch(() => "Unknown error");
+  1436→  1436→      return {
+  1437→  1437→        toolCallId: "", toolName: "fs_read_file",
+  1438→  1438→        success: false, result: `GitHub API error (${res.status}): ${errText}`,
+  1439→  1439→        displayMessage: `Failed to read file '${args.path}' (${res.status}).`,
+  1440→  1440→      };
+  1441→  1441→    }
+  1442→  1442→
+  1443→  1443→    const data = await res.json();
+  1444→  1444→    let fileContent: string;
+  1445→  1445→    if (data.encoding === "base64" && data.content) {
+  1446→  1446→      fileContent = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+  1447→  1447→    } else {
+  1448→  1448→      fileContent = data.content || "";
+  1449→  1449→    }
+  1450→  1450→
+  1451→  1451→    return {
+  1452→  1452→      toolCallId: "", toolName: "fs_read_file",
+  1453→  1453→      success: true,
+  1454→  1454→      result: JSON.stringify({ path: data.path, sha: data.sha, size: data.size, encoding: data.encoding, content: fileContent }),
+  1455→  1455→      displayMessage: `Read '${data.path}' (${data.size} bytes) from ${branch}.`,
+  1456→  1456→    };
+  1457→  1457→  } catch (error) {
+  1458→  1458→    console.error("[fsReadFile tool] Error:", error);
+  1459→  1459→    return {
+  1460→  1460→      toolCallId: "", toolName: "fs_read_file",
+  1461→  1461→      success: false, result: `Error reading file: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1462→  1462→      displayMessage: "Failed to read file.",
+  1463→  1463→    };
+  1464→  1464→  }
+  1465→  1465→}
+  1466→  1466→
+  1467→  1467→// ===== Tool: fs_write_file =====
+  1468→  1468→
+  1469→  1469→async function fsWriteFile(
+  1470→  1470→  args: { path: string; content: string; message: string; branch?: string },
+  1471→  1471→  ctx: ExecutorContext
+  1472→  1472→): Promise<AiToolResult> {
+  1473→  1473→  const { tursoClient, userRole } = ctx;
+  1474→  1474→
+  1475→  1475→  if (userRole !== "SUPERADMIN") {
+  1476→  1476→    return {
+  1477→  1477→      toolCallId: "", toolName: "fs_write_file",
+  1478→  1478→      success: false, result: "Permission denied: Only SUPERADMIN can write files.",
+  1479→  1479→      displayMessage: "Permission denied — only Super Admin can write files.",
+  1480→  1480→    };
+  1481→  1481→  }
+  1482→  1482→
+  1483→  1483→  if (!args.path || !args.content || !args.message) {
+  1484→  1484→    return {
+  1485→  1485→      toolCallId: "", toolName: "fs_write_file",
+  1486→  1486→      success: false, result: "path, content, and message are required.",
+  1487→  1487→      displayMessage: "Missing required fields (path, content, message).",
+  1488→  1488→    };
+  1489→  1489→  }
+  1490→  1490→
+  1491→  1491→  const branch = args.branch || "main";
+  1492→  1492→  const config = await loadGithubConfig(tursoClient);
+  1493→  1493→  if (!("owner" in config)) return config as AiToolResult;
+  1494→  1494→
+  1495→  1495→  const { owner, repo, headers } = config;
+  1496→  1496→
+  1497→  1497→  try {
+  1498→  1498→    // Check if file exists to get SHA
+  1499→  1499→    const existingRes = await fetch(
+  1500→  1500→      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+  1501→  1501→      { headers }
+  1502→  1502→    );
+  1503→  1503→
+  1504→  1504→    const body: Record<string, unknown> = {
+  1505→  1505→      message: args.message,
+  1506→  1506→      content: Buffer.from(args.content).toString("base64"),
+  1507→  1507→      branch,
+  1508→  1508→    };
+  1509→  1509→
+  1510→  1510→    if (existingRes.ok) {
+  1511→  1511→      const existingData = await existingRes.json();
+  1512→  1512→      body.sha = existingData.sha;
+  1513→  1513→    }
+  1514→  1514→
+  1515→  1515→    const res = await fetch(
+  1516→  1516→      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}`,
+  1517→  1517→      {
+  1518→  1518→        method: "PUT",
+  1519→  1519→        headers: { ...headers, "Content-Type": "application/json" },
+  1520→  1520→        body: JSON.stringify(body),
+  1521→  1521→      }
+  1522→  1522→    );
+  1523→  1523→
+  1524→  1524→    if (!res.ok) {
+  1525→  1525→      const errText = await res.text().catch(() => "Unknown error");
+  1526→  1526→      return {
+  1527→  1527→        toolCallId: "", toolName: "fs_write_file",
+  1528→  1528→        success: false, result: `GitHub API error (${res.status}): ${errText}`,
+  1529→  1529→        displayMessage: `Failed to write file '${args.path}' (${res.status}).`,
+  1530→  1530→      };
+  1531→  1531→    }
+  1532→  1532→
+  1533→  1533→    const data = await res.json();
+  1534→  1534→    const action = body.sha ? "updated" : "created";
+  1535→  1535→
+  1536→  1536→    return {
+  1537→  1537→      toolCallId: "", toolName: "fs_write_file",
+  1538→  1538→      success: true,
+  1539→  1539→      result: JSON.stringify({ path: args.path, action, commitSha: data.commit?.sha, url: data.content?.html_url }),
+  1540→  1540→      displayMessage: `${action === "created" ? "Created" : "Updated"} '${args.path}' on ${branch}. Commit: ${data.commit?.sha?.slice(0, 7)}`,
+  1541→  1541→    };
+  1542→  1542→  } catch (error) {
+  1543→  1543→    console.error("[fsWriteFile tool] Error:", error);
+  1544→  1544→    return {
+  1545→  1545→      toolCallId: "", toolName: "fs_write_file",
+  1546→  1546→      success: false, result: `Error writing file: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1547→  1547→      displayMessage: "Failed to write file.",
+  1548→  1548→    };
+  1549→  1549→  }
+  1550→  1550→}
+  1551→  1551→
+  1552→  1552→// ===== Tool: fs_delete_file =====
+  1553→  1553→
+  1554→  1554→async function fsDeleteFile(
+  1555→  1555→  args: { path: string; message: string; branch?: string },
+  1556→  1556→  ctx: ExecutorContext
+  1557→  1557→): Promise<AiToolResult> {
+  1558→  1558→  const { tursoClient, userRole } = ctx;
+  1559→  1559→
+  1560→  1560→  if (userRole !== "SUPERADMIN") {
+  1561→  1561→    return {
+  1562→  1562→      toolCallId: "", toolName: "fs_delete_file",
+  1563→  1563→      success: false, result: "Permission denied: Only SUPERADMIN can delete files.",
+  1564→  1564→      displayMessage: "Permission denied — only Super Admin can delete files.",
+  1565→  1565→    };
+  1566→  1566→  }
+  1567→  1567→
+  1568→  1568→  if (!args.path || !args.message) {
+  1569→  1569→    return {
+  1570→  1570→      toolCallId: "", toolName: "fs_delete_file",
+  1571→  1571→      success: false, result: "path and message are required.",
+  1572→  1572→      displayMessage: "Missing required fields (path, message).",
+  1573→  1573→    };
+  1574→  1574→  }
+  1575→  1575→
+  1576→  1576→  const branch = args.branch || "main";
+  1577→  1577→  const config = await loadGithubConfig(tursoClient);
+  1578→  1578→  if (!("owner" in config)) return config as AiToolResult;
+  1579→  1579→
+  1580→  1580→  const { owner, repo, headers } = config;
+  1581→  1581→
+  1582→  1582→  try {
+  1583→  1583→    // Get the file SHA first
+  1584→  1584→    const existingRes = await fetch(
+  1585→  1585→      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}?ref=${branch}`,
+  1586→  1586→      { headers }
+  1587→  1587→    );
+  1588→  1588→
+  1589→  1589→    if (!existingRes.ok) {
+  1590→  1590→      const errText = await existingRes.text().catch(() => "Unknown error");
+  1591→  1591→      return {
+  1592→  1592→        toolCallId: "", toolName: "fs_delete_file",
+  1593→  1593→        success: false, result: `File not found or cannot be accessed (${existingRes.status}): ${errText}`,
+  1594→  1594→        displayMessage: `File '${args.path}' was not found or cannot be deleted.`,
+  1595→  1595→      };
+  1596→  1596→    }
+  1597→  1597→
+  1598→  1598→    const existingData = await existingRes.json();
+  1599→  1599→    const sha = existingData.sha;
+  1600→  1600→
+  1601→  1601→    const res = await fetch(
+  1602→  1602→      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(args.path)}`,
+  1603→  1603→      {
+  1604→  1604→        method: "DELETE",
+  1605→  1605→        headers: { ...headers, "Content-Type": "application/json" },
+  1606→  1606→        body: JSON.stringify({ message: args.message, sha, branch }),
+  1607→  1607→      }
+  1608→  1608→    );
+  1609→  1609→
+  1610→  1610→    if (!res.ok) {
+  1611→  1611→      const errText = await res.text().catch(() => "Unknown error");
+  1612→  1612→      return {
+  1613→  1613→        toolCallId: "", toolName: "fs_delete_file",
+  1614→  1614→        success: false, result: `GitHub API error (${res.status}): ${errText}`,
+  1615→  1615→        displayMessage: `Failed to delete file '${args.path}' (${res.status}).`,
+  1616→  1616→      };
+  1617→  1617→    }
+  1618→  1618→
+  1619→  1619→    const data = await res.json();
+  1620→  1620→
+  1621→  1621→    return {
+  1622→  1622→      toolCallId: "", toolName: "fs_delete_file",
+  1623→  1623→      success: true,
+  1624→  1624→      result: JSON.stringify({ path: args.path, deleted: true, commitSha: data.commit?.sha, url: data.content?.html_url }),
+  1625→  1625→      displayMessage: `Deleted '${args.path}' from ${branch}. Commit: ${data.commit?.sha?.slice(0, 7)}`,
+  1626→  1626→    };
+  1627→  1627→  } catch (error) {
+  1628→  1628→    console.error("[fsDeleteFile tool] Error:", error);
+  1629→  1629→    return {
+  1630→  1630→      toolCallId: "", toolName: "fs_delete_file",
+  1631→  1631→      success: false, result: `Error deleting file: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1632→  1632→      displayMessage: "Failed to delete file.",
+  1633→  1633→    };
+  1634→  1634→  }
+  1635→  1635→}
+  1636→  1636→
+  1637→  1637→// ===== Tool: fs_search_code =====
+  1638→  1638→
+  1639→  1639→async function fsSearchCode(
+  1640→  1640→  args: { query: string; branch?: string },
+  1641→  1641→  ctx: ExecutorContext
+  1642→  1642→): Promise<AiToolResult> {
+  1643→  1643→  const { tursoClient, userRole } = ctx;
+  1644→  1644→
+  1645→  1645→  if (userRole !== "SUPERADMIN") {
+  1646→  1646→    return {
+  1647→  1647→      toolCallId: "", toolName: "fs_search_code",
+  1648→  1648→      success: false, result: "Permission denied: Only SUPERADMIN can search code.",
+  1649→  1649→      displayMessage: "Permission denied — only Super Admin can search code.",
+  1650→  1650→    };
+  1651→  1651→  }
+  1652→  1652→
+  1653→  1653→  if (!args.query) {
+  1654→  1654→    return {
+  1655→  1655→      toolCallId: "", toolName: "fs_search_code",
+  1656→  1656→      success: false, result: "Search query is required.",
+  1657→  1657→      displayMessage: "Missing search query.",
+  1658→  1658→    };
+  1659→  1659→  }
+  1660→  1660→
+  1661→  1661→  const config = await loadGithubConfig(tursoClient);
+  1662→  1662→  if (!("owner" in config)) return config as AiToolResult;
+  1663→  1663→
+  1664→  1664→  const { owner, repo, headers } = config;
+  1665→  1665→
+  1666→  1666→  try {
+  1667→  1667→    const q = encodeURIComponent(`${args.query} repo:${owner}/${repo}`);
+  1668→  1668→    const res = await fetch(
+  1669→  1669→      `https://api.github.com/search/code?q=${q}`,
+  1670→  1670→      { headers }
+  1671→  1671→    );
+  1672→  1672→
+  1673→  1673→    if (!res.ok) {
+  1674→  1674→      const errText = await res.text().catch(() => "Unknown error");
+  1675→  1675→      return {
+  1676→  1676→        toolCallId: "", toolName: "fs_search_code",
+  1677→  1677→        success: false, result: `GitHub Search API error (${res.status}): ${errText}`,
+  1678→  1678→        displayMessage: `Code search failed (${res.status}).`,
+  1679→  1679→      };
+  1680→  1680→    }
+  1681→  1681→
+  1682→  1682→    const data = await res.json();
+  1683→  1683→    const results = (data.items || []).map((item: any) => ({
+  1684→  1684→      name: item.name,
+  1685→  1685→      path: item.path,
+  1686→  1686→      score: item.score,
+  1687→  1687→      htmlUrl: item.html_url,
+  1688→  1688→    }));
+  1689→  1689→
+  1690→  1690→    return {
+  1691→  1691→      toolCallId: "", toolName: "fs_search_code",
+  1692→  1692→      success: true,
+  1693→  1693→      result: JSON.stringify({ query: args.query, total: data.total_count, results }),
+  1694→  1694→      displayMessage: `Found ${data.total_count} result(s) for "${args.query}".`,
+  1695→  1695→    };
+  1696→  1696→  } catch (error) {
+  1697→  1697→    console.error("[fsSearchCode tool] Error:", error);
+  1698→  1698→    return {
+  1699→  1699→      toolCallId: "", toolName: "fs_search_code",
+  1700→  1700→      success: false, result: `Error searching code: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1701→  1701→      displayMessage: "Code search failed.",
+  1702→  1702→    };
+  1703→  1703→  }
+  1704→  1704→}
+  1705→  1705→
+  1706→  1706→// ===== Tool: fs_batch_write =====
+  1707→  1707→
+  1708→  1708→async function fsBatchWrite(
+  1709→  1709→  args: { files: { path: string; content: string; message?: string }[]; branch?: string; message?: string },
+  1710→  1710→  ctx: ExecutorContext
+  1711→  1711→): Promise<AiToolResult> {
+  1712→  1712→  const { tursoClient, userRole } = ctx;
+  1713→  1713→
+  1714→  1714→  if (userRole !== "SUPERADMIN") {
+  1715→  1715→    return {
+  1716→  1716→      toolCallId: "", toolName: "fs_batch_write",
+  1717→  1717→      success: false, result: "Permission denied: Only SUPERADMIN can batch write files.",
+  1718→  1718→      displayMessage: "Permission denied — only Super Admin can batch write.",
+  1719→  1719→    };
+  1720→  1720→  }
+  1721→  1721→
+  1722→  1722→  if (!args.files || args.files.length === 0) {
+  1723→  1723→    return {
+  1724→  1724→      toolCallId: "", toolName: "fs_batch_write",
+  1725→  1725→      success: false, result: "files array is required and must not be empty.",
+  1726→  1726→      displayMessage: "No files provided for batch write.",
+  1727→  1727→    };
+  1728→  1728→  }
+  1729→  1729→
+  1730→  1730→  const branch = args.branch || "main";
+  1731→  1731→  const commitMsg = args.message || "chore: batch write via Karma Space";
+  1732→  1732→  const config = await loadGithubConfig(tursoClient);
+  1733→  1733→  if (!("owner" in config)) return config as AiToolResult;
+  1734→  1734→
+  1735→  1735→  const { owner, repo, headers } = config;
+  1736→  1736→
+  1737→  1737→  try {
+  1738→  1738→    // 1. Get current commit SHA for the branch
+  1739→  1739→    const refRes = await fetch(
+  1740→  1740→      `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+  1741→  1741→      { headers }
+  1742→  1742→    );
+  1743→  1743→    if (!refRes.ok) {
+  1744→  1744→      const errText = await refRes.text().catch(() => "Unknown error");
+  1745→  1745→      return {
+  1746→  1746→        toolCallId: "", toolName: "fs_batch_write",
+  1747→  1747→        success: false, result: `Failed to get branch ref (${refRes.status}): ${errText}`,
+  1748→  1748→        displayMessage: `Failed to access branch '${branch}' on GitHub.`,
+  1749→  1749→      };
+  1750→  1750→    }
+  1751→  1751→    const refData = await refRes.json();
+  1752→  1752→    const baseSha = refData.object.sha;
+  1753→  1753→
+  1754→  1754→    // 2. Create blobs for each file
+  1755→  1755→    const treeEntries: { path: string; mode: string; type: string; sha: string }[] = [];
+  1756→  1756→
+  1757→  1757→    for (const file of args.files) {
+  1758→  1758→      const blobRes = await fetch(
+  1759→  1759→        `https://api.github.com/repos/${owner}/${repo}/git/blobs`,
+  1760→  1760→        {
+  1761→  1761→          method: "POST",
+  1762→  1762→          headers: { ...headers, "Content-Type": "application/json" },
+  1763→  1763→          body: JSON.stringify({ content: file.content, encoding: "utf-8" }),
+  1764→  1764→        }
+  1765→  1765→      );
+  1766→  1766→      if (!blobRes.ok) {
+  1767→  1767→        const errText = await blobRes.text().catch(() => "Unknown error");
+  1768→  1768→        return {
+  1769→  1769→          toolCallId: "", toolName: "fs_batch_write",
+  1770→  1770→          success: false, result: `Failed to create blob for ${file.path} (${blobRes.status}): ${errText}`,
+  1771→  1771→          displayMessage: `Failed to process file '${file.path}' (${blobRes.status}).`,
+  1772→  1772→        };
+  1773→  1773→      }
+  1774→  1774→      const blob = await blobRes.json();
+  1775→  1775→      treeEntries.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
+  1776→  1776→    }
+  1777→  1777→
+  1778→  1778→    // 3. Create a tree with all blobs
+  1779→  1779→    const treeRes = await fetch(
+  1780→  1780→      `https://api.github.com/repos/${owner}/${repo}/git/trees`,
+  1781→  1781→      {
+  1782→  1782→        method: "POST",
+  1783→  1783→        headers: { ...headers, "Content-Type": "application/json" },
+  1784→  1784→        body: JSON.stringify({ base_tree: baseSha, tree: treeEntries }),
+  1785→  1785→      }
+  1786→  1786→    );
+  1787→  1787→    if (!treeRes.ok) {
+  1788→  1788→      const errText = await treeRes.text().catch(() => "Unknown error");
+  1789→  1789→      return {
+  1790→  1790→        toolCallId: "", toolName: "fs_batch_write",
+  1791→  1791→        success: false, result: `Failed to create tree (${treeRes.status}): ${errText}`,
+  1792→  1792→        displayMessage: "Failed to create git tree on GitHub.",
+  1793→  1793→      };
+  1794→  1794→    }
+  1795→  1795→    const treeData = await treeRes.json();
+  1796→  1796→
+  1797→  1797→    // 4. Create a commit
+  1798→  1798→    const commitRes = await fetch(
+  1799→  1799→      `https://api.github.com/repos/${owner}/${repo}/git/commits`,
+  1800→  1800→      {
+  1801→  1801→        method: "POST",
+  1802→  1802→        headers: { ...headers, "Content-Type": "application/json" },
+  1803→  1803→        body: JSON.stringify({ message: commitMsg, tree: treeData.sha, parents: [baseSha] }),
+  1804→  1804→      }
+  1805→  1805→    );
+  1806→  1806→    if (!commitRes.ok) {
+  1807→  1807→      const errText = await commitRes.text().catch(() => "Unknown error");
+  1808→  1808→      return {
+  1809→  1809→        toolCallId: "", toolName: "fs_batch_write",
+  1810→  1810→        success: false, result: `Failed to create commit (${commitRes.status}): ${errText}`,
+  1811→  1811→        displayMessage: "Failed to create commit on GitHub.",
+  1812→  1812→      };
+  1813→  1813→    }
+  1814→  1814→    const commitData = await commitRes.json();
+  1815→  1815→
+  1816→  1816→    // 5. Update branch ref
+  1817→  1817→    const updateRes = await fetch(
+  1818→  1818→      `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${branch}`,
+  1819→  1819→      {
+  1820→  1820→        method: "PATCH",
+  1821→  1821→        headers: { ...headers, "Content-Type": "application/json" },
+  1822→  1822→        body: JSON.stringify({ sha: commitData.sha }),
+  1823→  1823→      }
+  1824→  1824→    );
+  1825→  1825→    if (!updateRes.ok) {
+  1826→  1826→      const errText = await updateRes.text().catch(() => "Unknown error");
+  1827→  1827→      return {
+  1828→  1828→        toolCallId: "", toolName: "fs_batch_write",
+  1829→  1829→        success: false, result: `Failed to update branch ref (${updateRes.status}): ${errText}`,
+  1830→  1830→        displayMessage: `Failed to update branch '${branch}' on GitHub.`,
+  1831→  1831→      };
+  1832→  1832→    }
+  1833→  1833→
+  1834→  1834→    const pushedPaths = args.files.map((f) => f.path);
+  1835→  1835→    return {
+  1836→  1836→      toolCallId: "", toolName: "fs_batch_write",
+  1837→  1837→      success: true,
+  1838→  1838→      result: JSON.stringify({ commitSha: commitData.sha, branch, filesWritten: pushedPaths, count: args.files.length }),
+  1839→  1839→      displayMessage: `Batch wrote ${args.files.length} file(s) to GitHub (${branch}). Commit: ${commitData.sha.slice(0, 7)}`,
+  1840→  1840→    };
+  1841→  1841→  } catch (error) {
+  1842→  1842→    console.error("[fsBatchWrite tool] Error:", error);
+  1843→  1843→    return {
+  1844→  1844→      toolCallId: "", toolName: "fs_batch_write",
+  1845→  1845→      success: false, result: `Batch write error: ${error instanceof Error ? error.message : "Unknown error"}`,
+  1846→  1846→      displayMessage: "Failed to batch write files to GitHub.",
+  1847→  1847→    };
+  1848→  1848→  }
+  1849→  1849→}
+  1850→  1850→
+  1851→  1851→// ===== Helper: Extract text from ZIP buffer =====
+  1852→  1852→
+  1853→  1853→async function extractTextFromZipBuffer(buffer: ArrayBuffer): Promise<string | null> {
+  1854→  1854→  // Simple ZIP parser: find Local File Header entries and extract uncompressed content
+  1855→  1855→  // ZIP format: PK\x03\x04 followed by file metadata and content
+  1856→  1856→  const bytes = new Uint8Array(buffer);
+  1857→  1857→  const parts: string[] = [];
+  1858→  1858→  let offset = 0;
+  1859→  1859→
+  1860→  1860→  while (offset < bytes.length - 30) {
+  1861→  1861→    // Look for Local File Header signature: PK\x03\x04
+  1862→  1862→    if (bytes[offset] === 0x50 && bytes[offset + 1] === 0x4B &&
+  1863→  1863→        bytes[offset + 2] === 0x03 && bytes[offset + 3] === 0x04) {
+  1864→  1864→      const compressionMethod = bytes[offset + 8] | (bytes[offset + 9] << 8);
+  1865→  1865→      const compressedSize = bytes[offset + 18] | (bytes[offset + 19] << 8) |
+  1866→  1866→        (bytes[offset + 20] << 16) | (bytes[offset + 21] << 24);
+  1867→  1867→      const uncompressedSize = bytes[offset + 22] | (bytes[offset + 23] << 8) |
+  1868→  1868→        (bytes[offset + 24] << 16) | (bytes[offset + 25] << 24);
+  1869→  1869→      const fileNameLength = bytes[offset + 26] | (bytes[offset + 27] << 8);
+  1870→  1870→      const extraFieldLength = bytes[offset + 28] | (bytes[offset + 29] << 8);
+  1871→  1871→
+  1872→  1872→      const fileNameStart = offset + 30;
+  1873→  1873→      const fileName = new TextDecoder().decode(bytes.slice(fileNameStart, fileNameStart + fileNameLength));
+  1874→  1874→      const dataStart = fileNameStart + fileNameLength + extraFieldLength;
+  1875→  1875→
+  1876→  1876→      if (compressionMethod === 0) {
+  1877→  1877→        // STORED (no compression)
+  1878→  1878→        const content = new TextDecoder().decode(bytes.slice(dataStart, dataStart + uncompressedSize));
+  1879→  1879→        if (fileName.endsWith(".txt")) {
+  1880→  1880→          parts.push(content);
+  1881→  1881→        }
+  1882→  1882→        offset = dataStart + compressedSize;
+  1883→  1883→      } else if (compressionMethod === 8) {
+  1884→  1884→        // DEFLATE - use DecompressionStream if available (Edge Runtime)
+  1885→  1885→        if (typeof DecompressionStream !== "undefined") {
+  1886→  1886→          try {
+  1887→  1887→            const deflateStream = new DecompressionStream("deflate-raw");
+  1888→  1888→            const writer = deflateStream.writable.getWriter();
+  1889→  1889→            writer.write(bytes.slice(dataStart, dataStart + compressedSize));
+  1890→  1890→            writer.close();
+  1891→  1891→
+  1892→  1892→            const reader = deflateStream.readable.getReader();
+  1893→  1893→            const chunks: Uint8Array[] = [];
+  1894→  1894→            let totalSize = 0;
+  1895→  1895→            while (true) {
+  1896→  1896→              const { done, value } = await reader.read();
+  1897→  1897→              if (done) break;
+  1898→  1898→              chunks.push(value);
+  1899→  1899→              totalSize += value.length;
+  1900→  1900→            }
+  1901→  1901→
+  1902→  1902→            const result = new Uint8Array(totalSize);
+  1903→  1903→            let pos = 0;
+  1904→  1904→            for (const chunk of chunks) {
+  1905→  1905→              result.set(chunk, pos);
+  1906→  1906→              pos += chunk.length;
+  1907→  1907→            }
+  1908→  1908→
+  1909→  1909→            const content = new TextDecoder().decode(result);
+  1910→  1910→            if (fileName.endsWith(".txt")) {
+  1911→  1911→              parts.push(content);
+  1912→  1912→            }
+  1913→  1913→          } catch {
+  1914→  1914→            // Decompression failed, skip
+  1915→  1915→          }
+  1916→  1916→        }
+  1917→  1917→        offset = dataStart + compressedSize;
+  1918→  1918→      } else {
+  1919→  1919→        offset = dataStart + compressedSize;
+  1920→  1920→      }
+  1921→  1921→    } else {
+  1922→  1922→      offset++;
+  1923→  1923→    }
+  1924→  1924→  }
+  1925→  1925→
+  1926→  1926→  return parts.length > 0 ? parts.join("\n\n") : null;
+  1927→  1927→}
+  1928→  1928→
+  1929→  1929→// ===== Tool: exec_command =====
+  1930→  1930→
+  1931→  1931→async function execCommand(
+  1932→  1932→  args: { command: string; timeout?: number; working_directory?: string; branch?: string },
+  1933→  1933→  ctx: ExecutorContext
+  1934→  1934→): Promise<AiToolResult> {
+  1935→  1935→  const { tursoClient, userRole } = ctx;
+  1936→  1936→
+  1937→  1937→  if (userRole !== "SUPERADMIN") {
+  1938→  1938→    return {
+  1939→  1939→      toolCallId: "", toolName: "exec_command",
+  1940→  1940→      success: false, result: "Permission denied: Only SUPERADMIN can execute commands.",
+  1941→  1941→      displayMessage: "Permission denied — only Super Admin can execute commands.",
+  1942→  1942→    };
+  1943→  1943→  }
+  1944→  1944→
+  1945→  1945→  if (!args.command) {
+  1946→  1946→    return {
+  1947→  1947→      toolCallId: "", toolName: "exec_command",
+  1948→  1948→      success: false, result: "Command is required.",
+  1949→  1949→      displayMessage: "Missing command to execute.",
+  1950→  1950→    };
+  1951→  1951→  }
+  1952→  1952→
+  1953→  1953→  const branch = args.branch || "main";
+  1954→  1954→  const timeoutSec = Math.min(args.timeout || 120, 600);
+  1955→  1955→  const config = await loadGithubConfig(tursoClient);
+  1956→  1956→  if (!("owner" in config)) return config as AiToolResult;
+  1957→  1957→
+  1958→  1958→  const { owner, repo, headers } = config;
+  1959→  1959→
+  1960→  1960→  try {
+  1961→  1961→    // 1. Find the karma-exec workflow
+  1962→  1962→    const wfRes = await fetch(
+  1963→  1963→      `https://api.github.com/repos/${owner}/${repo}/actions/workflows`,
+  1964→  1964→      { headers }
+  1965→  1965→    );
+  1966→  1966→
+  1967→  1967→    if (!wfRes.ok) {
+  1968→  1968→      const errText = await wfRes.text().catch(() => "Unknown error");
+  1969→  1969→      return {
+  1970→  1970→        toolCallId: "", toolName: "exec_command",
+  1971→  1971→        success: false, result: `Failed to list workflows (${wfRes.status}): ${errText}`,
+  1972→  1972→        displayMessage: `Failed to find execution workflow (${wfRes.status}).`,
+  1973→  1973→      };
+  1974→  1974→    }
+  1975→  1975→
+  1976→  1976→    const wfData = await wfRes.json();
+  1977→  1977→    const workflow = (wfData.workflows || []).find((w: any) =>
+  1978→  1978→      w.path?.endsWith("karma-exec.yml") || w.path?.endsWith("karma-exec.yaml") || w.name === "karma-exec"
+  1979→  1979→    );
+  1980→  1980→
+  1981→  1981→    if (!workflow) {
+  1982→  1982→      return {
+  1983→  1983→        toolCallId: "", toolName: "exec_command",
+  1984→  1984→        success: false,
+  1985→  1985→        result: "No karma-exec workflow found. Ensure 'karma-exec.yml' exists in .github/workflows/.",
+  1986→  1986→        displayMessage: "No execution workflow found. Please create a 'karma-exec.yml' workflow in .github/workflows/.",
+  1987→  1987→      };
+  1988→  1988→    }
+  1989→  1989→
+  1990→  1990→    // 2. Trigger the workflow
+  1991→  1991→    const dispatchRes = await fetch(
+  1992→  1992→      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow.id}/dispatches`,
+  1993→  1993→      {
+  1994→  1994→        method: "POST",
+  1995→  1995→        headers: { ...headers, "Content-Type": "application/json" },
+  1996→  1996→        body: JSON.stringify({
+  1997→  1997→          ref: branch,
+  1998→  1998→          inputs: {
+  1999→  1999→            command: args.command,
+  2000→  2000→            timeout: String(timeoutSec),
+
+[showing lines 1-2000 of 2002; use offset=2001 with limit to continue reading]
