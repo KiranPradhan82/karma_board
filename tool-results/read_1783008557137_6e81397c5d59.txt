@@ -1,0 +1,1321 @@
+     1→import { NextRequest, NextResponse } from "next/server";
+     2→import { getTursoClient, getAuthUser, logActivity, getClientIp } from "@/lib/api-auth";
+     3→import { generatePdfBase64 } from "@/lib/generate-pdf";
+     4→import { buildSystemPrompt } from "@/lib/ai-prompts";
+     5→import { chatCompletion, visionCompletion, getGlobalDefaultModel, getVisionModel, estimatePromptTokens, findBestModelForPrompt, getFallbackModels, getModelCapability, getProviderConfigAsync } from "@/lib/ai-client";
+     6→import { getToolsForRole } from "@/lib/ai-tools";
+     7→import { executeToolCall, getToolLabel, getToolIcon } from "@/lib/ai-tool-executor";
+     8→import type { AiToolCall, AiToolResult } from "@/lib/ai-tools";
+     9→import type { AiMessage } from "@/lib/ai-client";
+    10→import { pushFile, pushBinaryFile } from "@/lib/github-client";
+    11→import { decrypt } from "@/lib/encryption";
+    12→import { sendChunkedContext } from "@/lib/zai-chunker";
+    13→import { buildAutoContext } from "@/lib/auto-context";
+    14→import { resolveModelForTask, loadRoutingConfigFromGithub } from "@/lib/github-config";
+    15→import { getGitHubPat } from "@/lib/settings-resolver";
+    16→
+    17→// ===== Document type mapping =====
+    18→const DOC_TYPE_MAP: Record<string, string> = {
+    19→  "/prd": "prd",
+    20→  "/trd": "trd",
+    21→  "/flow": "flow",
+    22→  "/ux": "ux",
+    23→  "/schema": "schema",
+    24→  "/plan": "plan",
+    25→};
+    26→
+    27→// Document keyword signatures for detecting update-type messages
+    28→const DOC_SIGNATURES = [
+    29→  { label: "prd", keywords: ["Product Requirements Document", "Executive Summary", "Feature Requirements", "User Stories", "Target Audience", "Product Vision", "Non-Functional Requirements"] },
+    30→  { label: "trd", keywords: ["Technical Requirements Document", "Architecture Overview", "Technology Stack", "API Specification", "Security Requirements", "Performance Requirements"] },
+    31→  { label: "flow", keywords: ["Application Flow Document", "User Journey", "Screen Flow", "Navigation Architecture", "State Management", "Interaction Patterns"] },
+    32→  { label: "ux", keywords: ["UI/UX Design Brief", "Design Principles", "Design System", "Color Palette", "Typography", "Component Guidelines", "Accessibility"] },
+    33→  { label: "schema", keywords: ["Backend Schema Document", "Entity Relationship", "Schema Definitions", "Enum Types", "Data Integrity Rules", "Seed Data"] },
+    34→  { label: "plan", keywords: ["Implementation Plan", "Phase Breakdown", "Task Breakdown", "Sprint Planning", "Resource Requirements", "Risk Register", "Quality Gates"] },
+    35→];
+    36→
+    37→function detectDocTypeFromContent(content: string): string | null {
+    38→  if (content.length < 1500) return null;
+    39→  const lower = content.toLowerCase();
+    40→  let bestMatch = "";
+    41→  let bestCount = 0;
+    42→  for (const sig of DOC_SIGNATURES) {
+    43→    const count = sig.keywords.filter(kw => lower.includes(kw.toLowerCase())).length;
+    44→    if (count >= 3 && count > bestCount) {
+    45→      bestCount = count;
+    46→      bestMatch = sig.label;
+    47→    }
+    48→  }
+    49→  return bestMatch || null;
+    50→}
+    51→
+    52→interface RouteContext {
+    53→  params: Promise<{}>;
+    54→}
+    55→
+    56→/**
+    57→ * Check if a user has access to a project.
+    58→ * SUPERADMIN always has access. Others must be in ProjectMember.
+    59→ */
+    60→async function hasProjectAccess(userId: string, userRole: string, projectId: string): Promise<boolean> {
+    61→  if (userRole === "SUPERADMIN") return true;
+    62→  const client = getTursoClient();
+    63→  const result = await client.execute({
+    64→    sql: `SELECT id FROM "ProjectMember" WHERE "projectId" = ? AND "userId" = ? AND "removedAt" IS NULL`,
+    65→    args: [projectId, userId],
+    66→  });
+    67→  return result.rows.length > 0;
+    68→}
+    69→
+    70→/**
+    71→ * Ensure AI tables exist in Turso. Runs silently on first use only.
+    72→ * Uses a singleton guard to avoid re-running on every request.
+    73→ */
+    74→let _tablesEnsured = false;
+    75→async function ensureAiTables(tursoClient: ReturnType<typeof getTursoClient>): Promise<void> {
+    76→  if (_tablesEnsured) return; // Already done this session
+    77→  try {
+    78→    await tursoClient.execute({
+    79→      sql: `CREATE TABLE IF NOT EXISTS "AiProtocol" (
+    80→        "id" TEXT NOT NULL PRIMARY KEY,
+    81→        "name" TEXT NOT NULL,
+    82→        "description" TEXT,
+    83→        "isGlobal" BOOLEAN NOT NULL DEFAULT 0,
+    84→        "projectId" TEXT,
+    85→        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    86→        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    87→        CONSTRAINT "AiProtocol_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    88→      )`,
+    89→      args: [],
+    90→    });
+    91→    await tursoClient.execute({
+    92→      sql: `CREATE TABLE IF NOT EXISTS "AiProtocolStep" (
+    93→        "id" TEXT NOT NULL PRIMARY KEY,
+    94→        "protocolId" TEXT NOT NULL,
+    95→        "title" TEXT NOT NULL,
+    96→        "description" TEXT,
+    97→        "commandTag" TEXT,
+    98→        "stepOrder" INTEGER NOT NULL,
+    99→        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   100→        CONSTRAINT "AiProtocolStep_protocolId_fkey" FOREIGN KEY ("protocolId") REFERENCES "AiProtocol" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+   101→      )`,
+   102→      args: [],
+   103→    });
+   104→    await tursoClient.execute({
+   105→      sql: `CREATE INDEX IF NOT EXISTS "AiProtocolStep_protocolId_idx" ON "AiProtocolStep"("protocolId")`,
+   106→      args: [],
+   107→    });
+   108→
+   109→    // Create default protocol only if it doesn't exist
+   110→    const existing = await tursoClient.execute({
+   111→      sql: `SELECT id FROM "AiProtocol" WHERE name = ?`,
+   112→      args: ["Pre-coding Documentation"],
+   113→    });
+   114→
+   115→    if (existing.rows.length === 0) {
+   116→      const protocolId = crypto.randomUUID();
+   117→      await tursoClient.execute({
+   118→        sql: `INSERT INTO "AiProtocol" (id, name, description, "isGlobal", "projectId", "createdAt", "updatedAt")
+   119→              VALUES (?, ?, ?, 1, NULL, datetime('now'), datetime('now'))`,
+   120→        args: [protocolId, "Pre-coding Documentation", "Complete pre-coding documentation generation protocol.", 1, null],
+   121→      });
+   122→
+   123→      // Seed with 11-step phased protocol
+   124→      const defaultSteps = [
+   125→        { title: "Phase 1: COLLECT — Extract Project Data", description: "Gather all project information using tools (list_projects, get_project_info), review context, identify gaps and assumptions", commandTag: null, stepOrder: 1 },
+   126→        { title: "Phase 2A: Web Research — 5 Categories", description: "Research competitors, market trends, technology best practices, UX patterns, and security requirements", commandTag: null, stepOrder: 2 },
+   127→        { title: "Phase 2B: Think Deeper — Scalability & Edge Cases", description: "Analyze scalability considerations, edge cases, security deep dive, performance optimization, and migration strategy", commandTag: null, stepOrder: 3 },
+   128→        { title: "Product Requirements Document (PRD)", description: "Define product vision, target audience, feature requirements, user stories, acceptance criteria, scope, and risks", commandTag: "prd", stepOrder: 4 },
+   129→        { title: "Technical Requirements Document (TRD)", description: "Define architecture, technology stack, frontend/backend requirements, API specs, security, performance, and testing strategy", commandTag: "trd", stepOrder: 5 },
+   130→        { title: "Application Flow Document", description: "Map user journeys, screen flows, core workflows, state management, navigation architecture, and error handling", commandTag: "flow", stepOrder: 6 },
+   131→        { title: "UI/UX Design Brief", description: "Define design principles, design system, color palette, typography, component guidelines, screen designs, accessibility, and dark mode", commandTag: "ux", stepOrder: 7 },
+   132→        { title: "Backend Schema Document", description: "Design database architecture, entity relationships, schema definitions, data integrity rules, migration strategy, and API mapping", commandTag: "schema", stepOrder: 8 },
+   133→        { title: "Implementation Plan", description: "Break down phases, sprint planning, task estimates, resource requirements, risk register, quality gates, deployment plan, and success metrics", commandTag: "plan", stepOrder: 9 },
+   134→        { title: "Phase 4: Review & Action Items", description: "Cross-document consistency check, critical decisions requiring approval, open questions, and top 10 priority action items", commandTag: null, stepOrder: 10 },
+   135→        { title: "Phase 5: Save & Commit Instructions", description: "Provide recommended file structure for docs/pre-coding/ directory and git commit format with [Zai] /docs prefix", commandTag: null, stepOrder: 11 },
+   136→      ];
+   137→      for (const step of defaultSteps) {
+   138→        await tursoClient.execute({
+   139→          sql: `INSERT INTO "AiProtocolStep" (id, "protocolId", title, description, "commandTag", "stepOrder", "createdAt")
+   140→                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+   141→          args: [crypto.randomUUID(), protocolId, step.title, step.description, step.commandTag, step.stepOrder],
+   142→        });
+   143→      }
+   144→      console.log("[ensureAiTables] Seeded default 11-step protocol");
+   145→    } else {
+   146→      console.log("[ensureAiTables] Protocol tables already exist, skipping");
+   147→    }
+   148→
+   149→    // Also ensure ProjectDocument table exists (needed for doc auto-save)
+   150→    try {
+   151→      await tursoClient.execute({
+   152→        sql: `CREATE TABLE IF NOT EXISTS "ProjectDocument" (
+   153→          "id" TEXT NOT NULL PRIMARY KEY,
+   154→          "projectId" TEXT NOT NULL,
+   155→          "docType" TEXT NOT NULL,
+   156→          "title" TEXT NOT NULL,
+   157→          "content" TEXT NOT NULL,
+   158→          "pdfData" TEXT NOT NULL DEFAULT '',
+   159→          "version" INTEGER NOT NULL DEFAULT 1,
+   160→          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   161→          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   162→          UNIQUE("projectId", "docType")
+   163→        )`,
+   164→        args: [],
+   165→      });
+   166→    } catch (docTableErr) {
+   167→      console.error("[ensureAiTables] ProjectDocument table creation error (non-fatal):", docTableErr);
+   168→    }
+   169→
+   170→    _tablesEnsured = true;
+   171→  } catch (err) {
+   172→    console.error("[ensureAiTables] Migration error (non-fatal):", err);
+   173→  }
+   174→}
+   175→
+   176→// GET /api/ai/chat — Paginated chat history
+   177→export async function GET(request: NextRequest) {
+   178→  try {
+   179→    const user = await getAuthUser(request);
+   180→    if (!user) {
+   181→      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+   182→    }
+   183→
+   184→    const { searchParams } = new URL(request.url);
+   185→    const projectId = searchParams.get("projectId");
+   186→    if (!projectId) {
+   187→      return NextResponse.json({ success: false, error: "projectId is required" }, { status: 400 });
+   188→    }
+   189→
+   190→    // Check project access
+   191→    const canAccess = await hasProjectAccess(user.id, user.role, projectId);
+   192→    if (!canAccess) {
+   193→      return NextResponse.json({ success: false, error: "You don't have access to this project" }, { status: 403 });
+   194→    }
+   195→
+   196→    const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
+   197→    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50")));
+   198→
+   199→    const client = getTursoClient();
+   200→    const offset = (page - 1) * limit;
+   201→
+   202→    let messagesResult;
+   203→
+   204→    if (user.role === "SUPERADMIN") {
+   205→      // SUPERADMIN sees all messages — newest first (client will reverse for display)
+   206→      messagesResult = await client.execute({
+   207→        sql: `SELECT m.*, u.name as userName
+   208→              FROM "AiChat" m
+   209→              LEFT JOIN "User" u ON m."userId" = u.id
+   210→              WHERE m."projectId" = ?
+   211→              ORDER BY m."timestamp" DESC
+   212→              LIMIT ? OFFSET ?`,
+   213→        args: [projectId, limit, offset],
+   214→      });
+   215→    } else {
+   216→      // Others see only own messages + assistant messages — newest first
+   217→      messagesResult = await client.execute({
+   218→        sql: `SELECT m.*, u.name as userName
+   219→              FROM "AiChat" m
+   220→              LEFT JOIN "User" u ON m."userId" = u.id
+   221→              WHERE m."projectId" = ? AND (m."userId" = ? OR m."role" = 'assistant')
+   222→              ORDER BY m."timestamp" DESC
+   223→              LIMIT ? OFFSET ?`,
+   224→        args: [projectId, user.id, limit, offset],
+   225→      });
+   226→    }
+   227→
+   228→    const countResult = await client.execute({
+   229→      sql: `SELECT COUNT(*) as total FROM "AiChat" WHERE "projectId" = ?`,
+   230→      args: [projectId],
+   231→    });
+   232→    const total = Number(countResult.rows[0].total);
+   233→
+   234→    const messages = messagesResult.rows.map((row) => ({
+   235→      id: row.id,
+   236→      userId: row.userId,
+   237→      projectId: row.projectId,
+   238→      role: row.role,
+   239→      content: row.content,
+   240→      timestamp: row.timestamp,
+   241→      userName: row.userName,
+   242→    }));
+   243→
+   244→    return NextResponse.json({
+   245→      success: true,
+   246→      data: {
+   247→        messages,
+   248→        pagination: {
+   249→          page,
+   250→          limit,
+   251→          total,
+   252→          totalPages: Math.ceil(total / limit),
+   253→        },
+   254→      },
+   255→    });
+   256→  } catch (error) {
+   257→    console.error("[GET /api/ai/chat] Error:", error);
+   258→    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+   259→  }
+   260→}
+   261→
+   262→// Vercel serverless function config — extend timeout for agentic AI loops
+   263→// /docs with tool calling + retry may need up to 120s
+   264→export const maxDuration = 120;
+   265→
+   266→/**
+   267→ * Parse tasks from a markdown document. Uses doc-type-specific patterns
+   268→ * to extract actionable items from PRD, TRD, Flow, UX, Schema, and Plan docs.
+   269→ */
+   270→async function autoGenerateTodosFromDoc(
+   271→  dbClient: ReturnType<typeof getTursoClient>,
+   272→  projectId: string,
+   273→  docContent: string,
+   274→  docType: string,
+   275→  userId: string,
+   276→): Promise<number> {
+   277→  // Get current max sortOrder for the project
+   278→  const maxOrder = await dbClient.execute({
+   279→    sql: `SELECT COALESCE(MAX("sortOrder"), -1) as maxOrder FROM "ProjectTodo" WHERE "projectId" = ?`,
+   280→    args: [projectId],
+   281→  });
+   282→  let sortOrder = Number(maxOrder.rows[0].maxOrder) + 1;
+   283→
+   284→  const tasks: { title: string; description: string; priority: string }[] = [];
+   285→  const lines = docContent.split('\n');
+   286→  let currentSection = '';
+   287→  let currentPhase = '';
+   288→
+   289→  // Doc-type-specific section prefixes for richer descriptions
+   290→  const DOC_LABELS: Record<string, string> = {
+   291→    prd: "Product Requirements",
+   292→    trd: "Technical Requirements",
+   293→    flow: "Application Flow",
+   294→    ux: "UI/UX Design",
+   295→    schema: "Database Schema",
+   296→    plan: "Implementation Plan",
+   297→  };
+   298→  const docLabel = DOC_LABELS[docType] || docType.toUpperCase();
+   299→
+   300→  for (let i = 0; i < lines.length; i++) {
+   301→    const line = lines[i].trim();
+   302→
+   303→    // Track current section/phase for context
+   304→    if (line.match(/^#{1,3}\s/)) {
+   305→      currentSection = line.replace(/^#+\s*/, '').replace(/\*\*/g, '').trim();
+   306→      if (/phase/i.test(currentSection)) {
+   307→        currentPhase = currentSection;
+   308→      }
+   309→      continue;
+   310→    }
+   311→
+   312→    // Match markdown list items: "- [ ] task", "- task", "* task", numbered lists
+   313→    const taskMatch = line.match(/^[-*]\s+\[?\s*\]?\s+(.+)/) || line.match(/^\d+\.\s+(.+)/);
+   314→    if (taskMatch) {
+   315→      let taskText = taskMatch[1].trim();
+   316→      // Skip if it's a sub-heading or too short
+   317→      if (taskText.length < 5) continue;
+   318→      // Skip if it's just a bold title (like a section header in a list)
+   319→      if (taskText.match(/^\*\*[^*]+\*\*$/) && taskText.length < 80) continue;
+   320→
+   321→      // Determine priority from context
+   322→      let priority = 'MEDIUM';
+   323→      if (/\b(critical|urgent|high.?priority|must.?have|blocker|p0)\b/i.test(taskText) ||
+   324→          /\b(critical|urgent|high.?priority|must.?have|blocker|p0)\b/i.test(currentSection)) {
+   325→        priority = 'HIGH';
+   326→      } else if (/\b(low.?priority|nice.?to.?have|optional|future|p[2-3])\b/i.test(taskText) ||
+   327→                 /\b(low.?priority|nice.?to.?have|optional|future|p[2-3])\b/i.test(currentSection)) {
+   328→        priority = 'LOW';
+   329→      }
+   330→
+   331→      // Build description from context
+   332→      let description = `Source: ${docLabel}`;
+   333→      if (currentPhase) {
+   334→        description += `\nPhase: ${currentPhase}`;
+   335→      }
+   336→      if (currentSection && currentSection !== currentPhase) {
+   337→        description += `\nSection: ${currentSection}`;
+   338→      }
+   339→
+   340→      // Try to grab a sub-description line (next non-empty, non-list line)
+   341→      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+   342→        const nextLine = lines[j].trim();
+   343→        if (nextLine && !nextLine.match(/^[-*#]/) && !nextLine.match(/^\d+\./)) {
+   344→          description += `\n${nextLine}`;
+   345→          break;
+   346→        }
+   347→      }
+   348→
+   349→      tasks.push({
+   350→        title: taskText,
+   351→        description: description.trim(),
+   352→        priority,
+   353→      });
+   354→    }
+   355→  }
+   356→
+   357→  if (tasks.length === 0) return 0;
+   358→
+   359→  // Check for existing todos to avoid duplicates
+   360→  const existingTodos = await dbClient.execute({
+   361→    sql: `SELECT title FROM "ProjectTodo" WHERE "projectId" = ?`,
+   362→    args: [projectId],
+   363→  });
+   364→  const existingTitles = new Set(existingTodos.rows.map(r => (r.title as string).toLowerCase()));
+   365→
+   366→  const newTasks = tasks.filter(t => !existingTitles.has(t.title.toLowerCase()));
+   367→  if (newTasks.length === 0) {
+   368→    console.log(`[autoGenerateTodos] All ${tasks.length} tasks from ${docType} already exist, skipping.`);
+   369→    return 0;
+   370→  }
+   371→
+   372→  // Batch insert all tasks
+   373→  for (const task of newTasks) {
+   374→    const id = crypto.randomUUID();
+   375→    await dbClient.execute({
+   376→      sql: `INSERT INTO "ProjectTodo" (id, "projectId", title, description, status, priority, "sortOrder", "createdBy", "createdAt", "updatedAt")
+   377→            VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, datetime('now'), datetime('now'))`,
+   378→      args: [id, projectId, task.title, task.description || null, task.priority, sortOrder++, userId],
+   379→    });
+   380→  }
+   381→
+   382→  console.log(`[autoGenerateTodos] Created ${newTasks.length} tasks from ${docType} (out of ${tasks.length} parsed, ${existingTitles.size} existing)`);
+   383→  return newTasks.length;
+   384→}
+   385→
+   386→// POST /api/ai/chat — Send message and get AI response (with agentic tool-calling loop)
+   387→export async function POST(request: NextRequest) {
+   388→  try {
+   389→    const user = await getAuthUser(request);
+   390→    if (!user) {
+   391→      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 });
+   392→    }
+   393→
+   394→    const rawBody = await request.json();
+   395→    const { projectId, content, files, fileData, fileName, fileType } = rawBody as { projectId: string; content: string; files?: unknown[]; fileData?: string; fileName?: string; fileType?: string };
+   396→
+   397→    if (!projectId || !content) {
+   398→      return NextResponse.json({ success: false, error: "projectId and content are required" }, { status: 400 });
+   399→    }
+   400→
+   401→    const attachedImages: { data: string; type: string; name: string }[] = [];
+   402→    if (files && Array.isArray(files) && files.length > 0) {
+   403→      // New format: array of { data, type, name }
+   404→      for (const f of files) {
+   405→        if (f.data && f.type && f.type.startsWith("image/")) {
+   406→          attachedImages.push({ data: f.data, type: f.type, name: f.name || "image" });
+   407→        }
+   408→      }
+   409→    } else if (fileData && fileType && fileType.startsWith("image/")) {
+   410→      // Legacy single-file format
+   411→      attachedImages.push({ data: fileData, type: fileType, name: fileName || "image" });
+   412→    }
+   413→    const hasImages = attachedImages.length > 0;
+   414→
+   415→    // Check project access
+   416→    const canAccess = await hasProjectAccess(user.id, user.role, projectId);
+   417→    if (!canAccess) {
+   418→      return NextResponse.json({ success: false, error: "You don't have access to this project" }, { status: 403 });
+   419→    }
+   420→
+   421→    const client = getTursoClient();
+   422→    const ip = getClientIp(request);
+   423→
+   424→    // ===== Inject Settings-managed API keys into process.env for this request =====
+   425→    // This ensures ALL downstream AI calls (chatCompletion, visionCompletion, fallbacks)
+   426→    // use keys from the Settings UI rather than requiring env vars.
+   427→    try {
+   428→      const { getAllProviderConfigs } = await import("@/lib/settings-resolver");
+   429→      const configs = await getAllProviderConfigs();
+   430→      for (const [key, value] of Object.entries(configs)) {
+   431→        if (value && !process.env[key]) {
+   432→          process.env[key] = value;
+   433→        }
+   434→      }
+   435→      console.log("[POST /api/ai/chat] Settings-managed keys injected into process.env");
+   436→    } catch (injectErr) {
+   437→      console.error("[POST /api/ai/chat] Settings key injection failed (non-fatal):", injectErr);
+   438→    }
+   439→
+   440→    // Auto-migrate AI tables if they don't exist
+   441→    await ensureAiTables(client);
+   442→
+   443→    // Save user message
+   444→    const userMsgId = crypto.randomUUID();
+   445→    await client.execute({
+   446→      sql: `INSERT INTO "AiChat" (id, "userId", "projectId", "role", "content", "timestamp")
+   447→            VALUES (?, ?, ?, 'user', ?, datetime('now'))`,
+   448→      args: [userMsgId, user.id, projectId, content],
+   449→    });
+   450→
+   451→    // Detect command
+   452→    const trimmed = content.trim();
+   453→    const command = trimmed.startsWith("/") ? trimmed.split(/[\s\n]/)[0] : undefined;
+   454→
+   455→    // Detect command type (needed before loading history to determine history limit)
+   456→    const isDocCommand = !!command && ["/docs", "/prd", "/trd", "/flow", "/ux", "/schema", "/plan", "/init"].includes(command);
+   457→    const isSkillCommand = !!command && ["/standup", "/risks", "/summarize", "/code-review", "/knowledge"].includes(command);
+   458→
+   459→    // Load recent chat messages for context
+   460→    // For doc commands: only last 6 messages (saves tokens, avoids bloated context)
+   461→    // For skill commands & regular chat: last 20 messages for context-aware analysis
+   462→    const historyLimit = isDocCommand ? 6 : 20;
+   463→    const historyResult = await client.execute({
+   464→      sql: `SELECT role, content FROM "AiChat"
+   465→            WHERE "projectId" = ?
+   466→            ORDER BY "timestamp" DESC
+   467→            LIMIT ?`,
+   468→      args: [projectId, historyLimit],
+   469→    });
+   470→    const chatHistory = historyResult.rows.reverse().map((row) => ({
+   471→      role: row.role,
+   472→      content: row.content,
+   473→    }));
+   474→
+   475→    // Load user name from DB
+   476→    let userName = user.name;
+   477→    try {
+   478→      const userResult = await client.execute({
+   479→        sql: `SELECT name FROM "User" WHERE id = ?`,
+   480→        args: [user.id],
+   481→      });
+   482→      if (userResult.rows.length > 0) {
+   483→        userName = userResult.rows[0].name as string;
+   484→      }
+   485→    } catch {
+   486→      // Use token name as fallback
+   487→    }
+   488→
+   489→    // Load project info (with status, priority, deadline)
+   490→    const projectResult = await client.execute({
+   491→      sql: `SELECT name, description, "clientName", status, priority, deadline FROM "Project" WHERE id = ?`,
+   492→      args: [projectId],
+   493→    });
+   494→    const project = projectResult.rows[0];
+   495→
+   496→    // Load team member count for this project
+   497→    let teamCount: number | undefined;
+   498→    try {
+   499→      const teamResult = await client.execute({
+   500→        sql: `SELECT COUNT(*) as count FROM "ProjectMember" WHERE "projectId" = ? AND "removedAt" IS NULL`,
+   501→        args: [projectId],
+   502→      });
+   503→      teamCount = Number(teamResult.rows[0].count);
+   504→    } catch {
+   505→      // Non-critical
+   506→    }
+   507→
+   508→    // Load protocol steps for /docs command
+   509→    let protocolSteps: { title: string; description?: string; commandTag?: string }[] = [];
+   510→    if (command === "/docs") {
+   511→      try {
+   512→        const stepsResult = await client.execute({
+   513→          sql: `SELECT ps.title, ps.description, ps."commandTag"
+   514→                FROM "AiProtocolStep" ps
+   515→                JOIN "AiProtocol" p ON ps."protocolId" = p.id
+   516→                WHERE (p."isGlobal" = 1 OR p."projectId" = ?)
+   517→                ORDER BY ps."stepOrder" ASC`,
+   518→          args: [projectId],
+   519→        });
+   520→        protocolSteps = stepsResult.rows.map((row) => ({
+   521→          title: row.title as string,
+   522→          description: (row.description as string) || undefined,
+   523→          commandTag: (row.commandTag as string) || undefined,
+   524→        }));
+   525→      } catch (err) {
+   526→        console.error("[POST /api/ai/chat] Error loading protocol steps:", err);
+   527→      }
+   528→    }
+   529→
+   530→    // Resolve model: per-project setting > auto-selection > env var > global default
+   531→    let projectModel: string | null = null;
+   532→    try {
+   533→      const modelSetting = await client.execute({
+   534→        sql: `SELECT value FROM "Settings" WHERE key = ?`,
+   535→        args: [`ai_model:${projectId}`],
+   536→      });
+   537→      if (modelSetting.rows.length > 0 && modelSetting.rows[0].value) {
+   538→        projectModel = modelSetting.rows[0].value as string;
+   539→      }
+   540→    } catch {
+   541→      // Settings table might not exist yet, fall back to default
+   542→    }
+   543→
+   544→    // Auto-select model for doc commands if user hasn't explicitly chosen one
+   545→    // GLM-4-Flash: FREE permanently, 128K context, 16K output, function calling support
+   546→    // Perfect for doc generation — large output window + free + reliable
+   547→    const DOC_AUTO_MODEL = "glm-4-flash";
+   548→    let activeModel: string;
+   549→    let modelAutoSelected = false;
+   550→    if (projectModel) {
+   551→      // User explicitly chose a model — respect it
+   552→      activeModel = projectModel;
+   553→    } else if (isDocCommand) {
+   554→      // Check GitHub routing config first, then auto-select
+   555→      const ghRoute = await resolveModelForTask(command || "doc-generation", null);
+   556→      activeModel = ghRoute.model || DOC_AUTO_MODEL;
+   557→      modelAutoSelected = !ghRoute.model;
+   558→    } else {
+   559→      // Check GitHub routing config for default model
+   560→      const ghRoute = await resolveModelForTask("general-chat", null);
+   561→      activeModel = ghRoute.model || getGlobalDefaultModel();
+   562→    }
+   563→
+   564→    // Build system prompt with rich context
+   565→    const systemPrompt = buildSystemPrompt({
+   566→      userName,
+   567→      userRole: user.role,
+   568→      projectName: project?.name as string | undefined,
+   569→      projectDescription: project?.description as string | undefined,
+   570→      projectClient: project?.clientName as string | undefined,
+   571→      projectStatus: project?.status as string | undefined,
+   572→      projectDeadline: project?.deadline as string | null | undefined,
+   573→      projectPriority: project?.priority as string | undefined,
+   574→      teamCount,
+   575→      protocolSteps: protocolSteps.length > 0 ? protocolSteps : undefined,
+   576→      command,
+   577→    });
+   578→
+   579→    // ===== Auto-context: Inject full organizational context =====
+   580→    // This gives the AI model complete awareness of all projects, members, roles, and access levels
+   581→    let enrichedSystemPrompt = systemPrompt;
+   582→    try {
+   583→      const autoContext = await buildAutoContext(user.id, user.role, projectId);
+   584→      if (autoContext) {
+   585→        enrichedSystemPrompt = systemPrompt + "\n\n---\n\n" + autoContext;
+   586→      }
+   587→    } catch (ctxErr) {
+   588→      console.error("[POST /api/ai/chat] Auto-context build failed (non-fatal):", ctxErr);
+   589→    }
+   590→
+   591→    // ===== Determine max_tokens based on model capability =====
+   592→    // Use the model's actual max_output_tokens — NO artificial caps.
+   593→    // For /docs: use the full model output (important: GLM-4-Flash has 16K, which is enough for one doc)
+   594→    // For individual doc commands: use 90% of max to leave room for formatting
+   595→    // For regular chat: use 4096 (plenty for conversational responses)
+   596→    const modelCap = getModelCapability(activeModel);
+   597→    const modelMaxTokens = modelCap?.maxOutputTokens || 4096;
+   598→    let maxTokens: number;
+   599→    if (command === "/docs" || command === "/init") {
+   600→      maxTokens = modelMaxTokens; // Use full output for /docs and /init
+   601→    } else if (isDocCommand) {
+   602→      maxTokens = Math.floor(modelMaxTokens * 0.9); // 90% for individual docs
+   603→    } else {
+   604→      maxTokens = 4096; // Regular chat doesn't need huge output
+   605→    }
+   606→
+   607→    // Get tools for this user's role
+   608→    // For doc commands: ONLY pass list_projects and get_project_info (read-only data tools)
+   609→    // knowledge_research is REMOVED from doc commands — it wastes agentic loop rounds
+   610→    // create/update/add_member are irrelevant for doc generation
+   611→    // For /init: add save_github_config tool so AI can save credentials
+   612→    // For skill commands: pass ALL role-appropriate tools (they need data access)
+   613→    let availableTools = getToolsForRole(user.role);
+   614→    if (isDocCommand && command !== "/init") {
+   615→      availableTools = availableTools.filter((tool) =>
+   616→        ["list_projects", "get_project_info"].includes(tool.function.name)
+   617→      );
+   618→    } else if (command === "/init") {
+   619→      availableTools = availableTools.filter((tool) =>
+   620→        ["save_github_config", "save_database_config"].includes(tool.function.name)
+   621→      );
+   622→    }
+   623→    // Skill commands (/standup, /risks, /summarize, /code-review, /knowledge) keep ALL tools
+   624→
+   625→    // For vision, use the appropriate vision-capable model
+   626→    const visionModel = hasImages ? getVisionModel(activeModel) : activeModel;
+   627→
+   628→    // ===== Auto-Route: Check if prompt fits the selected model =====
+   629→    let modelAutoRouted = false;
+   630→    let modelRouteReason = "";
+   631→    try {
+   632→      const estimatedTokens = estimatePromptTokens(
+   633→        [{ role: "system", content: enrichedSystemPrompt }, ...chatHistory.map((m) => ({ role: String(m.role), content: String(m.content) }))],
+   634→        availableTools.length > 0 ? availableTools : undefined
+   635→      );
+   636→      const route = findBestModelForPrompt(estimatedTokens, activeModel, {
+   637→        tools: !hasImages && availableTools.length > 0,
+   638→        vision: hasImages,
+   639→      });
+   640→      if (route.autoRouted) {
+   641→        console.log(`[AI Auto-Route] ${route.reason}`);
+   642→        console.log(`[AI Auto-Route] Switching: ${activeModel} -> ${route.model}`);
+   643→        activeModel = route.model;
+   644→        modelAutoRouted = true;
+   645→        modelRouteReason = route.reason;
+   646→      } else {
+   647→        console.log(`[AI Model] Using ${activeModel} (no routing needed, ~${estimatedTokens.toLocaleString()} tokens estimated)`);
+   648→      }
+   649→    } catch (routeErr) {
+   650→      console.error("[AI Auto-Route] Routing check failed, using selected model:", routeErr);
+   651→    }
+   652→
+   653→    // ===== Agentic Loop Setup =====
+   654→    let aiText: string;
+   655→    let aiError = false;
+   656→    const toolExecutions: {
+   657→      toolName: string;
+   658→      label: string;
+   659→      icon: string;
+   660→      status: "success" | "error" | "running";
+   661→      displayMessage: string;
+   662→    }[] = [];
+   663→
+   664→    // Tool executor context
+   665→    const executorCtx = {
+   666→      userId: user.id,
+   667→      userRole: user.role,
+   668→      userName: userName || user.name,
+   669→      tursoClient: client,
+   670→    };
+   671→
+   672→    // Build initial messages array
+   673→    const aiMessages: AiMessage[] = [
+   674→      { role: "system", content: enrichedSystemPrompt },
+   675→    ];
+   676→
+   677→    for (const msg of chatHistory) {
+   678→      aiMessages.push({
+   679→        role: msg.role as "user" | "assistant",
+   680→        content: msg.content,
+   681→      });
+   682→    }
+   683→
+   684→    const MAX_TOOL_ROUNDS = isDocCommand ? 4 : 5; // Reduced from 8 — /docs should WRITE, not loop on tools
+   685→    let round = 0;
+   686→    let finalContent = "";
+   687→
+   688→    try {
+   689→      if (hasImages) {
+   690→        // Vision API for image attachments — no tool calling for vision
+   691→        // Build multimodal content: text + all images
+   692→        const multimodalContent: { type: string; text?: string; image_url?: { url: string; detail?: string } }[] = [
+   693→          { type: "text", text: content },
+   694→        ];
+   695→        for (const img of attachedImages) {
+   696→          multimodalContent.push({
+   697→            type: "image_url",
+   698→            image_url: { url: `data:${img.type};base64,${img.data}`, detail: "auto" },
+   699→          });
+   700→        }
+   701→
+   702→        const result = await visionCompletion({
+   703→          model: visionModel,
+   704→          messages: [
+   705→            { role: "system", content: enrichedSystemPrompt },
+   706→            {
+   707→              role: "user",
+   708→              content: multimodalContent,
+   709→            },
+   710→          ],
+   711→        });
+   712→
+   713→        if (!result.success) {
+   714→          aiText = `I encountered an issue analyzing the image${attachedImages.length > 1 ? "s" : ""}: ${result.error}`;
+   715→          aiError = true;
+   716→        } else {
+   717→          aiText = result.content;
+   718→        }
+   719→      } else {
+   720→        // ===== Agentic Tool-Calling Loop with Provider Fallback =====
+   721→        // Helper: call AI with automatic fallback on 429/413/401 errors
+   722→        const callWithFallback = async (
+   723→          messages: AiMessage[],
+   724→          model: string,
+   725→          maxTok: number,
+   726→          tools?: Parameters<typeof chatCompletion>[0]["tools"],
+   727→          toolChoice?: Parameters<typeof chatCompletion>[0]["tool_choice"],
+   728→          label?: string,
+   729→        ) => {
+   730→          let result = await chatCompletion({
+   731→            messages,
+   732→            model,
+   733→            maxTokens: maxTok,
+   734→            tools,
+   735→            tool_choice: toolChoice,
+   736→          });
+   737→
+   738→          // If API error (4xx/5xx) — try fallback providers
+   739→          if (!result.success && result.error && /status [45]\d\d/.test(result.error)) {
+   740→            const fallbacks = getFallbackModels(model, {
+   741→              tools: !!tools,
+   742→              vision: false,
+   743→            });
+   744→            console.log(`[AI Fallback${label ? " " + label : ""}] ${model} failed (${result.error?.slice(0, 60)}). Trying ${fallbacks.length} fallback models: ${fallbacks.join(", ")}`);
+   745→
+   746→            for (const fallbackModel of fallbacks.slice(0, 4)) { // max 4 fallback attempts (increased for more providers)
+   747→              const fbCap = getModelCapability(fallbackModel);
+   748→              console.log(`[AI Fallback] Trying ${fallbackModel} (${fbCap?.category}, ${fbCap?.contextWindow})...`);
+   749→              const fbResult = await chatCompletion({
+   750→                messages,
+   751→                model: fallbackModel,
+   752→                maxTokens: maxTok,
+   753→                tools,
+   754→                tool_choice: toolChoice,
+   755→              });
+   756→              if (fbResult.success) {
+   757→                console.log(`[AI Fallback] Success with ${fallbackModel}!`);
+   758→                return { ...fbResult, _fallbackModel: fallbackModel };
+   759→              }
+   760→              // Skip decommissioned models quickly (don't waste retries)
+   761→              const errStr = fbResult.error || "";
+   762→              if (errStr.includes("decommission") || errStr.includes("no longer supported")) {
+   763→                console.log(`[AI Fallback] ${fallbackModel} is decommissioned, skipping...`);
+   764→                continue;
+   765→              }
+   766→              console.log(`[AI Fallback] ${fallbackModel} also failed: ${errStr.slice(0, 80)}`);
+   767→            }
+   768→          }
+   769→          return result;
+   770→        };
+   771→
+   772→        // Check if the active model actually supports tool calling
+   773→        const activeModelCap = getModelCapability(activeModel);
+   774→        const modelSupportsTools = activeModelCap?.supportsTools !== false;
+   775→        let shouldSendTools = modelSupportsTools && availableTools.length > 0;
+   776→
+   777→        if (!shouldSendTools && availableTools.length > 0) {
+   778→          console.log(`[AI Model] ${activeModel} does not support tools — generating without tools`);
+   779→        }
+   780→
+   781→        while (round < MAX_TOOL_ROUNDS) {
+   782→          round++;
+   783→
+   784→          // Call AI — only send tools if model supports them
+   785→          // For Z.ai GLM models: tool_choice "auto" is the ONLY supported value
+   786→          const toolChoice = shouldSendTools ? "auto" : undefined;
+   787→          const result = await callWithFallback(
+   788→            aiMessages,
+   789→            activeModel,
+   790→            maxTokens,
+   791→            shouldSendTools ? availableTools as unknown as NonNullable<Parameters<typeof chatCompletion>[0]["tools"]> : undefined,
+   792→            toolChoice,
+   793→            `Round ${round}`,
+   794→          );
+   795→
+   796→          // If fallback switched model, update activeModel for display
+   797→          if ((result as any)._fallbackModel) {
+   798→            activeModel = (result as any)._fallbackModel;
+   799→            modelAutoRouted = true;
+   800→            modelRouteReason = `Original model hit a rate limit or error. Auto-switched to "${getModelCapability(activeModel)?.name || activeModel}" (${getModelCapability(activeModel)?.category})`;
+   801→            // Recalculate tool support for the new model (fallback may not support tools)
+   802→            const fbCap = getModelCapability(activeModel);
+   803→            if (fbCap && fbCap.supportsTools === false) {
+   804→              shouldSendTools = false;
+   805→              console.log(`[AI Fallback] ${activeModel} does not support tools — continuing without tools`);
+   806→            }
+   807→          }
+   808→
+   809→          console.log(`[AI Round ${round}] model=${activeModel}${modelAutoSelected ? " (auto-selected for docs)" : ""}${modelAutoRouted ? " (auto-routed)" : ""} command=${command || "none"} has_tools=${!!result.tool_calls} content_len=${result.content?.length || 0} success=${result.success} error=${result.error || "none"}`);
+   810→
+   811→          if (!result.success) {
+   812→            aiText = `I encountered an issue connecting to the AI service: ${result.error}`;
+   813→            aiError = true;
+   814→            break;
+   815→          }
+   816→
+   817→          // If no tool calls, we have the final response
+   818→          if (!result.tool_calls || result.tool_calls.length === 0) {
+   819→            finalContent = result.content;
+   820→            break;
+   821→          }
+   822→
+   823→          // If the model returned BOTH content and tool calls, capture the content
+   824→          // This handles the case where the model starts generating but also wants to call tools
+   825→          if (result.content && result.content.length > 100) {
+   826→            finalContent = result.content;
+   827→            // Don't break — continue executing tool calls to show in UI
+   828→            console.log(`[AI Round ${round}] Model returned content alongside tool calls, captured content_len=${result.content.length}`);
+   829→          }
+   830→
+   831→          // Add assistant message with tool calls to conversation
+   832→          aiMessages.push({
+   833→            role: "assistant",
+   834→            content: result.content || "",
+   835→            tool_calls: result.tool_calls,
+   836→          });
+   837→
+   838→          // Execute each tool call
+   839→          for (const toolCall of result.tool_calls) {
+   840→            const toolName = toolCall.function.name;
+   841→            const toolLabel = getToolLabel(toolName);
+   842→            const toolIcon = getToolIcon(toolName);
+   843→
+   844→            // Add "running" status
+   845→            const execIndex = toolExecutions.length;
+   846→            toolExecutions.push({
+   847→              toolName,
+   848→              label: toolLabel,
+   849→              icon: toolIcon,
+   850→              status: "running",
+   851→              displayMessage: `${toolLabel}...`,
+   852→            });
+   853→
+   854→            // Execute the tool
+   855→            const toolResult: AiToolResult = await executeToolCall(toolCall, executorCtx);
+   856→
+   857→            // Update execution status
+   858→            toolExecutions[execIndex].status = toolResult.success ? "success" : "error";
+   859→            toolExecutions[execIndex].displayMessage = toolResult.displayMessage;
+   860→
+   861→            // Add tool result to conversation
+   862→            aiMessages.push({
+   863→              role: "tool",
+   864→              tool_call_id: toolCall.id,
+   865→              content: toolResult.result,
+   866→              name: toolName,
+   867→            });
+   868→          }
+   869→
+   870→          // Loop continues — AI will see tool results and decide next action
+   871→        }
+   872→
+   873→        // If we exhausted rounds without final content, generate a fallback
+   874→        if (!finalContent && round >= MAX_TOOL_ROUNDS) {
+   875→          finalContent = "I completed several actions but reached the maximum number of steps. Here's what I did:\n\n" +
+   876→            toolExecutions.map((t) => `- ${t.icon} ${t.displayMessage}`).join("\n") +
+   877→            "\n\nIs there anything else you'd like me to do?";
+   878→        } else if (!finalContent && toolExecutions.length > 0) {
+   879→          // Tool calls happened but AI didn't produce final text — summarize
+   880→          finalContent = toolExecutions.map((t) => `${t.icon} ${t.displayMessage}`).join("\n\n");
+   881→        }
+   882→
+   883→        // Better fallback: retry without tools (with provider fallback) for commands that produced no content
+   884→        if (!finalContent) {
+   885→          if (command) {
+   886→            // The model got stuck in a tool loop — retry without tools so it just generates text
+   887→            console.log(`[AI Fallback] No content after ${round} rounds for ${command}, retrying without tools (with provider fallback)...`);
+   888→            try {
+   889→              const retryMessages: AiMessage[] = [
+   890→                { role: "system", content: enrichedSystemPrompt },
+   891→                ...chatHistory.map((m) => ({ role: m.role as "user" | "assistant", content: String(m.content) })),
+   892→              ];
+   893→              const retryResult = await callWithFallback(retryMessages, activeModel, maxTokens, undefined, undefined, "No-tools retry");
+   894→              if ((retryResult as any)._fallbackModel) {
+   895→                activeModel = (retryResult as any)._fallbackModel;
+   896→                modelAutoRouted = true;
+   897→                modelRouteReason = `Auto-switched to "${getModelCapability(activeModel)?.name || activeModel}" (${getModelCapability(activeModel)?.category})`;
+   898→              }
+   899→              if (retryResult.success && retryResult.content) {
+   900→                finalContent = retryResult.content;
+   901→                console.log(`[AI Fallback] Retry succeeded, content_len=${retryResult.content.length}`);
+   902→              } else {
+   903→                console.error(`[AI Fallback] Retry also failed: ${retryResult.error}`);
+   904→                finalContent = `I received your \`${command}\` command but all AI models returned an error after trying multiple providers.\n\n**Error:** ${retryResult.error || "All providers failed"}\n\n**Suggestions:**\n- Wait a moment and try again (rate limits reset periodically)\n- Try a simpler command like \`/help\`\n- Check that your AI provider API keys are valid in Vercel settings`;
+   905→              }
+   906→            } catch (retryErr) {
+   907→              console.error("[AI Fallback] Retry error:", retryErr);
+   908→              finalContent = `I received your \`${command}\` command but encountered an error. Please try again.`;
+   909→            }
+   910→          } else {
+   911→            finalContent = "I'm here to help! What would you like me to do?";
+   912→          }
+   913→        }
+   914→
+   915→        aiText = typeof finalContent === "string" ? finalContent : JSON.stringify(finalContent);
+   916→      }
+   917→    } catch (err) {
+   918→      console.error("[POST /api/ai/chat] AI call error:", err);
+   919→      aiText = "I encountered an unexpected error with the AI service. Please try again in a moment.";
+   920→      aiError = true;
+   921→    }
+   922→
+   923→    // ===== Anti-Hallucination Filter =====
+   924→    // Detects and removes fake action claims from AI responses when no corresponding tool was executed
+   925→    if (!aiError && aiText) {
+   926→      const toolNames = new Set(toolExecutions.map(t => t.toolName));
+   927→      const fakeActionPatterns = [
+   928→        { pattern: /(?:I[''](ve| have| will| am| just))?\s*(?:pushed|pushing|committed|deployed|deploying|created|creating|built|building|cloned|cloning|merged|merging)\s+(?:the\s+)?(?:code|changes|files|project|application|app|repo|repository|to\s+GitHub|to\s+the\s+repo)/gi,
+   929→          replacement: "[Note: This action was not actually performed. Use the tools to execute real actions.]" },
+   930→        { pattern: /(?:stand\s*by|please\s+wait|give\s+me\s+a\s+moment|I[''](ll| will)\s+notify\s+you|I[''](ll| will)\s+let\s+you\s+know)/gi,
+   931→          replacement: "" },
+   932→        { pattern: /(?:Build\s+passed|Deployment\s+successful|Successfully\s+deployed|CI\/CD\s+passed)/gi,
+   933→          replacement: "[Note: This was not actually executed.]" },
+   934→      ];
+   935→
+   936→      // Only apply filter if NO github/file tools were used
+   937→      const usedGitTools = toolNames.has("github_pull") || toolNames.has("github_push_code") || toolNames.has("create_or_update_file");
+   938→      if (!usedGitTools) {
+   939→        for (const { pattern, replacement } of fakeActionPatterns) {
+   940→          aiText = aiText.replace(pattern, replacement);
+   941→        }
+   942→        // Remove references to other projects/applications
+   943→        const otherProjectPattern = /(?:(?:the|a|an)\s+)?(?:Share\s+Sathi|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s+application)(?!\s+(?:project|in\s+KarmaBoard))/g;
+   944→        aiText = aiText.replace(otherProjectPattern, "[irrelevant project reference removed]");
+   945→      }
+   946→    }
+   947→
+   948→    // Save AI response
+   949→    const aiMsgId = crypto.randomUUID();
+   950→    await client.execute({
+   951→      sql: `INSERT INTO "AiChat" (id, "userId", "projectId", "role", "content", "timestamp")
+   952→            VALUES (?, ?, ?, 'assistant', ?, datetime('now'))`,
+   953→      args: [aiMsgId, user.id, projectId, aiText],
+   954→    });
+   955→
+   956→    // ===== Auto-save document to ProjectDocument =====
+   957→    let documentInfo: { id: string; docType: string; title: string; version: number } | undefined;
+   958→    if (!aiError && aiText.length > 500) {
+   959→      try {
+   960→        let docType: string | undefined;
+   961→
+   962→        // Check if this is a direct doc command
+   963→        if (isDocCommand && command && DOC_TYPE_MAP[command]) {
+   964→          docType = DOC_TYPE_MAP[command];
+   965→        }
+   966→        // Or if the AI response matches a document signature (update flow)
+   967→        if (!docType) {
+   968→          const detected = detectDocTypeFromContent(aiText);
+   969→          docType = detected || undefined;
+   970→        }
+   971→
+   972→        if (docType) {
+   973→          // Extract title from markdown heading
+   974→          const title = aiText.split("\n").find(l => l.trim().startsWith("#"))
+   975→            ?.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim().slice(0, 100)
+   976→            || docType.toUpperCase() + " Document";
+   977→
+   978→          // Generate PDF from markdown content
+   979→          let pdfBase64 = "";
+   980→          try {
+   981→            pdfBase64 = await generatePdfBase64(aiText);
+   982→          } catch (pdfErr) {
+   983→            console.error("[POST /api/ai/chat] PDF generation error (non-fatal):", pdfErr);
+   984→          }
+   985→
+   986→          // Check if document already exists for this project+type
+   987→          const existing = await client.execute({
+   988→            sql: `SELECT id, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" = ?`,
+   989→            args: [projectId, docType],
+   990→          });
+   991→
+   992→          if (existing.rows.length > 0) {
+   993→            // Update existing — increment version
+   994→            const existingId = existing.rows[0].id as string;
+   995→            const newVersion = Number(existing.rows[0].version) + 1;
+   996→            await client.execute({
+   997→              sql: `UPDATE "ProjectDocument" SET title = ?, content = ?, "pdfData" = ?, version = ?, "updatedAt" = datetime('now') WHERE id = ?`,
+   998→              args: [title, aiText, pdfBase64, newVersion, existingId],
+   999→            });
+  1000→            documentInfo = { id: existingId, docType, title, version: newVersion };
+  1001→            console.log("[POST /api/ai/chat] Auto-saved document update:", docType, "v" + newVersion);
+  1002→          } else {
+  1003→            // Create new
+  1004→            const newDocId = crypto.randomUUID();
+  1005→            await client.execute({
+  1006→              sql: `INSERT INTO "ProjectDocument" (id, "projectId", "docType", title, content, "pdfData", version, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+  1007→              args: [newDocId, projectId, docType, title, aiText, pdfBase64],
+  1008→            });
+  1009→            documentInfo = { id: newDocId, docType, title, version: 1 };
+  1010→            console.log("[POST /api/ai/chat] Auto-saved new document:", docType, "v1");
+  1011→          }
+  1012→        }
+  1013→      } catch (docErr) {
+  1014→        console.error("[POST /api/ai/chat] Auto-save document error (non-fatal):", docErr);
+  1015→      }
+  1016→    }
+  1017→
+  1018→    // ===== Auto-generate todos from pre-coding documents =====
+  1019→    const PRE_CODING_DOCS = ['prd', 'trd', 'flow', 'ux', 'schema', 'plan'];
+  1020→    if (documentInfo && PRE_CODING_DOCS.includes(documentInfo.docType) && aiText && aiText.length > 500) {
+  1021→      try {
+  1022→        // Ensure ProjectTodo table exists
+  1023→        await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "ProjectTodo" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "assigneeId" TEXT, "title" TEXT NOT NULL, "description" TEXT, "status" TEXT NOT NULL DEFAULT 'PENDING', "priority" TEXT NOT NULL DEFAULT 'MEDIUM', "dueDate" DATETIME, "sortOrder" INTEGER NOT NULL DEFAULT 0, "reviewedBy" TEXT, "reviewedAt" DATETIME, "createdBy" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)`, args: [] });
+  1024→        const generatedCount = await autoGenerateTodosFromDoc(client, projectId, aiText, documentInfo.docType, user.id);
+  1025→        if (generatedCount > 0) {
+  1026→          const docLabel = documentInfo.docType.toUpperCase();
+  1027→          aiText += `\n\n---\n✅ **Auto-generated ${generatedCount} task${generatedCount > 1 ? 's' : ''}** from this ${docLabel} document into the project's task board. View them in the **Tasks** tab.`;
+  1028→        }
+  1029→      } catch (todoErr) {
+  1030→        console.error("[POST /api/ai/chat] Auto-generate todos error (non-fatal):", todoErr);
+  1031→      }
+  1032→    }
+  1033→
+  1034→    // Log activity
+  1035→    const toolSummary = toolExecutions.length > 0
+  1036→      ? ` (tools used: ${toolExecutions.map((t) => t.toolName).join(", ")})`
+  1037→      : "";
+  1038→    await logActivity({
+  1039→      userId: user.id,
+  1040→      action: "AI_CHAT_MESSAGE",
+  1041→      details: `Sent AI chat message in project${project?.name ? ` "${project.name}"` : ""}${command ? ` (command: ${command})` : ""}${toolSummary}`,
+  1042→      entity: "ai_chat",
+  1043→      entityId: projectId,
+  1044→      ipAddress: ip,
+  1045→      tursoClient: client,
+  1046→    });
+  1047→
+  1048→    // ===== Extract TRD theme colors (runs after doc save if TRD was generated) =====
+  1049→    if ((command === "/trd" || (documentInfo && documentInfo.docType === "trd")) && aiText && aiText.length > 500) {
+  1050→      try {
+  1051→        const settingsKey = "PROJECT_THEME:" + projectId;
+  1052→        const existingTheme = await client.execute({
+  1053→          sql: `SELECT key FROM "Settings" WHERE key = ?`,
+  1054→          args: [settingsKey],
+  1055→        });
+  1056→        if (existingTheme.rows.length === 0) {
+  1057→          const colorMatches = aiText.match(/#[0-9A-Fa-f]{6}/g) || [];
+  1058→          if (colorMatches.length > 0) {
+  1059→            const themeColors = { colors: [...new Set(colorMatches)] };
+  1060→            await client.execute({
+  1061→              sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+  1062→              args: [settingsKey, JSON.stringify(themeColors)],
+  1063→            });
+  1064→            console.log("[Chat] Extracted theme colors from TRD:", themeColors.colors.length);
+  1065→          }
+  1066→        }
+  1067→      } catch (themeErr) {
+  1068→        console.error("[Chat] Theme extraction error (non-fatal):", themeErr);
+  1069→      }
+  1070→    }
+  1071→
+  1072→    // ===== Auto-push document to GitHub (fire-and-forget, non-blocking) =====
+  1073→    if (documentInfo && !aiError) {
+  1074→      // Fire-and-forget: push to GitHub in background without blocking the response
+  1075→      (async () => {
+  1076→        try {
+  1077→          const repoResult = await client.execute({
+  1078→            sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+  1079→            args: [],
+  1080→          });
+  1081→
+  1082→          if (repoResult.rows.length === 0) {
+  1083→            console.log("[Chat] No GitHub config, skipping auto-push for", documentInfo.docType);
+  1084→            return;
+  1085→          }
+  1086→
+  1087→          const repoUrl = repoResult.rows[0].value as string;
+  1088→          // Use settings-resolver to get decrypted PAT from Settings DB
+  1089→          const token = await getGitHubPat();
+  1090→          if (!token) {
+  1091→            console.log("[Chat] No GitHub PAT in settings, skipping auto-push for", documentInfo.docType);
+  1092→            return;
+  1093→          }
+  1094→
+  1095→          const githubConfig = { repoUrl, token };
+  1096→          const docLabel = documentInfo.docType.toUpperCase();
+  1097→          const commitMsg = `docs: update ${docLabel} document (v${documentInfo.version})`;
+  1098→
+  1099→          // Push markdown file
+  1100→          const mdPath = "docs/pre-coding/" + documentInfo.docType + ".md";
+  1101→          await pushFile(githubConfig, mdPath, aiText, commitMsg);
+  1102→          console.log("[Chat] GitHub push: markdown", mdPath);
+  1103→
+  1104→          // Push PDF if available
+  1105→          if (documentInfo) {
+  1106→            const pdfResult = await client.execute({
+  1107→              sql: `SELECT "pdfData" FROM "ProjectDocument" WHERE id = ? AND "pdfData" IS NOT NULL AND "pdfData" != ''`,
+  1108→              args: [documentInfo.id],
+  1109→            });
+  1110→            if (pdfResult.rows.length > 0 && pdfResult.rows[0].pdfData) {
+  1111→              const pdfPath = "docs/pre-coding/" + documentInfo.docType + ".pdf";
+  1112→              await pushBinaryFile(githubConfig, pdfPath, pdfResult.rows[0].pdfData as string, commitMsg);
+  1113→              console.log("[Chat] GitHub push: PDF", pdfPath);
+  1114→            }
+  1115→          }
+  1116→
+  1117→          console.log("[Chat] GitHub auto-push complete for", documentInfo.docType, "v" + documentInfo.version);
+  1118→        } catch (ghErr) {
+  1119→          console.error("[Chat] GitHub auto-push failed (non-fatal):", ghErr);
+  1120→        }
+  1121→      })();
+  1122→    }
+  1123→
+  1124→    // ===== z.ai Bridge: Check if /init should include bridge info =====
+  1125→    // If command is /init and project has documents, check z.ai config and add bridge data
+  1126→    let zaiBridge: {
+  1127→      chatId: string;
+  1128→      chatUrl: string;
+  1129→      context: string;
+  1130→      modelName: string;
+  1131→      documentsFound: number;
+  1132→      isNewChat: boolean;
+  1133→      aiResponse?: string;
+  1134→      apiError?: string;
+  1135→      chatMessagesFound?: number;
+  1136→      docsSource?: string;
+  1137→    } | undefined;
+  1138→
+  1139→    if (command === "/init") {
+  1140→      try {
+  1141→        // Count project documents (no minimum required — send whatever exists)
+  1142→        const docsCountResult = await client.execute({
+  1143→          sql: `SELECT COUNT(*) as count FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan')`,
+  1144→          args: [projectId],
+  1145→        });
+  1146→        const docsCount = Number(docsCountResult.rows[0]?.count || 0);
+  1147→
+  1148→        // Check z.ai API key (primary auth method)
+  1149→        const zaiApiKeyResult = await client.execute({
+  1150→          sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_API_KEY'`,
+  1151→          args: [],
+  1152→        });
+  1153→
+  1154→        let zaiBearerToken = "";
+  1155→        if (zaiApiKeyResult.rows.length > 0 && zaiApiKeyResult.rows[0].value) {
+  1156→          try { zaiBearerToken = decrypt(zaiApiKeyResult.rows[0].value as string); }
+  1157→          catch { zaiBearerToken = zaiApiKeyResult.rows[0].value as string; }
+  1158→        }
+  1159→
+  1160→        if (zaiBearerToken) {
+  1161→          // Fetch all documents and build context
+  1162→          const docsResult = await client.execute({
+  1163→            sql: `SELECT "docType", title, content, version FROM "ProjectDocument" WHERE "projectId" = ? AND "docType" IN ('prd', 'trd', 'flow', 'ux', 'schema', 'plan') ORDER BY "docType"`,
+  1164→            args: [projectId],
+  1165→          });
+  1166→
+  1167→          const DOC_LABELS: Record<string, string> = {
+  1168→            prd: "Product Requirements Document",
+  1169→            trd: "Technical Requirements Document",
+  1170→            flow: "Application Flow Document",
+  1171→            ux: "UI/UX Design Brief",
+  1172→            schema: "Backend Schema Document",
+  1173→            plan: "Implementation Plan",
+  1174→          };
+  1175→
+  1176→          // Check for existing chat mapping
+  1177→          const chatKey = `ZAI_CHAT:${projectId}`;
+  1178→          const existingChat = await client.execute({
+  1179→            sql: `SELECT value FROM "Settings" WHERE key = ?`,
+  1180→            args: [chatKey],
+  1181→          });
+  1182→
+  1183→          let chatId: string;
+  1184→          let isNewChat = false;
+  1185→          if (existingChat.rows.length > 0 && existingChat.rows[0].value) {
+  1186→            chatId = existingChat.rows[0].value as string;
+  1187→          } else {
+  1188→            chatId = crypto.randomUUID();
+  1189→            isNewChat = true;
+  1190→            await client.execute({
+  1191→              sql: `INSERT OR REPLACE INTO "Settings" (key, value, "updatedAt") VALUES (?, ?, datetime('now'))`,
+  1192→              args: [chatKey, chatId],
+  1193→            });
+  1194→          }
+  1195→
+  1196→          // Get z.ai settings
+  1197→          const zaiBaseUrlResult = await client.execute({
+  1198→            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_BASE_URL'`,
+  1199→            args: [],
+  1200→          });
+  1201→          const zaiModelResult = await client.execute({
+  1202→            sql: `SELECT value FROM "Settings" WHERE key = 'ZAI_BRIDGE_MODEL'`,
+  1203→            args: [],
+  1204→          });
+  1205→
+  1206→          const zaiBaseUrl = zaiBaseUrlResult.rows.length > 0 && zaiBaseUrlResult.rows[0].value
+  1207→            ? (zaiBaseUrlResult.rows[0].value as string)
+  1208→            : "https://api.z.ai/api/paas/v4";
+  1209→          const zaiModel = zaiModelResult.rows.length > 0 && zaiModelResult.rows[0].value
+  1210→            ? (zaiModelResult.rows[0].value as string)
+  1211→            : "glm-4.7-flash";
+  1212→
+  1213→          // Fetch GitHub repo URL
+  1214→          let githubRepoUrl = "";
+  1215→          try {
+  1216→            const repoResult = await client.execute({
+  1217→              sql: `SELECT value FROM "Settings" WHERE key = 'GITHUB_REPO_URL'`,
+  1218→              args: [],
+  1219→            });
+  1220→            if (repoResult.rows.length > 0) githubRepoUrl = repoResult.rows[0].value as string;
+  1221→          } catch { /* non-critical */ }
+  1222→
+  1223→          // Build context
+  1224→          let context = `# ${project?.name || "Project"} — Complete Project Brief\n\n`;
+  1225→          context += `**Project:** ${project?.name || ""}\n`;
+  1226→          if (project?.description) context += `**Description:** ${project.description}\n`;
+  1227→          if (project?.clientName) context += `**Client:** ${project.clientName}\n`;
+  1228→          if (project?.status) context += `**Status:** ${project.status}\n`;
+  1229→          if (project?.priority) context += `**Priority:** ${project.priority}\n`;
+  1230→          if (project?.deadline) context += `**Deadline:** ${project.deadline}\n`;
+  1231→          if (githubRepoUrl) context += `**GitHub Repo:** ${githubRepoUrl}\n`;
+  1232→          context += `**Prepared by:** ${userName}\n\n---\n\n`;
+  1233→
+  1234→          for (const docRow of docsResult.rows) {
+  1235→            const docType = docRow.docType as string;
+  1236→            const label = DOC_LABELS[docType] || docType.toUpperCase();
+  1237→            const docContent = (docRow.content as string) || "(empty)";
+  1238→            const truncated = docContent.length > 8000
+  1239→              ? docContent.slice(0, 8000) + "\n\n... (truncated)"
+  1240→              : docContent;
+  1241→            context += `## ${label} (v${docRow.version})\n\n${truncated}\n\n---\n\n`;
+  1242→          }
+  1243→
+  1244→          // Fetch ALL chat history for this project
+  1245→          const chatHistoryResult = await client.execute({
+  1246→            sql: `SELECT role, content, "timestamp" FROM "AiChat" WHERE "projectId" = ? ORDER BY "timestamp" ASC`,
+  1247→            args: [projectId],
+  1248→          });
+  1249→          const chatMessagesFound = chatHistoryResult.rows.length;
+  1250→          if (chatMessagesFound > 0) {
+  1251→            context += `## KarmaSpace Chat History (${chatMessagesFound} messages)\n\n`;
+  1252→            for (const msgRow of chatHistoryResult.rows) {
+  1253→              const role = msgRow.role as string;
+  1254→              const msgContent = (msgRow.content as string) || "";
+  1255→              const truncatedMsg = msgContent.length > 2000
+  1256→                ? msgContent.slice(0, 2000) + "\n\n... (truncated)"
+  1257→                : msgContent;
+  1258→              if (role === "user") {
+  1259→                context += `**User:** ${truncatedMsg}\n\n`;
+  1260→              } else {
+  1261→                context += `**Karma Space AI:** ${truncatedMsg}\n\n`;
+  1262→              }
+  1263→            }
+  1264→            context += `---\n\n`;
+  1265→          }
+  1266→
+  1267→          // Send context to z.ai API — chunked iteration for free tier
+  1268→          const chatApiUrl = `${zaiBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+  1269→          const systemPrompt = `You are a senior full-stack AI developer assistant. You have received a complete project brief from KarmaBoard with pre-coding documents (PRD, TRD, Flow, UX, Schema, Plan) and the full KarmaSpace chat history. Your task is to help the user build this project. Start by acknowledging the project brief and asking how they would like to proceed. The chat name is "${userName}'s Workspace".`;
+  1270→
+  1271→          const chunkResult = await sendChunkedContext({
+  1272→            context: context.slice(0, 120000),
+  1273→            systemPrompt,
+  1274→            chatUrl: chatApiUrl,
+  1275→            bearerToken: zaiBearerToken,
+  1276→            model: zaiModel,
+  1277→          });
+  1278→
+  1279→          zaiBridge = {
+  1280→            chatId,
+  1281→            chatUrl: `https://z.ai/chat/${chatId}`,
+  1282→            context,
+  1283→            modelName: zaiModel,
+  1284→            documentsFound: docsCount,
+  1285→            isNewChat,
+  1286→            aiResponse: chunkResult.aiResponse || undefined,
+  1287→            apiError: chunkResult.apiError || undefined,
+  1288→            chatMessagesFound,
+  1289→            docsSource: "projectDocument",
+  1290→            chunksTotal: chunkResult.totalChunks,
+  1291→            chunksSent: chunkResult.chunksSent,
+  1292→            chunkProgress: chunkResult.progress,
+  1293→          };
+  1294→
+  1295→          console.log(`[Chat] z.ai Bridge: ${docsCount} docs + ${chatMessagesFound} chat msgs → ${chunkResult.totalChunks} chunks, ${chunkResult.chunksSent} sent, aiResponse=${!!chunkResult.aiResponse}, apiError=${!!chunkResult.apiError}`);
+  1296→        }
+  1297→      } catch (bridgeErr) {
+  1298→        console.error("[Chat] z.ai Bridge check error (non-fatal):", bridgeErr);
+  1299→      }
+  1300→    }
+  1301→
+  1302→    return NextResponse.json({
+  1303→      success: true,
+  1304→      data: {
+  1305→        userMessage: { id: userMsgId, role: "user", content, projectId },
+  1306→        aiMessage: { id: aiMsgId, role: "assistant", content: aiText, projectId },
+  1307→        error: aiError || undefined,
+  1308→        toolExecutions: toolExecutions.length > 0 ? toolExecutions : undefined,
+  1309→        model: activeModel,
+  1310→        modelAutoSelected: modelAutoSelected || undefined,
+  1311→        modelAutoRouted: modelAutoRouted || undefined,
+  1312→        modelRouteReason: modelRouteReason || undefined,
+  1313→        documentInfo: documentInfo || undefined,
+  1314→      },
+  1315→    });
+  1316→  } catch (error) {
+  1317→    console.error("[POST /api/ai/chat] Error:", error);
+  1318→    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 });
+  1319→  }
+  1320→}
+  1321→
