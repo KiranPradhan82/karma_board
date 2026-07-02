@@ -31,6 +31,9 @@ import {
   X,
 } from "lucide-react";
 
+import { TokenManagementCard } from "@/components/settings/token-management-card";
+import { AdminPermissionsCard } from "@/components/settings/admin-permissions-card";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -449,6 +452,15 @@ export default function SettingsPage() {
   const { data: session } = useSession();
   const userRole = (session?.user as { role?: string })?.role || "MEMBER";
 
+  // Feature permissions (for ADMIN delegation)
+  const [myPermissions, setMyPermissions] = useState<Record<string, boolean>>({});
+
+  const canAccessSettings = userRole === "SUPERADMIN" || !!myPermissions["settings_access"];
+  const canManageTokens = userRole === "SUPERADMIN" || !!myPermissions["token_management"];
+  const canManagePermissions = userRole === "SUPERADMIN" || !!myPermissions["admin_permissions_manage"];
+  const canViewRoutingConfig = userRole === "SUPERADMIN" || !!myPermissions["ai_routing_config"];
+  const canViewAnalytics = userRole === "SUPERADMIN" || !!myPermissions["ai_analytics"];
+
   const [settings, setSettings] = useState<Record<string, SettingItem>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -604,7 +616,26 @@ export default function SettingsPage() {
         setLoading(false);
       }
     }
-    if (userRole === "SUPERADMIN") fetchSettings();
+    // Fetch permissions for ADMIN users
+    if (userRole === "ADMIN") {
+      fetch("/api/my-permissions")
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success && json.data.permissions) {
+            setMyPermissions(json.data.permissions);
+            // If admin has settings_access or token_management, fetch settings
+            if (json.data.permissions["settings_access"] || json.data.permissions["token_management"]) {
+              fetchSettings();
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    } else if (userRole === "SUPERADMIN") {
+      fetchSettings();
+    } else {
+      setLoading(false);
+    }
   }, [userRole]);
 
   // Test z.ai connection — sends the form's current API key (even if not saved yet)
@@ -830,13 +861,13 @@ export default function SettingsPage() {
     } catch { setPdfThemeHasChanges(true); }
   }, [pdfThemePrimary, pdfThemePrimaryLight, pdfThemePrimaryBg, pdfThemeAltRowBg, pdfThemeCoverTop, pdfThemeAccent, pdfThemeWarning, pdfThemeDanger, settings.PDF_THEME]);
 
-  if (userRole !== "SUPERADMIN") {
+  if (!canAccessSettings && !canManageTokens && !canManagePermissions && !canViewRoutingConfig && !canViewAnalytics) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <Shield className="h-12 w-12 text-muted-foreground mb-4" />
         <h2 className="text-lg font-semibold">Access Denied</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Only superadmins can access application settings.
+          You don't have permission to access settings. Contact your superadmin.
         </p>
       </div>
     );
@@ -856,6 +887,8 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      {/* ====== General Settings (settings_access) ====== */}
+      {canAccessSettings && (<>
       {/* Branding & Logo */}
       <Card>
         <CardHeader>
@@ -1623,12 +1656,27 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      </>)}
 
-      {/* AI Model Routing Config (GitHub-Driven) */}
+      {/* ====== Token & API Key Management (token_management) ====== */}
+      {canManageTokens && (
+      <TokenManagementCard settings={settings} onSaved={() => fetchSettings()} />
+      )}
+
+      {/* ====== Admin Feature Permissions (admin_permissions_manage) ====== */}
+      {canManagePermissions && (
+      <AdminPermissionsCard />
+      )}
+
+      {/* ====== AI Model Routing Config (ai_routing_config) ====== */}
+      {canViewRoutingConfig && (
       <AiRoutingConfigCard />
+      )}
 
-      {/* AI Usage Analytics */}
+      {/* ====== AI Usage Analytics (ai_analytics) ====== */}
+      {canViewAnalytics && (
       <AiAnalyticsCard />
+      )}
     </div>
   );
 }

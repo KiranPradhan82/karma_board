@@ -244,6 +244,20 @@ model Notification {
   @@index([userId, read])
 }
 
+model AdminFeaturePermission {
+  id        String   @id
+  userId    String
+  featureKey String
+  enabled   Boolean  @default(false)
+  grantedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+
+  @@unique([userId, featureKey])
+  @@index([userId])
+  @@index([featureKey])
+}
+
 model User {
   id                 String              @id
   name               String
