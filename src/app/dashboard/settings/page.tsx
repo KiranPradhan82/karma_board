@@ -21,6 +21,11 @@ import {
   Trash2,
   Upload,
   Hammer,
+  BarChart3,
+  MessageSquare,
+  Users,
+  TrendingUp,
+  Terminal,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +57,179 @@ interface SettingItem {
   value: string;
   masked: boolean;
   updatedAt: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  AI Analytics Card                                                  */
+/* ------------------------------------------------------------------ */
+
+function AiAnalyticsCard() {
+  const [data, setData] = useState<{
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    avgResponseLength: number;
+    projects: { id: string; name: string; messages: number }[];
+    users: { name: string; email: string; role: string; messages: number }[];
+    dailyVolume: { day: string; messages: number }[];
+    commandUsage: { command: string; count: number }[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState("30d");
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/ai/analytics?period=${period}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) setData(json.data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [period]);
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-64 mt-2" />
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const commandLabels: Record<string, string> = {
+    "/docs": "Full Protocol",
+    "/prd": "PRD",
+    "/trd": "TRD",
+    "/flow": "App Flow",
+    "/ux": "UI/UX",
+    "/schema": "Schema",
+    "/plan": "Plan",
+    "/init": "Init",
+    "/standup": "Standup",
+    "/risks": "Risks",
+    "/summarize": "Summarize",
+    "/code-review": "Code Review",
+    "/knowledge": "Knowledge",
+    "/help": "Help",
+    freeform: "Free Chat",
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            AI Usage Analytics
+          </CardTitle>
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-28 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">Last 7 days</SelectItem>
+              <SelectItem value="30d">Last 30 days</SelectItem>
+              <SelectItem value="90d">Last 90 days</SelectItem>
+              <SelectItem value="all">All time</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <CardDescription>
+          Monitor AI chat usage, command popularity, and engagement across projects and team members.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Stat cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <MessageSquare className="h-3.5 w-3.5" /> Total Messages
+            </div>
+            <p className="text-2xl font-bold">{data.totalMessages.toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <TrendingUp className="h-3.5 w-3.5" /> Avg Response
+            </div>
+            <p className="text-2xl font-bold">{data.avgResponseLength.toLocaleString()} <span className="text-sm font-normal text-muted-foreground">chars</span></p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <Terminal className="h-3.5 w-3.5" /> Commands Used
+            </div>
+            <p className="text-2xl font-bold">{data.commandUsage.filter((c) => c.command !== "freeform").reduce((s, c) => s + c.count, 0).toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <Users className="h-3.5 w-3.5" /> Active Users
+            </div>
+            <p className="text-2xl font-bold">{data.users.length}</p>
+          </div>
+        </div>
+
+        {/* Command usage */}
+        {data.commandUsage.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Command Usage</h3>
+            <div className="flex flex-wrap gap-2">
+              {data.commandUsage.map((c) => (
+                <div key={c.command} className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs">
+                  <span className="font-mono font-medium">{commandLabels[c.command] || c.command}</span>
+                  <span className="text-muted-foreground">{c.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Top projects */}
+        {data.projects.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Top Projects by AI Usage</h3>
+            <div className="space-y-1.5">
+              {data.projects.slice(0, 5).map((p) => (
+                <div key={p.id} className="flex items-center justify-between text-sm">
+                  <span className="truncate mr-4">{p.name}</span>
+                  <span className="text-muted-foreground shrink-0">{p.messages} msgs</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Top users */}
+        {data.users.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold">Top Users by AI Usage</h3>
+            <div className="space-y-1.5">
+              {data.users.slice(0, 5).map((u, i) => (
+                <div key={u.email} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 truncate mr-4">
+                    <span className="text-muted-foreground w-4">{i + 1}.</span>
+                    <span className="truncate">{u.name}</span>
+                    <span className="text-xs text-muted-foreground">({u.role})</span>
+                  </div>
+                  <span className="text-muted-foreground shrink-0">{u.messages} msgs</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -1253,6 +1431,9 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* AI Usage Analytics */}
+      <AiAnalyticsCard />
     </div>
   );
 }

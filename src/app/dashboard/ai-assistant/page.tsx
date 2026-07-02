@@ -142,6 +142,11 @@ const COMMAND_DESCRIPTIONS: Record<string, { label: string; icon: string }> = {
   "/schema": { label: "Schema", icon: "🗄️" },
   "/plan": { label: "Plan", icon: "📅" },
   "/init": { label: "Init Project", icon: "🚀" },
+  "/standup": { label: "Daily Standup", icon: "📊" },
+  "/risks": { label: "Risk Analyzer", icon: "⚠️" },
+  "/summarize": { label: "Meeting Summarizer", icon: "📝" },
+  "/code-review": { label: "Code Review", icon: "🔍" },
+  "/knowledge": { label: "Knowledge Search", icon: "🧠" },
   "/help": { label: "Help", icon: "❓" },
 };
 
